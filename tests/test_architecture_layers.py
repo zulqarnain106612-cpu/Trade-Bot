@@ -12,6 +12,15 @@ config/architecture_layers.json declares the layer order and the upward edges
 that already exist. These tests pin the contract itself, and the rule that
 decides it, on graphs that are not this repository's -- the live repository is
 checked by test_repository_satisfies_every_invariant.
+
+Decides:
+  - GOV-018 — Dependencies between src packages run downward, and the exceptions are a shrinki
+  - GOV-021 — tuning stays within its layer
+  - GOV-022 — diagnostics stays within its layer
+  - GOV-023 — intelligence stays within its layer
+  - GOV-024 — intelligence does not import intel
+  - GOV-030 — engine does not import api
+  - GOV-031 — strategies does not import engine
 """
 
 from __future__ import annotations

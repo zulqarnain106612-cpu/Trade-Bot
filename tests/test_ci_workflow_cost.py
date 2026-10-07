@@ -10,6 +10,11 @@ install is invisible in a green run, which is exactly why it survived.
 These tests pin the shape that made it fast, so re-adding a dependency install
 to a job that does not import the project fails here rather than showing up as
 five minutes nobody attributes to anything.
+
+Decides:
+  - GOV-015 — A pull request's wall clock is bounded by its tests, not its installs
+  - REG-0007 — A CI job installs every third-party module its own steps import
+  - REG-0012 — The container image takes torch from the CPU wheel index
 """
 
 from __future__ import annotations

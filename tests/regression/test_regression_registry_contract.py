@@ -24,6 +24,12 @@ There are no REG/SEC entries yet. That is the honest state of a registry
 created three phases ago, and the tests below assert the *contract* those
 entries will be held to, so the first one filed lands on rails rather than
 inventing its own shape.
+
+Decides:
+  - EXEC-007 — Mutation score on the execution subsystem is at or above 90%
+  - GOV-003 — Mutation testing runs nightly on the critical subsystems
+  - RISK-006 — Mutation score on the risk subsystem is at or above 90%
+  - SIG-003 — Mutation score on the signal subsystem is at or above 85%
 """
 
 from __future__ import annotations
@@ -154,6 +160,28 @@ class TestTheRegistryHasAPlaceForDefects:
         # cancellations as its own failures. This workflow is the only
         # channel permitted for CI failure information, and its
         # classification had no test.
+        # REG-0019: the dashboard's socket reconnected after unmount --
+        # cleanup closed it, the close handler scheduled a retry, and the
+        # loop outlived the component -- and retried on a flat 3s with no
+        # jitter, so the whole fleet hit a recovering API together. Neither
+        # is visible to a build, and there was no frontend test runner.
+        # REG-0021: workflow_run.pull_requests is empty whenever the run it
+        # reports on started from a push, which is the normal case here, and
+        # the issue search used as the fallback never reliably matched a bare
+        # SHA to its pull request. The notice resolved no pull request and
+        # exited 0, so a red PR looked stuck for no visible reason -- and the
+        # notice is the only CI channel a session may read.
+        # REG-0022: usePolling and useStream closed over the callback their
+        # caller passed on the first render, so the five inline arrows in
+        # App.jsx were pinned forever, while useWebSocket listed its handlers
+        # in the dependency array and so tore the socket down on every render
+        # that passed new ones. One defect with two faces: the obvious fix for
+        # either is the other's bug, and refs are what satisfy both.
+        # REG-0023: a worker that died took the short summary with it, so the
+        # notice matched no failure pattern and published the step's last
+        # stdout line instead -- "Event loop is closed", naming no test. The
+        # notice is the only CI channel a session may read, and no test
+        # asserted it stays legible when the summary is missing -- test-suite.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -168,7 +196,11 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0016",
             "REG-0017",
             "REG-0018",
+            "REG-0019",
             "REG-0020",
+            "REG-0021",
+            "REG-0022",
+            "REG-0023",
         }
         # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
         # name and nothing else -- so `.env.bak.<timestamp>` from a
@@ -183,10 +215,21 @@ class TestTheRegistryHasAPlaceForDefects:
         # SEC-0007: http-cache-semantics GHSA-ch52-4w7c-c8xp has no patched
         # release at all, so electron-builder carried eight high advisories
         # into the frontend tree that no upgrade or override could clear.
+        # SEC-0008: shell-quote GHSA-pqg4-j6r4-53mv is patched in 1.11.0, but
+        # concurrently pins 1.9.0 exactly and its latest release still does,
+        # so an upstream advisory -- not a commit here -- put two criticals in
+        # the tree, and an override was the only route to the patched line.
+        # SEC-0009: `npm audit --audit-level=high` exits non-zero for every high
+        # or critical advisory, and the Security gate is required, so an
+        # advisory with no published fix made a required check unsatisfiable
+        # and stopped the queue. No test asked whether a reported advisory was
+        # fixable at all, so nothing could have caught it -- test-suite.
         assert {e.id for e in registry.by_kind("security_regression")} == {
             "SEC-0005",
             "SEC-0006",
             "SEC-0007",
+            "SEC-0008",
+            "SEC-0009",
         }
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
@@ -424,10 +467,22 @@ class TestTheMetricsCollector:
         # upstream release could pull a vulnerable urllib3 unseen -- test-suite.
         # REG-0020: the notice's extraction was only tested on pytest-shaped
         # output, so a tool with a different failure shape went unseen -- test-suite.
+        # REG-0019: no frontend runner existed to hold the check that
+        # would have caught either defect -- test-suite.
         # SEC-0007: the advisory reached the tree through a dependency nobody
         # here chose, and no test or review of this repository's own code could
         # have seen it arrive -- supply-chain, which no earlier defect carried.
-        assert metric["value"] == {"test-suite": 15, "review": 1, "supply-chain": 1}
+        # REG-0022: a stale callback and a socket rebuilt on every render both
+        # look like a working dashboard to a reader and to a build; only a test
+        # driving a rerender separates them -- test-suite.
+        # SEC-0008: shell-quote's advisory was published against a pin that
+        # concurrently already shipped, so no commit or review here could have
+        # seen it arrive -- supply-chain, taking that bucket from 1 to 2.
+        # REG-0021: the notice resolved no pull request and exited 0. Nothing
+        # about the workflow's own YAML or a review of it says which shape of
+        # triggering run leaves workflow_run.pull_requests empty; only a test
+        # asserting the resolution path does -- test-suite, 19 to 20.
+        assert metric["value"] == {"test-suite": 20, "review": 1, "supply-chain": 2}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

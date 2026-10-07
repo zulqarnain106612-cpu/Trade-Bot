@@ -26,6 +26,10 @@ what they believe.
 The arithmetic that *is* here -- Mosca's X + Y > Z -- is checked at the
 boundary in both directions, because "already exposed" and "not yet compliant"
 are different statements and the inequality is where they separate.
+
+Decides:
+  - SECR-017 — A post-quantum symmetric margin is reported with the caveat that makes it conservative
+  - SECR-018 — Quantum exposure is computed from declared assumptions, never from invented constants
 """
 
 from __future__ import annotations

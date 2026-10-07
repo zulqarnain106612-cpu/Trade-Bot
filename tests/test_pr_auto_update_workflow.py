@@ -7,6 +7,10 @@ branch". These tests pin the three properties that make pressing it
 automatically safe rather than chaotic: it updates exactly one pull request per
 merge, it refuses to run with a token whose pushes start no workflow, and it
 touches only branches that are genuinely stale.
+
+Decides:
+  - GOV-017 — The last manual step in the merge path presses itself, one pull request at a tim
+  - GOV-029 — A conflict confined to generated files resolves itself, and is gated before it is pushed
 """
 
 from __future__ import annotations

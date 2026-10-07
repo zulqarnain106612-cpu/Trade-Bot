@@ -47,28 +47,28 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 143 |
+| VERIFIED | 173 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **143** |
+| **Total** | **173** |
 
 ## Summary by subsystem
 
 | Subsystem | Entries | Verified |
 |---|---|---|
 | Risk | 10 | 10 |
-| Execution | 11 | 11 |
+| Execution | 12 | 12 |
 | Portfolio | 1 | 1 |
 | Signal and features | 5 | 5 |
 | Models and leakage | 9 | 9 |
 | Data, money and time | 8 | 8 |
-| API and WebSocket | 12 | 12 |
-| Cryptography and secrets | 22 | 22 |
+| API and WebSocket | 18 | 18 |
+| Cryptography and secrets | 29 | 29 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
-| Release and production | 12 | 12 |
-| Governance | 38 | 38 |
+| Release and production | 13 | 13 |
+| Governance | 53 | 53 |
 
 ## Outstanding work by phase
 
@@ -265,6 +265,20 @@ After any restart, the reconstructed position and balance state matches the exch
 - **Owned by:** `src/execution/unified_ledger.py`, `src/diagnostics/disaster_recovery.py`
 - **Verification:**
   - `tests/recovery/test_crash_replay.py` (recovery) — Reconstructed state is compared against the venue at every crash point; signed quantities, partial fills and dust are each distinguished from a missing position.
+
+#### `INV-033` — A display refresh never advances risk state
+
+**VERIFIED** · critical · invariant · source: OPS-2026-10-05
+
+Reading a price for the dashboard leaves every running extreme the exit logic consults exactly as the trading path left it: a position's peak_unrealized_pct, the executor's _peak_equity and the drawdown tracker are advanced only by mark/mark_to_market on the position monitor's own cadence. The sub-second path publishes previews computed by unrealized_at and preview_marked_equity, which mutate nothing, and neither of its loops may end on a bad tick.
+
+- **If violated:** The streamed mid arrives about twenty times as often as the 5s REST poll. Marking at that cadence samples twenty times as many extremes, so the recorded peak climbs, measured drawdown widens against highs no exit rule ever evaluated, and check_daily_drawdown and the trailing stop begin firing on spikes the slow path never saw -- a latency fix silently changing when positions close. The quieter half: a loop that dies on one failed socket or one bad snapshot ends the price feed for the life of the process while the dashboard keeps showing the last value it got.
+- **Owned by:** `src/execution/paper.py`, `src/engine/orchestrator.py`, `src/data/orderbook_stream.py`
+- **Verification:**
+  - `tests/test_price_preview_path.py` (risk) — The read-only pair and the two loops: unrealized_at and preview_marked_equity leave peak_unrealized_pct, _peak_equity and cash untouched, the preview loop never reaches mark_to_market, a dropped socket is retried rather than abandoned, and a failing snapshot is logged without ending the feed.
+  - `tests/test_orderbook_stream_publish.py` (api) — The producer half: the stream coalesces its 100ms feed to 250ms, withholds a stale mid rather than publishing a frozen price as a live one, and a broken subscriber cannot reach the feed.
+
+> The display path is deliberately a separate loop from _position_monitor_loop rather than a faster version of it. Sharing the monitor's loop would have been less code and would have moved live thresholds, which is a trading-behaviour change a latency fix is not allowed to smuggle in.
 
 #### `EXEC-001` — Execution requests carry an idempotency key end to end
 
@@ -649,6 +663,25 @@ MarketDataFetcher.initialize() must open each venue independently, record an una
 
 ## API and WebSocket
 
+#### `INV-032` — GUI backpressure never reaches the trading loop
+
+**VERIFIED** · critical · invariant · source: OPS-2026-09-25
+
+Publishing an event is synchronous, non-blocking and total: no number of websocket clients, and no consumer that has stopped draining, can suspend, slow or fail a producer on the trading path. A subscriber that falls behind loses its own oldest events and counts them.
+
+- **If violated:** A dashboard becomes able to apply backpressure to the trading loop. One wedged or slow websocket client suspends whatever published to it -- a risk gate, the executor's fill path, mark_to_market -- so a browser tab left open on a laptop that went to sleep delays or fails an order. The GUI is meant to observe the system, and this is the defect where observing it changes it.
+- **Owned by:** `src/eventbus/bus.py`, `src/api/main.py`, `src/risk/gates.py`, `src/execution/paper.py`, `src/engine/orchestrator.py`, `src/data/orderbook_stream.py`, `src/risk/capital_preservation_floor.py`, `src/execution/order_fsm.py`, `src/risk/strategy_kill_switch.py`, `src/diagnostics/signal_debugger.py`, `src/diagnostics/runtime_monitor.py`, `src/tuning/audit.py`, `src/intelligence/onchain/base.py`
+- **Verification:**
+  - `tests/test_event_bus.py` (resilience)
+  - `tests/test_ws_broadcaster.py` (api) — The consumer half: the snapshot is serialized once and the identical string reaches every client, a dead peer costs the live ones nothing, and the frame carries the version, monotonic sequence and producer timestamp a client needs to detect a gap rather than mistake loss for a quiet market.
+  - `tests/test_event_bus_producers.py` (risk) — The producer half. A risk-gate block reaches the bus (it had no push path at all before, only a 30s poll of /debug/audit), a clean pass deliberately publishes nothing so the bus is not flooded by its least interesting fact, and the gate still returns when publishing raises -- the seam where a dashboard fault would otherwise become a failed risk evaluation on the order path.
+  - `tests/test_orderbook_stream_publish.py` (resilience) — The fastest producer. The 100ms depth feed coalesces to one fan-out per 250ms while still recording every snapshot, the book is truncated to five levels, a stale mid is withheld so the caller falls back to REST rather than marking against a price the market left minutes ago, and a broken subscriber cannot reach the feed.
+  - `tests/test_event_bus_producers_remaining.py` (risk) — The producers that had no push path at all: the capital-preservation floor publishes once when it trips and again when a human re-authorizes (never on the repeated halted marks that follow), the order FSM publishes after the state is committed and not at all on a rejected transition, and the NaN/inf guard that keeps a corrupt mark out of the backstop still raises.
+  - `tests/test_ws_subscriptions.py` (api) — Topic filtering selects recipients without reintroducing per-client serialization -- every subscriber still receives the identical string -- and an untopiced heartbeat still reaches a client subscribed to nothing, because it is the resync anchor.
+  - `tests/test_event_bus_producers_observability.py` (contract) — The four diagnostic producers. Feature drift and the model-degradation verdict publish on transition and stay silent while the state holds -- including the recovery transition, which is the only thing that says an incident is over; the runtime monitor publishes every completed cycle instead, because 'still ok' and 'died while saying ok' are otherwise the same frame; a tuning promotion reaches the audit file before it reaches the bus; and a provider's circuit breaker attributes every state change to the provider that owns it.
+
+> Asserts the law rather than the latency: publish() is not a coroutine and completes with no running event loop, a subscriber that never drains cannot stall the producer past its buffer, the oldest event is the one discarded, every drop is counted, and one slow subscriber cannot evict another's events.
+
 #### `API-001` — The authorization matrix is executable and every cell is tested
 
 **VERIFIED** · critical · requirement · source: QE-19
@@ -755,6 +788,30 @@ No error path returns a credential, token, stack trace or internal hostname to a
 - **Verification:**
   - `tests/api/test_error_hygiene.py` (security) — Tracebacks, connection URIs, internal hosts and echoed validation input are all replaced, while the endpoints' own messages survive.
 
+#### `API-010` — Websocket publish lag is measured per topic
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-25
+
+Every event fanned out to websocket clients records the interval from eventbus.publish() to the completion of the send, labelled by topic, in tradebot_ws_publish_lag_seconds -- measured on the monotonic clock, and never able to raise into the fan-out loop.
+
+- **If violated:** The transport is claimed to be realtime with nothing measuring it. A wedged fan-out task, a socket write blocking behind one asleep laptop, and a healthy sub-second push path are indistinguishable from outside the process, and the dashboard renders "connected" through all three. Measuring it on wall clock instead fails differently and worse: an NTP correction between the publish and the send reports a negative or hour-long lag, so the one metric an operator would consult during an incident is the one the incident corrupts.
+- **Owned by:** `src/diagnostics/metrics.py`, `src/api/main.py`, `src/eventbus/bus.py`
+- **Depends on:** `INV-032`
+- **Verification:**
+  - `tests/test_ws_publish_lag_metric.py` (api)
+
+#### `API-011` — Every declared bus topic has a producer
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-25
+
+Every topic in src.eventbus.TOPICS is published by at least one module in src/, and no module publishes a topic the bus does not declare.
+
+- **If violated:** A topic is declared, the websocket accepts a subscription to it, and nothing ever publishes it. The panel hydrates once from its REST endpoint on mount and then never updates again -- no error, no log line, no dropped-frame counter, and a dashboard that is confidently wrong for as long as the process runs. The inverse fails just as quietly: publish() answers an unknown topic by counting and logging rather than raising, deliberately, so that a typo in a risk gate cannot take the gate down -- which means a misspelled topic is invisible at runtime.
+- **Owned by:** `src/eventbus/bus.py`, `src/diagnostics/signal_debugger.py`, `src/diagnostics/runtime_monitor.py`, `src/tuning/audit.py`, `src/intelligence/onchain/base.py`
+- **Depends on:** `INV-032`
+- **Verification:**
+  - `tests/test_event_bus_producers_observability.py` (contract)
+
 #### `GOV-025` — The control surface never misrepresents what it controls
 
 **VERIFIED** · high · requirement · source: OPS-2026-09-24
@@ -797,7 +854,89 @@ A successful write through POST /controls/{name} must broadcast a control_change
 
 > The broadcast runs after the write has been applied, so a send failure must never surface as a failed write; dead clients are dropped instead, matching the heartbeat's own error path. The client set is snapshotted under the lock before sending, because discarding a dead client while iterating it would mutate during iteration. On the frontend the frame travels a separate channel from the tick: panels read equity_usd and positions off the tick, and pushing a control frame through setTick would blank them on every control change. layer: review
 
+#### `GOV-035` — Frontend behaviour is decided by a test, not only by the build
+
+**VERIFIED** · medium · requirement · source: OPS-2026-09-30
+
+frontend/ runs vitest under jsdom, and `npm test` is a step of the gated `frontend` job in ci.yml. Tests live beside the module they decide and may not reach the network.
+
+- **If violated:** `npm run build` was the only frontend gate, and a build proves nothing about lifecycle: a socket that reconnects after unmount, a retry that never cancels, a handler that routes the wrong frame to the wrong callback all compile perfectly. Every defect of that class reached whoever had the dashboard open, and the registry could not name a deciding test for any frontend requirement because no runner existed to hold one.
+- **Owned by:** `frontend/vitest.config.js`, `.github/workflows/ci.yml`
+- **Verification:**
+  - `frontend/src/hooks/useApi.test.js` (contract)
+
+#### `REG-0019` — The dashboard socket does not reconnect after unmount, and backs off with jitter
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-30
+
+useWebSocket marks itself disposed and clears any pending retry in its effect cleanup, so a close it caused never schedules a reconnect. Retries use exponential backoff with full jitter drawn from [0, backoff), capped at RECONNECT_CAP_MS, and the attempt counter resets when a connection opens.
+
+- **If violated:** Two defects in one handler. The cleanup closed the socket, which fired onclose, which scheduled another connect -- so every unmount left a reconnect loop running against a component that no longer existed, and React 18 StrictMode starts one on the first mount in dev. Separately the delay was a flat 3s with no jitter, so every open dashboard retried in lockstep and an API that had just come back up met the whole fleet at once, every three seconds, for as long as it stayed unhealthy.
+- **Owned by:** `frontend/src/hooks/useApi.js`
+- **Depends on:** `GOV-035`
+- **Verification:**
+  - `frontend/src/hooks/useApi.test.js` (regression)
+
+> Neither defect is visible to a build, and there was no frontend test runner to hold the check that would have caught them. layer: test-suite
+
+#### `REG-0022` — A hook that takes a callback calls the latest one, not the first render's
+
+**VERIFIED** · medium · regression · source: OPS-2026-09-25
+
+usePolling and useStream invoke the transform/apply callback their caller passed on the current render, not the one captured when the effect first ran; and the WebSocket's lifetime does not depend on the identity of the handlers passed to it.
+
+- **If violated:** usePolling's effect depends on [path, interval] while its body closes over transform, so an inline arrow -- which App.jsx passes at five call sites -- is captured once and pinned forever. Any transform that reads component state or props keeps reading the mount-time value, so a panel silently renders stale or wrong data with no error. Latent today only because every current transform is pure; the first stateful one is a silent data-correctness bug. useWebSocket had the mirror-image defect: handlers in the dependency array meant an inline callback would tear down and rebuild the socket on every render.
+- **Owned by:** `frontend/src/hooks/useApi.js`
+- **Verification:**
+  - `frontend/src/hooks/useApi.test.js` (regression)
+
+> Both halves are one defect: a ref is what lets the latest callback run without the effect's lifetime following the callback's identity. layer: test-suite
+
 ## Cryptography and secrets
+
+#### `GOV-051` — no eval or exec in src
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses eval() and exec() anywhere in src/. Both accept a string and run it as code, so anywhere the string comes from configuration, from a network peer, or from any source not entirely under the operator's key, they are a remote-code-execution primitive.
+
+- **If violated:** eval() or exec() lands in src/. A source of the string that seemed inert -- a config key, a broker response, a filename -- becomes an arbitrary-code path, and the shape of the defect is one line the reviewer would recognise if they saw it and would not if they did not.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-052` — yaml uses safe_load
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses yaml.load() anywhere in src/. Only yaml.safe_load() refuses YAML tags that construct arbitrary Python objects.
+
+- **If violated:** A yaml.load() call reads a YAML document from configuration or a peer. A tag like '!!python/object/apply:os.system' turns the parse into an arbitrary-code path with no diff line to flag it.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-053` — no shell=True in src
+
+**VERIFIED** · critical · requirement · source: QE-52
+
+The static-invariants gate refuses subprocess calls with shell=True anywhere in src/. Every command spawn passes an argv list so the kernel handles argument boundaries.
+
+- **If violated:** A shell=True call interpolates a value from configuration or a peer into a shell command line. A quote, a semicolon or a backtick becomes a fresh command; the shape of the defect is one keyword the reviewer would recognise if they saw it and would not if they did not.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
+
+#### `GOV-054` — no bare md5 or sha1 in src
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The static-invariants gate refuses hashlib.md5() and hashlib.sha1() without an explicit usedforsecurity=False. Both fail collision resistance in the field; SHA-256 is the floor for security or integrity, and the escape hatch is available for the one place a legacy non-security identifier is unavoidable.
+
+- **If violated:** A hash used to identify data or authenticate a message reduces to a colliding pair the attacker chose. The defect is one function name and would pass a review that had already accepted 'we're using hashlib'.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (security)
 
 #### `SECR-001` — Secrets never appear in source, images, logs or workflow YAML
 
@@ -1007,6 +1146,19 @@ is_broken_by_shor classifies by hard problem and treats an unknown scheme name a
 - **Verification:**
   - `tests/test_quantum_margins.py` (security)
 
+#### `SECR-019` — A read-only websocket key never receives the approval queue
+
+**VERIFIED** · high · requirement · source: OPS-2026-09-25
+
+A websocket authenticated with the read-only API key is never sent an approval-topic frame, whether by default subscription or by explicitly requesting it; the request is refused and the topic is not granted.
+
+- **If violated:** verify_ws_key returns a Role and its own docstring says that Role is what callers must consult before honouring anything a client sends over the socket, but websocket_endpoint discarded it. Once topic subscriptions exist, a read-only key could subscribe to 'approval' and receive every pending trade -- symbol, direction, notional -- awaiting an operator decision. A read-only credential is issued so something can watch without acting; streaming it the queue of decisions being made is a disclosure that credential was never meant to carry.
+- **Owned by:** `src/api/main.py`, `src/api/auth.py`
+- **Verification:**
+  - `tests/test_ws_subscriptions.py` (security)
+
+> Asserts both halves: permitted_topics excludes approval for READ_ONLY, a published approval frame does not reach a read-only socket, and an explicit subscribe to it is refused without being granted.
+
 #### `REG-0017` — LAW12 flags cipher suites without forward secrecy, not the token DH
 
 **VERIFIED** · medium · regression · source: OPS-2026-09-30
@@ -1058,6 +1210,32 @@ npm audit over frontend's whole dependency tree at --audit-level=high reports no
   - `tests/test_frontend_audit_scope.py` (unit)
 
 > No workflow builds the desktop app, so the dependency was removed rather than the gate narrowed -- scoping the audit to --omit=dev would have left the same eight advisories in place, just unobserved. The electron:build script went with it. To restore desktop packaging, re-add electron-builder once a patched http-cache-semantics ships; the deciding test fails until then, which is the intended reminder. layer: supply-chain
+
+#### `SEC-0008` — The frontend dependency tree resolves shell-quote outside the GHSA-pqg4-j6r4-53mv range
+
+**VERIFIED** · high · security_regression · source: OPS-2026-10-06
+
+frontend's npm tree resolves shell-quote to a version at or above 1.11.0, so npm audit over the whole tree at --audit-level=high reports no advisory.
+
+- **If violated:** Security gate failed on every pull request with two critical advisories. Both trace to shell-quote GHSA-pqg4-j6r4-53mv, command injection in quote() via a line terminator in a token after a { comment } token, CWE-78, CVSS 8.1, vulnerable range >=1.8.4 <1.11.0. concurrently is a devDependency at ^10.0.5 and pins shell-quote to exactly 1.9.0, not a range, so npm update cannot move it. concurrently@10.0.5 is the latest release and every neighbouring release pins a vulnerable version too (9.2.3 -> 1.8.4, 9.2.4 -> 1.9.0, 10.0.4 -> 1.9.0), so no upstream release carries the fix. npm audit fix proposes concurrently@9.2.1, a semver-major downgrade off the 10.x line, which the overrides entry avoids. Measured in frontend/ with the gate's own lockfile transform and npm@11: before, 2 critical; with overrides shell-quote ^1.11.0 resolving 1.12.0, found 0 vulnerabilities.
+- **Owned by:** `frontend/package.json`, `.github/workflows/security.yml`
+- **Verification:**
+  - `tests/test_frontend_audit_scope.py` (unit)
+
+> An npm overrides entry, not a dependency bump: concurrently pins shell-quote exactly, so the override is the only route that keeps the 10.x line. concurrently@10.0.5 was smoke-run against shell-quote 1.12.0 -- it parses and launches both quoted commands and -k still terminates the sibling -- so the only consumer of the overridden package still works. The override is pinned to the patched line (^1.11.0) rather than an exact version so future patches are picked up; the deciding test holds the floor at 1.11.0 and holds concurrently on ^10 so the advisory cannot be dodged by downgrading instead. Nothing committed here put the advisory in the tree: concurrently's pin was already 1.9.0 and the advisory was published against it upstream, which is the same shape as SEC-0007. layer: supply-chain
+
+#### `SEC-0009` — The npm gate blocks every advisory this repository can actually fix
+
+**VERIFIED** · high · security_regression · source: OPS-2026-10-03
+
+scripts/npm_audit_verdict.py fails the npm-audit job for any high or critical advisory whose fixAvailable is not false, always fails on a critical one whatever its fixAvailable, and fails with exit 2 rather than passing when the audit report cannot be read. security.yml delegates its verdict to that script.
+
+- **If violated:** npm audit --audit-level=high exits non-zero for every high or critical advisory and Security gate (all jobs green) is a required status check, so the two compose into a gate that no pull request can pass while the finding stands. That is correct for a finding with a fix and useless for one without: a required check that cannot be satisfied blocks every merge indefinitely, and the queue behind it stops moving.
+- **Owned by:** `scripts/npm_audit_verdict.py`, `.github/workflows/security.yml`
+- **Verification:**
+  - `tests/security/test_npm_audit_fix_available_gate.py` (security)
+
+> The exemption is not standing and cannot become one. npm defaults fixAvailable to true and sets it false only when it has proved no published version escapes the advisory, so the moment a fix is published this gate fails again and names the package. layer: test-suite
 
 ## Supply chain and artifacts
 
@@ -1375,6 +1553,19 @@ The notice resolves a commit's pull requests from the commit itself, so a workfl
   - `tests/test_ci_failure_notify_workflow.py` (unit)
 
 > A silent notice is the one failure this channel cannot have: CLAUDE.md section 9 makes it the sole CI failure interface, so when it posts nothing every pull request looks stuck for no visible reason. layer: test-suite
+
+#### `REG-0023` — a crashed test worker is named in the CI notice, not reduced to its last stdout line
+
+**VERIFIED** · medium · regression · source: OPS-2026-10-07
+
+When a test worker dies, the CI notice reports the line that names the node id it was running ('crashed while running <nodeid>', '[gwN] node down', 'replacing crashed worker') or the session-level abort ('INTERNALERROR>', 'Interrupted'), in preference to the summary line, so the failing test is identified even though the run produced no short summary at all.
+
+- **If violated:** A dying worker takes the short summary with it: the run ends with no FAILED line, so every SIGNAL pattern missed and the REG-0020 fallback published the step's last stdout instead. On PR 423 that made the whole notice the words 'Event loop is closed', with no node id, no file and no test. Section 8 of the directives makes the notice the only failure channel a session may read, so a failure this channel cannot name is a failure nobody can diagnose: the branch is blocked and the only remaining move is to guess.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Verification:**
+  - `tests/test_ci_failure_notify_workflow.py` (unit)
+
+> The crash lines rank above the summary line deliberately. When a run produces both, the crash is the one that explains the rest, and the summary is still reachable from the run itself. layer: test-suite
 
 ## Governance
 
@@ -1741,6 +1932,105 @@ The quality registry loader refuses a verified entry whose depends_on names an e
 - **Verification:**
   - `tests/quality/test_quality_registry.py` (contract)
 
+#### `GOV-039` — check_zip_is_strict has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses bare zip() carries a dedicated fake-tree test proving it can fire. A check that only ever passes is not a check.
+
+- **If violated:** check_zip_is_strict is registered and exercised only by the whole-repo positive gate, so a bug that stops it detecting bare zip() would ship silently.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-040` — check_import_cycles has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses module-level import cycles carries a dedicated fake-tree test proving it can fire on a 2-module cycle, and a companion test proving a deferred (function-scope) import is not counted.
+
+- **If violated:** check_import_cycles is reached only by the whole-repo positive gate. A bug that stops it from detecting cycles would ship silently, and a module-level cycle would then fail at collection time with only the ImportError as the signal.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-041` — check_every_gate_status_is_reachable has a negative test
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static invariant that refuses an unreachable GateStatus member carries a dedicated fake-tree test proving it can fire: given a synthetic gates.py whose evaluate_all_gates does not call a check that emits a declared status, the invariant reports it.
+
+- **If violated:** The check was reached only by the whole-repo positive gate; a bug that stopped it detecting an unreachable status would ship silently, and a declared halt the stack cannot emit is a risk control that does not exist. HALT_DRIFT was exactly that shape.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-042` — check_layering coverage locator
+
+**VERIFIED** · low · requirement · source: QE-52
+
+tests/test_static_invariants.py carries a locator test naming the file (tests/test_architecture_layers.py) where check_layering's fake-tree cases live, so the every-check-has-a-dedicated-test pattern is discoverable from either side.
+
+- **If violated:** A future contributor grep'ing tests/test_static_invariants.py for check_layering finds nothing, concludes no dedicated test exists, and either duplicates the coverage or removes it from test_architecture_layers.py assuming it is unused.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-043` — test docstrings name the entries they decide
+
+**VERIFIED** · low · requirement · source: QE-52
+
+Test modules that decide three or more registry entries name those entries in their module docstring. A future contributor grep'ing for an entry id lands in the test that decides it without a traceability round-trip.
+
+- **If violated:** A test file listed against multiple entries in the registry, with no entry-id in its docstring, hides its scope: a grep for 'GOV-011' finds the registry and nothing else, and a reader must chase a pointer to find the decision. Discoverability decays quietly.
+- **Owned by:** `tests/quality/test_quality_registry.py`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (unit)
+
+#### `GOV-044` — math implementations rest on implementations
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The math registry loader refuses an entry with status='implemented' whose depends_on names an entry that is not itself 'implemented' or 'not_applicable'. A claim resting on planned or rejected dependencies has nothing under it.
+
+- **If violated:** An implemented entry that depends on a still-planned primitive claims to work without the mathematics it needs. The traceability document then reports a load-bearing entry as ready while its foundation is not; a reader following depends_on lands on an entry with no owner.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
+
+#### `GOV-045` — every wiring kind is held to the existence check
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The math registry loader refuses any wiring pointing at a file that does not exist -- owner, component, consumer, config or doc. Same standard for every pointer; a pointer to a missing file is worse than no pointer.
+
+- **If violated:** A rename or deletion silently orphans a consumer/config/doc pointer that the loader used to skip -- so a registry query returns a module name a reader trusts and cannot find, while owner and component pointers stay honest.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
+
+#### `GOV-046` — declared taxonomy has a user
+
+**VERIFIED** · low · requirement · source: QE-52
+
+The quality registry loader refuses a test_types entry that no registry entry uses. Vocabulary is defined by its users; a taxonomy term with no user is dead vocabulary.
+
+- **If violated:** The test taxonomy grows a term nobody uses, and later contributors treat it as an option -- so a fresh entry picks the wrong bucket to fit an existing name rather than adjusting the name for the entry.
+- **Owned by:** `src/quality/registry.py`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (contract)
+
+#### `GOV-047` — no print() in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+Every module in src/ writes through structlog. The static-invariants gate refuses a bare print() call in src/ so an output the observability stack cannot see cannot ship. Tests and scripts remain free to print.
+
+- **If violated:** A print() slips into a production path. Its output bypasses log level, formatting and rate limiting, vanishes wherever stdout does, and produces a diagnostic that only appears in interactive runs -- the shape you cannot search for after the fact.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
 #### `GOV-048` — no wildcard imports in src
 
 **VERIFIED** · medium · requirement · source: QE-52
@@ -1751,6 +2041,76 @@ The static-invariants gate refuses 'from x import *' anywhere in src/. A wildcar
 - **Owned by:** `scripts/check_static_invariants.py`
 - **Verification:**
   - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-049` — no bare except in src
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses a bare 'except:' anywhere in src/. Every handler names what it catches; 'except Exception:' is the widest permitted, so KeyboardInterrupt and SystemExit remain able to reach the process's real exit path.
+
+- **If violated:** A bare 'except:' in a long-running trading loop swallows KeyboardInterrupt and SystemExit. Ctrl+C stops responding, sys.exit() has no effect, and the process the operator thinks they have shut down continues running until SIGKILL.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-050` — no assert in src
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The static-invariants gate refuses assert statements anywhere in src/. assert is stripped by python -O, so any production check written as an assert becomes a silent no-op in optimised runs. Every production check is 'if not x: raise'.
+
+- **If violated:** A production check written as an assert. Under python -O the assert vanishes, the invariant it defended is unenforced, and no test signals the loss because the behaviour under -O differs from the behaviour the test observed.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-055` — text open names encoding
+
+**VERIFIED** · medium · requirement · source: QE-52
+
+The static-invariants gate refuses open() in text mode anywhere in src/ without an explicit encoding= keyword. The system default varies between hosts and locale, and produces silently-different bytes across environments.
+
+- **If violated:** A model artifact or configuration file is written on one host and read on another. The system default encoding differs, the second read returns different bytes, and the divergence propagates until it manifests as a bad prediction or a config that parses wrong.
+- **Owned by:** `scripts/check_static_invariants.py`
+- **Verification:**
+  - `tests/test_static_invariants.py` (contract)
+
+#### `GOV-056` — implemented math entry names its test
+
+**VERIFIED** · high · requirement · source: QE-52
+
+The math registry loader refuses an entry with status='implemented' unless its wiring names at least one 'test'-kind module, and every such module exists on disk.
+
+- **If violated:** An implemented mathematical object could ship with no test file named against it. A regression would land, no test would fail by name, and the traceability doc would show a load-bearing entry with no way to decide it.
+- **Owned by:** `src/mathcore/registry.py`
+- **Verification:**
+  - `tests/test_math_registry.py` (contract)
+
+#### `GOV-057` — all model-visible tool observations cross the repository boundary
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-06
+
+Every successful Claude Code tool result in a repository session is passed through the PostToolUse observation boundary, native source reads are bounded before execution, direct CI run-data is blocked as a model-observation route, and failed tool calls receive only compact additional failure context because PostToolUseFailure cannot replace the native failure result.
+
+- **If violated:** A tool bypasses the repository observation boundary and emits a large file, CI, MCP, shell, or search payload into model context, consuming context budget and weakening failure recovery. A native failed-tool record also cannot be rewritten after the failure event, so the design must not claim stronger enforcement than the Claude Code hook contract provides.
+- **Owned by:** `.claude/hooks/pre_tool_use.py`, `.claude/hooks/observation_gate.py`, `.claude/hooks/observation_failure.py`, `.claude/settings.json`
+- **Depends on:** `GOV-019`, `GOV-020`
+- **Verification:**
+  - `tests/test_pre_tool_use_hook.py` (contract)
+  - `tests/test_observation_gate.py` (contract)
+  - `tests/test_observation_failure.py` (contract)
+  - `tests/test_ci_log_access.py` (contract)
+
+#### `GOV-058` — declared taxonomy has a user
+
+**VERIFIED** · low · requirement · source: QE-52
+
+Every term declared in the registry's test_types taxonomy is used by at least one entry's verification. Vocabulary is defined by its users; a term with no user is dead vocabulary, to be deleted or given its first entry. The opposite direction -- an entry naming a type the taxonomy never declared -- is the loader's job, because it holds for any registry; this direction holds only for the real one, so the suite asserts it.
+
+- **If violated:** The test taxonomy grows a term nobody uses, and later contributors treat it as an option -- a fresh entry picks the wrong bucket to fit an existing name rather than adjusting the name for the entry. Enforcing it in the loader instead would be wrong and was tried: every fixture registry in the suite declares a few types and uses one, so the loader would refuse them all and report an unused type where the test asked about a schema violation.
+- **Owned by:** `config/quality_registry.json`
+- **Verification:**
+  - `tests/quality/test_quality_registry.py` (contract)
 
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
@@ -1863,4 +2223,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 143 entries.
+Registry version: 1.0.0 — 173 entries.

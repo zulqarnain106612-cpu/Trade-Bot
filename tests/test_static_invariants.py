@@ -14,6 +14,24 @@ The per-check tests below feed each check a synthetic tree containing the
 exact defect it was written for, then the same tree with the defect removed.
 A check that cannot fail is worse than no check, so both directions are
 asserted.
+
+Decides:
+  - GOV-004 — No silent degradation in a security or risk path
+  - GOV-018 — Dependencies between src packages run downward, and the exceptions are a shrinking list
+  - GOV-039 — check_zip_is_strict has a negative test
+  - GOV-040 — check_import_cycles has a negative test
+  - GOV-041 — check_every_gate_status_is_reachable has a negative test
+  - GOV-042 — check_layering coverage locator
+  - GOV-047 — no print() in src
+  - GOV-048 — no wildcard imports in src
+  - GOV-049 — no bare except in src
+  - GOV-050 — no assert in src
+  - GOV-051 — no eval or exec in src
+  - GOV-052 — yaml uses safe_load
+  - GOV-053 — no shell=True in src
+  - GOV-054 — no bare md5 or sha1 in src
+  - GOV-055 — text open names encoding
+  - SECR-002 — Secret comparisons are constant-time
 """
 
 from __future__ import annotations
@@ -1240,6 +1258,313 @@ class TestDefaultAllowOnFailure:
         )
         assert not invariants.check_no_default_allow_on_failure()
         assert invariants.check_no_silent_broad_except()
+
+
+# ---------------------------------------------------------------------------
+# check_no_print_in_src (GOV-047)
+# ---------------------------------------------------------------------------
+
+
+def test_print_in_src_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/emitter.py", "def go():\n    print('debug')\n")
+    problems = invariants.check_no_print_in_src()
+    assert any("print() in src/" in p for p in problems)
+
+
+def test_structlog_call_is_not_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/emitter.py",
+        "import structlog\n"
+        "log = structlog.get_logger(__name__)\n"
+        "def go():\n    log.info('debug')\n",
+    )
+    assert invariants.check_no_print_in_src() == []
+
+
+def test_a_print_referenced_as_a_method_attribute_is_not_flagged(invariants, fake_tree) -> None:
+    """`something.print()` is a method call on `something`, not the builtin."""
+    fake_tree(
+        "src/emitter.py",
+        "class Q:\n    def print(self):\n        pass\ndef go(q):\n    q.print()\n",
+    )
+    assert invariants.check_no_print_in_src() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_bare_except (GOV-049)
+# ---------------------------------------------------------------------------
+
+
+def test_bare_except_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "def go():\n    try:\n        do()\n    except:\n        return\n")
+    problems = invariants.check_no_bare_except()
+    assert any("bare except" in p for p in problems)
+
+
+def test_named_except_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "def go():\n    try:\n        do()\n    except Exception:\n        return\n",
+    )
+    assert invariants.check_no_bare_except() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_assert_in_src (GOV-050)
+# ---------------------------------------------------------------------------
+
+
+def test_assert_in_src_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "def go(x):\n    assert x > 0\n    return x\n")
+    problems = invariants.check_no_assert_in_src()
+    assert any("assert in src/" in p for p in problems)
+
+
+def test_if_raise_replacement_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "def go(x):\n"
+        "    if not x > 0:\n"
+        "        raise ValueError('x must be positive')\n"
+        "    return x\n",
+    )
+    assert invariants.check_no_assert_in_src() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_eval_or_exec (GOV-051)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("call", ["eval", "exec"])
+def test_eval_or_exec_in_src_is_flagged(invariants, fake_tree, call) -> None:
+    fake_tree("src/mod.py", f"def go(payload):\n    return {call}(payload)\n")
+    problems = invariants.check_no_eval_or_exec()
+    assert any(f"{call}() in src/" in p for p in problems)
+
+
+def test_getattr_is_not_flagged(invariants, fake_tree) -> None:
+    """getattr, __import__ and friends are not the code-from-string primitives."""
+    fake_tree(
+        "src/mod.py",
+        "def go(name, obj):\n    return getattr(obj, name)\n",
+    )
+    assert invariants.check_no_eval_or_exec() == []
+
+
+# ---------------------------------------------------------------------------
+# check_yaml_uses_safe_load (GOV-052)
+# ---------------------------------------------------------------------------
+
+
+def test_yaml_load_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import yaml\ndef go(text):\n    return yaml.load(text)\n",
+    )
+    problems = invariants.check_yaml_uses_safe_load()
+    assert any("yaml.load()" in p for p in problems)
+
+
+def test_yaml_safe_load_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import yaml\ndef go(text):\n    return yaml.safe_load(text)\n",
+    )
+    assert invariants.check_yaml_uses_safe_load() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_subprocess_shell_true (GOV-053)
+# ---------------------------------------------------------------------------
+
+
+def test_shell_true_is_flagged(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import subprocess\ndef go(cmd):\n    subprocess.run(cmd, shell=True)\n",
+    )
+    problems = invariants.check_no_subprocess_shell_true()
+    assert any("shell=True" in p for p in problems)
+
+
+def test_shell_false_and_default_pass(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import subprocess\n"
+        "def a(argv):\n    subprocess.run(argv, shell=False)\n"
+        "def b(argv):\n    subprocess.run(argv)\n",
+    )
+    assert invariants.check_no_subprocess_shell_true() == []
+
+
+# ---------------------------------------------------------------------------
+# check_no_weak_hash (GOV-054)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("algo", ["md5", "sha1"])
+def test_bare_weak_hash_is_flagged(invariants, fake_tree, algo) -> None:
+    fake_tree(
+        "src/mod.py", f"import hashlib\ndef go(b):\n    return hashlib.{algo}(b).hexdigest()\n"
+    )
+    problems = invariants.check_no_weak_hash()
+    assert any(f"hashlib.{algo}()" in p for p in problems)
+
+
+def test_usedforsecurity_false_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import hashlib\ndef go(b):\n    return hashlib.md5(b, usedforsecurity=False).hexdigest()\n",
+    )
+    assert invariants.check_no_weak_hash() == []
+
+
+def test_sha256_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "import hashlib\ndef go(b):\n    return hashlib.sha256(b).hexdigest()\n",
+    )
+    assert invariants.check_no_weak_hash() == []
+
+
+# ---------------------------------------------------------------------------
+# check_text_open_names_encoding (GOV-055)
+# ---------------------------------------------------------------------------
+
+
+def test_text_open_without_encoding_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "def go(p):\n    with open(p) as fh:\n        return fh.read()\n")
+    problems = invariants.check_text_open_names_encoding()
+    assert any("open() in text mode without encoding=" in p for p in problems)
+
+
+def test_text_open_with_encoding_passes(invariants, fake_tree) -> None:
+    fake_tree(
+        "src/mod.py",
+        "def go(p):\n    with open(p, encoding='utf-8') as fh:\n        return fh.read()\n",
+    )
+    assert invariants.check_text_open_names_encoding() == []
+
+
+def test_binary_open_passes(invariants, fake_tree) -> None:
+    fake_tree("src/mod.py", "def go(p):\n    with open(p, 'rb') as fh:\n        return fh.read()\n")
+    assert invariants.check_text_open_names_encoding() == []
+
+
+# ---------------------------------------------------------------------------
+# check_layering (GOV-042)
+# ---------------------------------------------------------------------------
+#
+# The fake-tree coverage for check_layering lives in
+# tests/test_architecture_layers.py (upward-edge flagging, accepted-edge
+# ratchet, layer placement) because that suite already owns the
+# architecture-layers contract and its fixtures. The shim below is here so
+# a reader looking at this file's per-check pattern is pointed at that
+# coverage rather than concluding no dedicated test exists.
+
+
+def test_check_layering_has_dedicated_coverage_elsewhere() -> None:
+    """
+    Locator test. The negative + positive cases for `check_layering` live in
+    `tests/test_architecture_layers.py`. If they are ever removed from there,
+    this test still passes -- it is not a substitute -- but the accompanying
+    docstring keeps the pointer visible in the file where every other
+    check_* has its per-case tests.
+    """
+    coverage_path = Path(__file__).resolve().parent / "test_architecture_layers.py"
+    coverage_file = coverage_path.read_text(encoding="utf-8")
+    assert "check_layering" in coverage_file or "_layering_problems" in coverage_file
+
+
+# ---------------------------------------------------------------------------
+# check_every_gate_status_is_reachable (GOV-041)
+# ---------------------------------------------------------------------------
+
+
+_GATES_TEMPLATE = """
+class GateStatus:
+    PASS = "pass"
+    HALT_DRIFT = "halt_drift"
+    HALT_DRAWDOWN = "halt_drawdown"
+
+
+def check_drawdown(state):
+    if state.dd > 0.1:
+        return GateStatus.HALT_DRAWDOWN
+    return GateStatus.PASS
+
+
+{extra}
+
+def evaluate_all_gates(state):
+    return [
+        check_drawdown(state),
+        {extra_call}
+    ]
+"""
+
+
+def test_gate_status_member_no_check_emits_is_flagged(invariants, fake_tree) -> None:
+    # HALT_DRIFT is declared but no called check function emits it.
+    fake_tree("src/risk/gates.py", _GATES_TEMPLATE.format(extra="", extra_call=""))
+    problems = invariants.check_every_gate_status_is_reachable()
+    assert any("HALT_DRIFT" in p and "can never be emitted" in p for p in problems)
+
+
+def test_gate_status_member_reached_via_called_check_passes(invariants, fake_tree) -> None:
+    extra = (
+        "def check_drift(state):\n"
+        "    if state.drift > 0.5:\n"
+        "        return GateStatus.HALT_DRIFT\n"
+        "    return GateStatus.PASS\n"
+    )
+    fake_tree(
+        "src/risk/gates.py",
+        _GATES_TEMPLATE.format(extra=extra, extra_call="check_drift(state),"),
+    )
+    assert invariants.check_every_gate_status_is_reachable() == []
+
+
+# ---------------------------------------------------------------------------
+# check_import_cycles (GOV-040)
+# ---------------------------------------------------------------------------
+
+
+def test_two_module_cycle_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/a.py", "from src.b import go\n")
+    fake_tree("src/b.py", "from src.a import back\n")
+    problems = invariants.check_import_cycles()
+    assert any("import cycle" in p and "src.a" in p and "src.b" in p for p in problems)
+
+
+def test_acyclic_imports_pass(invariants, fake_tree) -> None:
+    fake_tree("src/a.py", "from src.b import go\n")
+    fake_tree("src/b.py", "def go():\n    return 1\n")
+    assert invariants.check_import_cycles() == []
+
+
+def test_deferred_import_does_not_count_as_a_cycle(invariants, fake_tree) -> None:
+    """A cycle needs a *module-level* import; one inside a function cannot fail at import time."""
+    fake_tree("src/a.py", "def go():\n    from src.b import back\n")
+    fake_tree("src/b.py", "from src.a import go\n")
+    assert invariants.check_import_cycles() == []
+
+
+# ---------------------------------------------------------------------------
+# check_zip_is_strict (GOV-039)
+# ---------------------------------------------------------------------------
+
+
+def test_bare_zip_is_flagged(invariants, fake_tree) -> None:
+    fake_tree("src/pairs.py", "def go(a, b):\n    return list(zip(a, b))\n")
+    problems = invariants.check_zip_is_strict()
+    assert any("zip() without strict=" in p for p in problems)
+
+
+def test_strict_zip_passes(invariants, fake_tree) -> None:
+    fake_tree("src/pairs.py", "def go(a, b):\n    return list(zip(a, b, strict=True))\n")
+    assert invariants.check_zip_is_strict() == []
 
 
 # ---------------------------------------------------------------------------

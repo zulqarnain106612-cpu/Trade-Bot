@@ -7,6 +7,10 @@ So the file's content is asserted here as strictly as the script's logic.
 
 Nothing here touches the network. The parts that talk to GitHub are separated
 from the parts that decide what to send, and only the latter are tested.
+
+Decides:
+  - GOV-008 — main is protected and every required check must be green
+  - GOV-037 — Pull requests land through a one-at-a-time merge queue
 """
 
 from __future__ import annotations

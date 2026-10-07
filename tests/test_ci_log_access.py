@@ -24,6 +24,11 @@ The third half is that the two enforcement points agree. The PreToolUse hook
 imports the shared implementation when the project is importable and falls back
 to the policy file's patterns when it is not, so the same command must be
 refused either way.
+
+Decides:
+  - GOV-019 — CI run data is unreadable from a session under every condition
+  - GOV-020 — One comment per commit carries the status and the exact failing lines
+  - GOV-057 — all model-visible tool observations cross the repository boundary
 """
 
 from __future__ import annotations

@@ -1,30 +1,10 @@
 #!/usr/bin/env python3
-"""
-PreToolUse hook: bind every session to the project's command-execution rules.
+"""Universal PreToolUse safety and observation guard.
 
-CLAUDE.md states three hard rules about shell commands -- bounded output,
-declared effect class, never leak a secret into context. A rule that lives
-only in prose is a rule that decays: a future session skims, a summarised
-context drops the paragraph, and an unbounded `cat` lands in the transcript.
-This hook makes the rules mechanical, so they hold whether or not the model
-happened to read them.
-
-Contract (Claude Code PreToolUse):
-  stdin : {"tool_name": str, "tool_input": {...}, ...}
-  stdout: {"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                  "permissionDecision": "allow"|"deny"|"ask",
-                                  "permissionDecisionReason": str}}
-  exit 0 always -- the decision travels in the payload, not the exit code, so
-  that a bug in this hook degrades to "allowed" rather than bricking every
-  Bash call in the session.
-
-Enforcement level comes from config/command_policy.json, overridable for one
-session with TB_COMMAND_POLICY=block|warn|off. That override is the rollback
-path: a hook that cannot be turned off is an outage waiting to happen.
-
-Classification is imported from common/command_schema.py -- one implementation
-shared with shell_exec.run() and the test suite, so the hook can never drift
-into blocking something the runtime allows, or vice versa.
+Hard context-boundary rules are enforced independently of the command-policy
+rollback switch: native source reads must be bounded and direct CI run data is
+not a model-observation channel. Ordinary destructive/secret/local-check rules
+retain their existing enforcement levels.
 """
 
 from __future__ import annotations
@@ -39,32 +19,21 @@ from typing import Any
 PROJECT_DIR = Path(os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2]))
 POLICY_PATH = PROJECT_DIR / "config" / "command_policy.json"
 
-# The hook runs as a bare subprocess, not under the project's import path.
 sys.path.insert(0, str(PROJECT_DIR))
 
 try:
-    from common.command_schema import classify
-except Exception:  # pragma: no cover - defended below by _fail_open
+    from common.command_schema import CI_LOG_REFUSAL, classify, is_ci_log_access
+except Exception:  # pragma: no cover
+    CI_LOG_REFUSAL = (
+        "CI run data is not an allowed model-observation channel; use the PR notice comment."
+    )
     classify = None  # type: ignore[assignment]
 
-try:
-    # Shared with shell_exec.run() so the hook and the runtime cannot disagree
-    # about what counts as reading CI data. When the project is not importable
-    # -- a bare session, a detached checkout -- _ci_log_access falls back to
-    # the equivalent patterns in config/command_policy.json, which is why they
-    # are duplicated there rather than only here.
-    from common.command_schema import is_ci_log_access as _shared_is_ci_log_access
-except Exception:  # pragma: no cover - policy-file fallback covers this
-    _shared_is_ci_log_access = None  # type: ignore[assignment]
-
-
-# --------------------------------------------------------------------------
-# Decision plumbing
-# --------------------------------------------------------------------------
+    def is_ci_log_access(command: str) -> bool:
+        return False
 
 
 def _emit(decision: str, reason: str = "") -> None:
-    """Write the hook decision and exit 0."""
     payload: dict[str, Any] = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -75,17 +44,10 @@ def _emit(decision: str, reason: str = "") -> None:
         payload["hookSpecificOutput"]["permissionDecisionReason"] = reason
     json.dump(payload, sys.stdout)
     sys.stdout.write("\n")
-    sys.exit(0)
+    raise SystemExit(0)
 
 
 def _fail_open(note: str) -> None:
-    """
-    Allow the call when the hook itself cannot decide.
-
-    A policy hook that fails closed on its own bug blocks all work and looks
-    like a broken environment. It fails open and says so on stderr, which
-    reaches the transcript without denying the call.
-    """
     print(f"[pre_tool_use] degraded, allowing: {note}", file=sys.stderr)
     _emit("allow")
 
@@ -96,408 +58,167 @@ def _load_policy() -> dict[str, Any]:
 
 
 def _enforcement(policy: dict[str, Any]) -> str:
-    level = os.environ.get("TB_COMMAND_POLICY", "").strip().lower()
-    if level in {"block", "warn", "off"}:
-        return level
+    override = os.environ.get("TB_COMMAND_POLICY", "").strip().lower()
+    if override in {"block", "warn", "off"}:
+        return override
     configured = str(policy.get("enforcement", "block")).lower()
     return configured if configured in {"block", "warn", "off"} else "block"
 
 
-# --------------------------------------------------------------------------
-# Command shape analysis
-# --------------------------------------------------------------------------
-
-# Separators that start a new command, each with its own output destination.
-_COMMAND_SPLIT = re.compile(r"\|\||&&|;")
-
-# Within one command, the stages of a pipeline: only the last stage's output
-# is seen by the caller, the rest are consumed by the next stage.
-_STAGE_SPLIT = re.compile(r"(?<!\|)\|(?!\|)")
-
-# Shells whose heredoc body is itself a command line, and so must still be
-# analysed. Deliberately shells only. A Python, Node or Perl heredoc body is
-# executed too, but it is not a shell command line: matching shell patterns
-# against it flags any script whose source merely contains the word for a
-# filtered command, and catches nothing real, since textual classification
-# never saw inside an interpreter in the first place (see classify()). For
-# every other receiver the body is data being written to a file.
-_SHELL_INTERPRETERS = frozenset({"bash", "sh", "zsh", "ksh", "dash"})
-
-_HEREDOC_START = re.compile(r"""<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1""")
-
-
-def _strip_heredoc_bodies(command: str) -> str:
-    """
-    Remove heredoc bodies that are written out rather than executed.
-
-    A heredoc feeding a file write carries content, not a command line.
-    Analysing that content flags any test or document that quotes a filtered
-    pattern, which would make the policy unusable for the people writing the
-    policy's own tests. Bodies fed to an interpreter are left in place,
-    because those really do execute.
-    """
-    lines = command.split("\n")
-    out: list[str] = []
-    idx = 0
-    while idx < len(lines):
-        line = lines[idx]
-        out.append(line)
-        match = _HEREDOC_START.search(line)
-        if not match:
-            idx += 1
-            continue
-
-        if _head_word(line) in _SHELL_INTERPRETERS:
-            idx += 1
-            continue
-
-        delimiter = match.group(2)
-        idx += 1
-        while idx < len(lines) and lines[idx].strip() != delimiter:
-            idx += 1
-        if idx < len(lines):
-            idx += 1  # consume the closing delimiter
-    return "\n".join(out)
-
-
-def _is_write_not_read(segment: str) -> bool:
-    """
-    True when a nominally-reading command is actually writing a file.
-
-    A redirect or heredoc means the segment produces no transcript output at
-    all; treating it as an unbounded read blocks a legitimate silent write.
-    """
-    return bool(re.search(r">>?\s*\S", segment)) or bool(_HEREDOC_START.search(segment))
-
-
-def _commands(command_line: str) -> list[str]:
-    """Split a command line into independently-output-producing commands."""
-    return [c.strip() for c in _COMMAND_SPLIT.split(command_line) if c.strip()]
-
-
-def _stages(command: str) -> list[str]:
-    """Split one command into its pipeline stages."""
-    return [stage.strip() for stage in _STAGE_SPLIT.split(command) if stage.strip()]
-
-
-def _head_word(segment: str) -> str:
-    """
-    First real word of a segment, skipping env-var assignments and sudo.
-
-    `FOO=1 sudo cat x` must be recognised as `cat`, not as `FOO=1`.
-    """
-    for token in segment.split():
-        if (
-            "=" in token
-            and not token.startswith("-")
-            and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", token)
-        ):
-            continue
-        if token in {"sudo", "env", "command", "time", "nohup"} and token != segment.split()[-1]:
-            continue
-        return token.rsplit("/", 1)[-1]
-    return ""
-
-
-def _is_bounded(command: str, patterns: list[str]) -> bool:
-    """True when the command carries an explicit small output bound."""
-    return any(re.search(p, command) for p in patterns)
-
-
-def _oversized_bounds(command: str, cfg: dict[str, Any], limit: int) -> list[int]:
-    """
-    Find declared output bounds that exceed the per-fetch limit.
-
-    A bound that is present but large is not a bound: `head -100` puts a
-    hundred lines in context exactly as `cat` would. Returns every offending N
-    so the message can name the actual number the caller wrote.
-    """
-    found: list[int] = []
-    for pattern in cfg.get("oversized_bound_patterns", []):
-        for match in re.finditer(pattern, command, re.IGNORECASE):
-            value = int(match.group(1))
-            if value > limit:
-                found.append(value)
-    byte_limit = int(cfg.get("max_declared_bytes", 2000))
-    for pattern in cfg.get("oversized_byte_patterns", []):
-        for match in re.finditer(pattern, command, re.IGNORECASE):
-            if int(match.group(1)) > byte_limit:
-                # Reported in line units so the caller gets one consistent
-                # message; the byte figure itself is in the reason text.
-                found.append(int(match.group(1)))
-    for pattern in cfg.get("oversized_range_patterns", []):
-        for match in re.finditer(pattern, command):
-            start, end = int(match.group(1)), int(match.group(2))
-            span = end - start + 1
-            if span > limit:
-                found.append(span)
-    return found
-
-
-def _needs_bound(segment: str, cfg: dict[str, Any]) -> bool:
-    """
-    True when a segment is an exempt command used in an unbounded subcommand.
-
-    `git` as a whole is exempt so that `git status` and `git add` are not
-    nagged, but `git log` with no -n pages the entire history into context.
-    """
-    required = cfg.get("bounded_required_subcommands", {})
-    tokens = [t for t in segment.split() if not t.startswith("-")]
-    if len(tokens) < 2:
-        return False
-    head = tokens[0].rsplit("/", 1)[-1]
-    return tokens[1] in required.get(head, [])
-
-
-def _live_monitoring(command: str, policy: dict[str, Any]) -> str:
-    """
-    Return the refusal message when a command is a live CI watch, else "".
-
-    A per-call line bound cannot cap a stream that never ends: `gh run watch`,
-    `tail -f` and a `while true` poll loop each emit for as long as CI runs,
-    and every line lands in context. Bulk log retrieval is not banned here --
-    it is capped by bounded_output, so the few lines that explain a failure
-    stay reachable. Only the open-ended form is refused.
-    """
-    cfg = policy.get("ci_observability", {})
-    if not cfg.get("enabled", True):
-        return ""
-    for pattern in cfg.get("live_patterns", []):
-        if re.search(pattern, command, re.IGNORECASE):
-            return str(cfg.get("message", "CI live monitoring is disabled."))
-    return ""
-
-
-def _ci_log_access(command: str, policy: dict[str, Any]) -> str:
-    """
-    Return the refusal message when a command reads CI run data, else "".
-
-    Distinct from :func:`_live_monitoring`, which refuses only the open-ended
-    forms. This refuses *every* form: a run log, a job record, an annotation,
-    an artifact, a check result, and dispatching a run in order to read what it
-    prints. There is no line bound that makes it allowed, because the objection
-    is not output size -- the pull-request notice already carries the status
-    and the exact failing lines, so fetching is a worse route to the same
-    answer that also costs context.
-
-    The comment allowlist is checked first and wins. Closing the comment
-    channel would leave no way at all to learn why a run failed, and a guard
-    with no remaining route is a guard someone switches off.
-
-    Shares :func:`~common.command_schema.is_ci_log_access` with the runtime
-    where that import is available, so the hook and ``shell_exec.run()`` cannot
-    disagree. The policy file's patterns are the fallback when this hook runs
-    without the project importable, which is the case in a bare session.
-    """
-    cfg = policy.get("ci_log_access", {})
-    if not cfg.get("enabled", True):
+def _local_check_violation(command: str, policy: dict[str, Any]) -> str:
+    cfg = policy.get("local_checks", {})
+    if not cfg.get("enabled", False):
         return ""
 
-    message = str(cfg.get("message", "CI log access is permanently disabled."))
-
-    if _shared_is_ci_log_access is not None:
-        return message if _shared_is_ci_log_access(command) else ""
-
-    # Same three tiers as the shared implementation, in the same order.
-    for pattern in cfg.get("hard_deny_patterns", []):
-        if re.search(pattern, command, re.IGNORECASE):
-            return message
-    for pattern in cfg.get("allowed_patterns", []):
-        if re.search(pattern, command, re.IGNORECASE):
+    wrapper = str(cfg.get("wrapper", "scripts/local_checks.py"))
+    run_marker = str(cfg.get("run_marker", "TB_LOCAL_CHECKS=1"))
+    if wrapper in command:
+        if re.search(r"\bprepare\b", command):
             return ""
-    for pattern in cfg.get("banned_patterns", []):
+        if run_marker in command:
+            return ""
+        return f"Local CI checks must be invoked with the per-command marker {run_marker}."
+
+    for pattern in cfg.get("blocked_patterns", []):
         if re.search(pattern, command, re.IGNORECASE):
-            return message
+            return (
+                "Direct local test/check execution is disabled. Use "
+                f"{run_marker} python3 {wrapper} run <failed-check> instead; "
+                "the wrapper permits only checks that were non-green on the "
+                "last completed PR run."
+            )
     return ""
 
 
-def _violations(command: str, policy: dict[str, Any]) -> list[str]:
-    """
-    Collect every rule this command breaks, most severe first.
+def _read_limit(tool_input: dict[str, Any]) -> int | None:
+    for key in ("limit", "max_lines", "line_limit", "length"):
+        value = tool_input.get(key)
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
 
-    Returns an empty list when the command is acceptable. Reasons are written
-    for the reader who has to fix the command, so each one names the concrete
-    replacement rather than restating the rule.
-    """
+    start = tool_input.get("start_line")
+    end = tool_input.get("end_line")
+    if isinstance(start, int) and isinstance(end, int) and end >= start:
+        return end - start + 1
+    return None
+
+
+def _read_boundary_violation(event: dict[str, Any], policy: dict[str, Any]) -> str:
+    cfg = policy.get("observation_boundary", {})
+    if not cfg.get("enabled", True):
+        return ""
+
+    tool = str(event.get("tool_name", ""))
+    names = set(cfg.get("native_read_tools", ["Read"]))
+    patterns = [re.compile(p, re.IGNORECASE) for p in cfg.get("mcp_read_tool_patterns", [])]
+    is_native_read = tool in names
+    is_mcp_read = any(rx.search(tool) for rx in patterns)
+    if not (is_native_read or is_mcp_read):
+        return ""
+
+    tool_input = event.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        return str(cfg.get("read_refusal_message", "Read calls require an explicit bound."))
+
+    # NotebookRead is cell-oriented rather than line-oriented; successful
+    # output still passes through PostToolUse compaction, so do not invent a
+    # line limit for notebooks.
+    if tool == "NotebookRead":
+        return ""
+
+    limit = _read_limit(tool_input)
+    max_lines = int(cfg.get("max_read_lines", 30))
+    if limit is None:
+        return str(cfg.get("read_refusal_message", "Read calls require an explicit bound."))
+    if limit < 1 or limit > max_lines:
+        return str(cfg.get("read_refusal_message", "Read calls must be bounded."))
+    return ""
+
+
+def _violations(event: dict[str, Any], policy: dict[str, Any]) -> list[str]:
     problems: list[str] = []
-    # Heredoc bodies destined for a file are content, not commands.
-    command = _strip_heredoc_bodies(command)
+    tool = str(event.get("tool_name", ""))
+    tool_input = event.get("tool_input") or {}
+    command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
 
-    # 1. Secrets ---------------------------------------------------------
+    # These are hard context-boundary controls. They do not become warnings
+    # when TB_COMMAND_POLICY is set to off.
+    read_violation = _read_boundary_violation(event, policy)
+    if read_violation:
+        problems.append(read_violation)
+
+    if tool == "Bash" and isinstance(command, str) and is_ci_log_access(command):
+        problems.append(CI_LOG_REFUSAL)
+
+    if _enforcement(policy) == "off":
+        return problems
+
+    if not isinstance(command, str) or not command.strip():
+        return problems
+
+    local_check = _local_check_violation(command, policy)
+    if local_check:
+        problems.append(local_check)
+
     secret_cfg = policy.get("secret_echo", {})
     if secret_cfg.get("enabled", True):
         for pattern in secret_cfg.get("patterns", []):
             if re.search(pattern, command, re.IGNORECASE):
                 problems.append(
                     "This command would print credentials into the transcript. "
-                    "Read the value in Python and use it without echoing it, or "
-                    'check only for presence (e.g. `test -n "$VAR" && echo set`).'
+                    "Read the value without echoing it, or check only for presence."
                 )
                 break
 
-    # 2. Destructive effects ---------------------------------------------
     destructive_cfg = policy.get("destructive", {})
     if destructive_cfg.get("enabled", True) and classify is not None:
         marker = destructive_cfg.get("allow_marker", "TB_DESTRUCTIVE_OK=1")
         if classify(command) == "destructive" and marker not in command:
             problems.append(
-                "Destructive command. Run it through common/shell_exec.run() with "
-                "classification='destructive' and confirm_destructive=True so the "
-                f"authorization is recorded, or prefix it with {marker} once a human "
-                "has explicitly approved this specific action."
+                "Destructive command. Use the project's authorized destructive "
+                "execution path, or prefix it with "
+                f"{marker} after explicit human approval."
             )
-
-    # 3. CI run data ------------------------------------------------------
-    # Before live monitoring and before the bounded-output rules, and it
-    # returns immediately: this is not an output-size objection, so appending
-    # a line-bound refusal would suggest a smaller bound would have worked.
-    # Nothing about a CI log, job record, annotation, artifact or check result
-    # is readable from here under any condition; the pull-request notice is
-    # the channel, and it already carries the status and the failing lines.
-    ci_logs = _ci_log_access(command, policy)
-    if ci_logs:
-        problems.append(ci_logs)
-        return problems
-
-    # 4. Live CI monitoring -----------------------------------------------
-    # A live watch is refused outright, and the bounded-output rules below are
-    # not consulted: its message already carries the line directive, and
-    # appending the bound refusal to it would say the same thing twice.
-    live = _live_monitoring(command, policy)
-    if live:
-        problems.append(live)
-        return problems
-
-    # 5. Unbounded output -------------------------------------------------
-    bounded_cfg = policy.get("bounded_output", {})
-    if bounded_cfg.get("enabled", True):
-        limit = int(bounded_cfg.get("max_declared_lines", 30))
-        # One line leaves the hook on a bound violation, by configuration.
-        # A longer explanation is itself context spend on a call that was
-        # refused precisely to protect context.
-        refusal = str(
-            bounded_cfg.get(
-                "refusal_message",
-                f"only <={limit} lines are allowed,run command for minimum "
-                "line which can make you understand the failure",
-            )
-        )
-        unbounded = set(bounded_cfg.get("unbounded_commands", []))
-        exempt = set(bounded_cfg.get("exempt_commands", []))
-        # An exempt command is never itself an unbounded reader; the
-        # bounded_required_subcommands map is what re-arms specific
-        # subcommands of one, such as git log or kubectl logs.
-        unbounded -= exempt
-        patterns = list(bounded_cfg.get("bounded_flag_patterns", []))
-
-        for cmd in _commands(command):
-            stages = _stages(cmd)
-            if not stages:
-                continue
-
-            # A command whose final stage redirects to a file or feeds a
-            # heredoc produces no transcript output, so no bound applies.
-            if _is_write_not_read(stages[-1]):
-                continue
-
-            offender = ""
-            for stage in stages:
-                stage_head = _head_word(stage)
-                if stage_head in unbounded or _needs_bound(stage, bounded_cfg):
-                    offender = stage_head
-                    break
-
-            if not offender or _is_bounded(cmd, patterns):
-                continue
-
-            problems.append(refusal)
-            break
-
-        oversized = _oversized_bounds(command, bounded_cfg, limit)
-        if oversized:
-            problems.append(refusal)
 
     return problems
-
-
-# --------------------------------------------------------------------------
-# Entry point
-# --------------------------------------------------------------------------
 
 
 def main() -> None:
     try:
         raw = sys.stdin.read()
-    except Exception as exc:  # pragma: no cover - stdin is provided by the host
-        _fail_open(f"could not read stdin: {exc}")
-        return
-
-    if not raw.strip():
-        _fail_open("empty hook payload")
-        return
-
-    try:
-        event = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        _fail_open(f"malformed hook payload: {exc}")
-        return
-
-    tool_name = event.get("tool_name")
-
-    # A banned tool is refused before the policy is even consulted for shape:
-    # Monitor is a live watch by construction, so there is no bounded form of
-    # it to fall back to. Loaded first because this check is not about the
-    # command string, which a non-Bash tool does not have.
-    if tool_name != "Bash":
-        try:
-            ci_cfg = _load_policy().get("ci_observability", {})
-        except Exception:
-            _emit("allow")
+        if not raw.strip():
+            _fail_open("empty hook payload")
             return
-        banned = set(ci_cfg.get("banned_tools", []))
-        if ci_cfg.get("enabled", True) and tool_name in banned:
-            _emit("deny", str(ci_cfg.get("message", "Live monitoring is disabled.")))
-        _emit("allow")
-        return
-
-    command = (event.get("tool_input") or {}).get("command", "")
-    if not isinstance(command, str) or not command.strip():
-        _emit("allow")
+        event = json.loads(raw)
+    except Exception as exc:
+        _fail_open(f"malformed hook payload: {exc}")
         return
 
     try:
         policy = _load_policy()
-    except FileNotFoundError:
-        _fail_open(f"policy file missing: {POLICY_PATH}")
-        return
-    except json.JSONDecodeError as exc:
-        _fail_open(f"policy file is not valid JSON: {exc}")
-        return
-
-    level = _enforcement(policy)
-    if level == "off":
-        _emit("allow")
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        _fail_open(f"policy unavailable: {exc}")
         return
 
     try:
-        problems = _violations(command, policy)
-    except re.error as exc:
-        _fail_open(f"invalid regex in {POLICY_PATH.name}: {exc}")
+        problems = _violations(event, policy)
+    except (re.error, TypeError, ValueError) as exc:
+        _fail_open(f"invalid policy/configuration: {exc}")
         return
 
     if not problems:
         _emit("allow")
-        return
 
-    deduped: list[str] = []
-    for problem in problems:
-        if problem not in deduped:
-            deduped.append(problem)
-    reason = " ".join(deduped)
-    if level == "warn":
+    reason = " ".join(dict.fromkeys(problems))
+    if _enforcement(policy) == "warn" and not any(
+        msg in reason for msg in (CI_LOG_REFUSAL, "Read calls")
+    ):
         print(f"[pre_tool_use] policy warning: {reason}", file=sys.stderr)
         _emit("allow")
-        return
 
     _emit("deny", reason)
 

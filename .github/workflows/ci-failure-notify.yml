@@ -91,19 +91,13 @@ jobs:
             ]);
 
             // ---- which pull request -------------------------------------
-            // A workflow_run event carries its PRs only sometimes: empty for a
-            // fork, and empty whenever the triggering run came from a push,
-            // which is the usual case. Resolve the commit itself rather than
-            // letting the guard below post nothing.
+            // workflow_run.pull_requests is empty for push-triggered runs,
+            // which is the normal case here. Resolve the triggering commit
+            // directly instead of using issue search on a bare SHA; the latter
+            // can return nothing because the search index may not associate
+            // the SHA with its pull request yet.
             let prNumbers = (trigger.pull_requests || []).map(pr => pr.number);
             if (prNumbers.length === 0) {
-              // workflow_run.pull_requests is empty whenever the triggering run
-              // started from a push, which is the normal case here. Issue search
-              // never reliably matches a bare SHA to its pull request and needs
-              // the commit indexed first, so it returned nothing and the guard
-              // below exited 0 without posting -- a silent notice, the one
-              // failure mode this workflow must not have. Resolve the commit
-              // directly instead: the endpoint is exact and needs no indexing.
               const associated =
                 await github.rest.repos.listPullRequestsAssociatedWithCommit({
                   owner: context.repo.owner,
@@ -179,6 +173,18 @@ jobs:
             // Lines that carry a real failure. Ordered most-specific first so
             // a pytest summary line beats a bare traceback frame.
             const SIGNAL = [
+              // REG-0023: an xdist worker that dies takes the short summary
+              // with it -- the run ends with no FAILED line at all, so every
+              // pattern below missed and the fallback printed the worker's
+              // last stdout ("Event loop is closed") with no test named. The
+              // crash lines are the only place the node id survives, so they
+              // rank above the summary line: when both exist the crash is
+              // the one a reader has to see first.
+              /crashed while running/,              // xdist: names the node id
+              /^\[gw\d+\] node down/,              // xdist: worker died
+              /^replacing crashed worker/,           // xdist: and was replaced
+              /^INTERNALERROR>/,                     // pytest itself broke
+              /^!+ .*Interrupted/,                   // session aborted
               /^FAILED\s+\S+/,                      // pytest short summary
               /^ERROR\s+\S+/,                       // pytest collection error
               /^E\s{2,}\S/,                         // pytest assertion detail
@@ -223,9 +229,24 @@ jobs:
                 const ann = await github.rest.checks.listAnnotations({
                   ...context.repo, check_run_id: job.id, per_page: 20,
                 });
+                // Location first. A bare message names the exception and not
+                // the test that raised it, and "Event loop is closed" with no
+                // file is a notice that cannot be acted on without the log
+                // this workflow exists to avoid reading.
                 const msgs = ann.data
                   .filter(a => a.annotation_level !== 'notice')
-                  .map(a => (a.message || a.title || '').split('\n').map(s => s.trim()).filter(Boolean)[0])
+                  .map(a => {
+                    const first = (a.message || a.title || '')
+                      .split('\n').map(s => s.trim()).filter(Boolean)[0];
+                    if (!first) return '';
+                    const where = a.path && a.path !== '.github'
+                      ? `${a.path}${a.start_line ? ':' + a.start_line : ''}: `
+                      : '';
+                    const title = a.title && a.title.trim() && !first.includes(a.title.trim())
+                      ? `${a.title.trim()} -- `
+                      : '';
+                    return `${where}${title}${first}`;
+                  })
                   .filter(Boolean)
                   .filter(l => !isNoise(l));
                 if (msgs.length) return msgs.slice(0, MAX_MSG_LINES);

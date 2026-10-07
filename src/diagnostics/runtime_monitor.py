@@ -29,6 +29,8 @@ from typing import Any, Final
 
 import structlog
 
+from src.eventbus import get_event_bus
+
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 POLL_INTERVAL_S: Final[float] = 30.0  # health probe cadence
@@ -315,6 +317,19 @@ class RuntimeMonitor:
             alerts=alerts,
         )
 
+        # Every completed cycle, not only the ones that changed something.
+        #
+        # This looks like it should be transition-only, and it is not: the
+        # snapshot is the *entire* answer /debug/health gives, and the panel
+        # that replaces that poll has no other source. Publishing on change
+        # alone leaves an operator unable to distinguish "still ok" from
+        # "the monitor died and the last thing it said was ok" -- which is
+        # precisely the state this module exists to make visible. One frame
+        # per POLL_INTERVAL_S is the cheapest possible liveness proof, and
+        # it replaces a 15s poll that re-read this same object twice per
+        # cycle to get the same bytes.
+        get_event_bus().publish("health", self._snapshot.to_dict())
+
         log.debug(
             "runtime_monitor.cycle_complete",
             overall=overall,
@@ -326,7 +341,7 @@ class RuntimeMonitor:
     def _rss_mb() -> float:
         """Read process RSS from /proc/self/status (Linux). Returns 0.0 on failure."""
         try:
-            with open("/proc/self/status") as f:
+            with open("/proc/self/status", encoding="utf-8") as f:
                 for line in f:
                     if line.startswith("VmRSS:"):
                         return float(line.split()[1]) / 1024.0

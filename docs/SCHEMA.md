@@ -67,7 +67,7 @@ flowchart TB
 |   `-- example_tools.py       # reference tool implementations
 |-- scripts/
 |   `-- orchestration_template.py
-|-- .claude/skills/programmatic-tool-calling/SKILL.md
+|-- .claude/skills/local-checks/SKILL.md
 |-- orchestrator/               # Component 3: plan-big / execute-small
 |   |-- config.py planner.py worker.py synthesizer.py run.py
 |-- orchestrator_cli.py
@@ -96,37 +96,21 @@ flowchart TB
 | 6 | Command policy | `common/shell_exec.py`, `.claude/hooks/pre_tool_use.py` | `config/command_policy.json` (static) | none (deterministic) | Local + cloud |
 | 7 | Math registry | `src/mathcore/registry.py` | `config/math_registry.json` (static) | none (deterministic) | Local + cloud |
 
-## Component 6: command policy (schema 1.1.0)
+## Component 6: command policy
 
-Two enforcement points over one shared classifier, so they cannot disagree.
+The command-policy runtime remains available to repository-owned Python callers
+that deliberately use `common/shell_exec.py`. It is **not** the Claude Code
+session's observation boundary and it does not define what native Claude Code
+tools may execute.
 
-**Runtime** — `common/shell_exec.run()` validates a declaration against
-`COMMAND_EXEC_SCHEMA` and refuses to execute when:
+The Claude Code session uses native tool execution. `.claude/hooks/pre_tool_use.py`
+contains only safety checks for destructive commands and credential disclosure.
+Successful model-visible tool results are reduced by
+`.claude/hooks/observation_gate.py`.
 
-- the declared `classification` is weaker than `classify()` detects;
-- `classification="destructive"` without `confirm_destructive=True`;
-- `cwd` does not exist.
-
-It then applies, in order: stream capture with `timeout_s`, `filter_mode`,
-`max_lines`, `max_bytes`, and secret redaction. Destructive declarations are
-forced to a single attempt regardless of `retry_policy`.
-
-**Session** — `.claude/hooks/pre_tool_use.py` is a `PreToolUse` hook matched to
-`Bash`. It refuses unbounded reads, output bounds above 5 lines, destructive
-commands and credential-echoing commands. It ignores heredoc bodies destined
-for a file (content is not a command line) but still inspects bodies fed to an
-interpreter. It fails **open** on its own misconfiguration, and
-`TB_COMMAND_POLICY=block|warn|off` overrides the configured level for one
-session.
-
-| Concern | Field | Default |
-|---|---|---|
-| Line cap | `output_policy.max_lines` | 50 (project directive: 5 per fetch) |
-| Byte cap | `output_policy.max_bytes` | 65536 |
-| Secret masking | `output_policy.redact.enabled` | `true` |
-| Timeout | `timeout_s` | 120 |
-| Effect class | `classification` | `read_only` (verified against the command) |
-| Environment | `env.allowlist` | inherit everything unless set |
+The command schema's output filtering, environment controls, retries and
+redaction remain valid for explicit `common/shell_exec.run()` callers; they
+must not be described as a requirement on native Claude Code tool usage.
 
 ## Component 7: mathematical foundations registry
 
