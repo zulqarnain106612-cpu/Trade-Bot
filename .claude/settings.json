@@ -17,6 +17,15 @@
             "timeout": 600
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/task_lifecycle.py\" session-start",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -51,6 +60,16 @@
             "timeout": 30
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/task_lifecycle.py\" post-bash",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [
@@ -61,6 +80,28 @@
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/observation_failure.py\"",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/completion_gate.py\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/precompact_checkpoint.py\"",
+            "timeout": 30
           }
         ]
       }

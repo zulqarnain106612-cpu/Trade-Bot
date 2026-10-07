@@ -5,13 +5,14 @@
     {
       "name": "foundation",
       "packages": [
+        "agent_control",
         "config",
         "eventbus",
         "logging_setup",
         "mathcore",
         "quality"
       ],
-      "why": "Settings, logging, the mathematical core, the quality registry and the in-process event bus. Import nothing from src above themselves; everything is free to import them. eventbus is here for a structural reason rather than a thematic one: its producers live in io, analytics, decision and orchestration and its consumer is api, so any higher placement is imported upward by everything below it. Only a package beneath all of them can be published to by all of them."
+      "why": "Settings, logging, the mathematical core, the quality registry and the in-process event bus. Import nothing from src above themselves; everything is free to import them. eventbus is here for a structural reason rather than a thematic one: its producers live in io, analytics, decision and orchestration and its consumer is api, so any higher placement is imported upward by everything below it. Only a package beneath all of them can be published to by all of them. agent_control -- the Claude session task, Git-safety and completion layer -- imports nothing from src, and the API (edge) reads its ledgers."
     },
     {
       "name": "crypto",
