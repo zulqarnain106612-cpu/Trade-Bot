@@ -11,6 +11,7 @@ import { RiskControlsPanel } from './components/panels/RiskControlsPanel';
 import { ConfigPanel } from './components/panels/ConfigPanel';
 import { SelfTuningPanel } from './components/panels/SelfTuningPanel';
 import { StrategiesPanel } from './components/panels/StrategiesPanel';
+import { RuntimePanel } from './components/panels/RuntimePanel';
 import {
   HealthPanel, DriftPanel, AuditPanel, ReconcilePanel,
   ModelMetricsPanel, LedgerPanel, RecoveryPanel,
@@ -36,6 +37,7 @@ const ALL_PANELS = [
   { id: 'config', label: 'Configuration', icon: '⚙' },
   { id: 'selftuning', label: 'Self-Tuning', icon: '🎛' },
   { id: 'strategies', label: 'Strategies', icon: '🧠' },
+  { id: 'runtime', label: 'Runtime Platform', icon: '🧩' },
   { id: 'health', label: 'Health', icon: '❤' },
   { id: 'drift', label: 'Drift Monitor', icon: '🔬' },
   { id: 'audit', label: 'Audit Trail', icon: '📋' },
@@ -290,6 +292,13 @@ export default function App() {
             <Panel title="Strategies" icon="🧠" defaultWidth={620} defaultHeight={340}
               accentColor="var(--c-purple)" onToggleVisible={() => togglePanel('strategies')}>
               <StrategiesPanel action={action} />
+            </Panel>
+          )}
+
+          {visibility.runtime && (
+            <Panel title="Runtime Platform" icon="🧩" defaultWidth={760} defaultHeight={420}
+              accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('runtime')}>
+              <RuntimePanel operatorAction={action} />
             </Panel>
           )}
 

@@ -4,6 +4,8 @@ container (scripts/timescaledb.sh). A throwaway database is created per test
 session and dropped at teardown; tables are truncated between tests.
 
 Skips the whole module if the container is not reachable.
+
+Decides: RES-014
 """
 
 import asyncio
@@ -36,7 +38,8 @@ ADMIN_DSN = (
 
 _ALL_TABLES = (
     "bars, trades, regime_snapshots, model_metrics, "
-    "equity_curve, audit_log, intelligence_features_history, missed_trades"
+    "equity_curve, audit_log, intelligence_features_history, missed_trades, "
+    "runtime_desired_state"
 )
 
 _SKIP_MSG = "TimescaleDB container not running — bash scripts/timescaledb.sh up"
@@ -841,6 +844,26 @@ class TestAuditLog:
         await backend.insert_audit_event(event_type="startup", operator="system", details=None)
         health = await backend.health_check()
         assert health["audit_log"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Runtime desired state (migration v9, GOV-071)
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeDesiredState:
+    async def test_upsert_overwrite_and_clear_round_trip(self, backend):
+        first = {"target_state": "ACTIVE", "requested_by": "op"}
+        await backend.upsert_runtime_desired_state("worker:w", first, 1)
+        await backend.upsert_runtime_desired_state("model:m", {"target_state": "STOPPED"}, 2)
+        newer = {"target_state": "DRAINED", "requested_by": "op"}
+        await backend.upsert_runtime_desired_state("worker:w", newer, 3)
+        assert await backend.fetch_runtime_desired_states() == {
+            "model:m": {"target_state": "STOPPED"},
+            "worker:w": newer,
+        }
+        await backend.upsert_runtime_desired_state("worker:w", None, 4)
+        assert list(await backend.fetch_runtime_desired_states()) == ["model:m"]
 
 
 # ---------------------------------------------------------------------------

@@ -58,10 +58,11 @@
       "packages": [
         "engine",
         "intel",
+        "runtime",
         "upgrade",
         "workers"
       ],
-      "why": "Assembles the layers below into a running system."
+      "why": "Assembles the layers below into a running system. runtime is the platform that registers, supervises and changes those components, so it sits with the code that assembles them."
     },
     {
       "name": "edge",
