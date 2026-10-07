@@ -257,14 +257,23 @@ prompt instruction and it does not depend on a command wrapper.
 before execution and the PostToolUse observation hook after every successful
 tool execution.
 
-The PreToolUse boundary enforces hard observation controls for native source
-reads and direct CI run-data access. The PostToolUse boundary replaces the
-successful result delivered to Claude with a compact representation while
-preserving the returned tool shape and structured metadata. Large textual
-payloads are reduced to diagnostic or task-relevant signal lines; source reads
-are reduced to at most three model-visible lines unless the result is already
-small; search inventories are compacted semantically instead of by arbitrary
-head/tail truncation.
+The PreToolUse boundary enforces hard observation controls for native and
+known MCP source reads and direct CI run-data access. Source reads are bounded
+before execution. When a tracked file already has uncommitted changes, broad
+rereads are refused; Claude must inspect the changed candidates first and may
+request only a small exact range when the diff leaves a genuine ambiguity.
+This prevents a write → test → fix cycle from replaying an entire changed file
+into context.
+
+The PostToolUse boundary replaces the successful result delivered to Claude
+with a compact representation while preserving the returned tool shape and
+structured metadata. Large textual payloads are reduced to diagnostic or
+task-relevant signal lines. For modified tracked source files, the boundary
+prefers the file's current Git diff candidates over replaying source content;
+for bounded reads without a baseline diff, the bounded range is retained
+instead of collapsing it to an unnecessarily tiny three-line sample. Search
+inventories are compacted semantically instead of by arbitrary head/tail
+truncation.
 
 The same PostToolUse rule applies to built-in tools and MCP tools. It is
 therefore the repository-level observation boundary for shell execution, file
