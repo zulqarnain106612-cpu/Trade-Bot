@@ -77,7 +77,7 @@ _NO_TASK_ARGUMENT = frozenset(
     {"task create", "task list", "branch-audit", "session-summary", "docs"}
 )
 _DOC_COMMAND = re.compile(
-    r"(?:^|[`$])[ \t]*(?:python3[ \t]+)?scripts/agent_control\\.py[ \t]+"
+    r"(?:^|[`$])[ \t]*(?:python3[ \t]+)?scripts/agent_control\.py[ \t]+"
     r"([a-z][a-z-]*)(?:[ \t]+([a-z][a-z-]*))?",
     re.MULTILINE,
 )
