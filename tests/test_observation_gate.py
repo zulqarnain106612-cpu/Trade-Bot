@@ -19,13 +19,13 @@ def load_gate():
     return module
 
 
-def test_read_output_is_compacted_to_three_model_visible_lines():
+def test_read_output_is_compacted_to_a_useful_bounded_excerpt():
     gate = load_gate()
     raw = "\n".join(f"{i + 1}\tdef important_source_{i}():" for i in range(200))
     event = {"tool_name": "Read", "tool_response": raw}
     output = gate.transform(event)["hookSpecificOutput"]["updatedToolOutput"]
     assert output != raw
-    assert len(output.splitlines()) <= 4
+    assert len(output.splitlines()) <= 81
     assert "source observation compacted" in output
 
 

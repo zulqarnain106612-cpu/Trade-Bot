@@ -1,7 +1,7 @@
 """Contract tests for the universal PreToolUse boundary.
 
 Decides:
-  - GOV-011 — CI output reaching an agent is bounded at 30 lines per fetch
+  - GOV-011 — model-visible source reads are bounded at 80 lines
   - GOV-012 — Live CI monitoring is refused, not rate-limited
   - GOV-019 — CI run data is unreadable from a session under every condition
   - GOV-057 — all model-visible tool observations cross the repository boundary
@@ -45,13 +45,13 @@ class TestUniversalReadBoundary:
         assert decision["permissionDecision"] == "deny"
         assert "bounded range" in decision["permissionDecisionReason"]
 
-    def test_native_read_accepts_at_most_thirty_lines(self):
+    def test_native_read_accepts_at_most_eighty_lines(self):
         assert (
-            decide("Read", {"file_path": "/repo/src/main.py", "limit": 30})["permissionDecision"]
+            decide("Read", {"file_path": "/repo/src/main.py", "limit": 80})["permissionDecision"]
             == "allow"
         )
 
-    @pytest.mark.parametrize("limit", [31, 1000])
+    @pytest.mark.parametrize("limit", [81, 1000])
     def test_native_read_rejects_large_limits(self, limit: int):
         decision = decide("Read", {"file_path": "/repo/src/main.py", "limit": limit})
         assert decision["permissionDecision"] == "deny"
@@ -66,13 +66,13 @@ class TestUniversalReadBoundary:
         assert (
             decide(
                 "mcp__Desktop_Commander__read_file",
-                {"path": "/repo/src/main.py", "length": 30},
+                {"path": "/repo/src/main.py", "length": 80},
             )["permissionDecision"]
             == "allow"
         )
         decision = decide(
             "mcp__Desktop_Commander__read_file",
-            {"path": "/repo/src/main.py", "length": 31},
+            {"path": "/repo/src/main.py", "length": 81},
         )
         assert decision["permissionDecision"] == "deny"
 

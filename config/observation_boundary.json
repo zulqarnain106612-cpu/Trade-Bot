@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": 1,
+  "enabled": true,
+  "limits": {
+    "max_success_lines": 80,
+    "max_success_chars": 6000,
+    "max_source_lines": 80,
+    "max_source_chars": 6000,
+    "max_diff_lines": 120,
+    "max_diff_chars": 10000,
+    "max_search_chars": 6000,
+    "max_search_items": 40,
+    "max_list_items": 40
+  },
+  "max_read_lines": 80,
+  "native_read_tools": [
+    "Read"
+  ],
+  "mcp_read_tool_patterns": [
+    "read_file$"
+  ],
+  "protected_boundary_paths": [
+    ".claude/settings.json",
+    ".claude/hooks/pre_tool_use.py",
+    ".claude/hooks/observation_gate.py",
+    ".claude/hooks/observation_failure.py",
+    "config/observation_boundary.json",
+    "tests/test_observation_boundary_contract.py"
+  ],
+  "policy": {
+    "changed_local_source": "diff_first",
+    "clean_source": "bounded_useful_excerpt",
+    "failure_context": "compact_additional_context_only",
+    "ci_run_data": "blocked",
+    "live_monitoring": "blocked",
+    "environment_scope": "all successful tool observations cross PostToolUse '*'"
+  },
+  "notes": [
+    "enabled is documentary only; hard enforcement lives in code.",
+    "All limits are bounded again by hard ceilings in the hooks.",
+    "The observation mechanism has no runtime off switch."
+  ]
+}
