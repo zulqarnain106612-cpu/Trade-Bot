@@ -4257,6 +4257,171 @@
       ],
       "depends_on": [],
       "notes": "A silent notice is the one failure this channel cannot have: CLAUDE.md section 9 makes it the sole CI failure interface, so when it posts nothing every pull request looks stuck for no visible reason. layer: test-suite"
+    },
+    {
+      "id": "GOV-060",
+      "kind": "requirement",
+      "title": "Agent task state is durable, validated, and never complete without proof",
+      "statement": "An agent-control task manifest persists in the common Git directory (outside every work tree), reads back identically through a fresh store, refuses unknown fields, wrong types and invalid phase or status transitions, and reaches COMPLETE only with a completion proof bound to the task's current HEAD; a dirty tree can only be paused as PAUSED_WITH_UNCOMMITTED_WIP with every dirty path recorded.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "A long session ends with uncommitted work, an open checklist or an unpushed branch and the final report says complete, because completion was narrative or a boolean; after compaction the next session rebuilds the task from memory and repeats or skips work.",
+      "owning_modules": [
+        "src/agent_control/model.py",
+        "src/agent_control/store.py",
+        "src/agent_control/workspace.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/agent_control/test_model.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/agent_control/test_store.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/agent_control/test_workspace.py",
+          "test_type": "integration"
+        }
+      ],
+      "depends_on": [],
+      "notes": "Phase 1 of the Universal Runtime Platform plan (docs/agent/AGENT_EXECUTION_PROTOCOL.md)."
+    },
+    {
+      "id": "GOV-061",
+      "kind": "requirement",
+      "title": "Guarded Git operations need a task authorization and a pre-mutation checkpoint",
+      "statement": "While an agent-control task is active, checkout, switch, restore, reset, rebase, merge, pull, cherry-pick, stash (except list and show), clean and every force push are refused by the PreToolUse hook unless a single-use, expiring authorization naming the operation exists; granting one records a pre-mutation Git snapshot, and commits are verified against the branch head after they are made.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "A vague instruction such as 'clean this up' or 'go back' becomes a checkout or reset that discards uncommitted work or rewrites a branch, with no record of the state before it.",
+      "owning_modules": [
+        "src/agent_control/git_safety.py",
+        "src/agent_control/gitstate.py",
+        ".claude/hooks/pre_tool_use.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/agent_control/test_git_safety.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/agent_control/test_gitstate.py",
+          "test_type": "integration"
+        }
+      ],
+      "depends_on": [
+        "GOV-060"
+      ],
+      "notes": "Extends, and does not replace, the destructive-command marker in common/command_schema.py."
+    },
+    {
+      "id": "GOV-062",
+      "kind": "requirement",
+      "title": "Branch audits are SHA-qualified and reconcile against a recomputed inventory",
+      "statement": "Every branch audit entry records the SHA it audited and becomes STALE when the branch moves; PR and CI attestations are dropped when the head changes; verification recomputes local, remote-tracking and worktree state from Git and reports reconciled only when the inventory, ledger and classified counts agree with nothing missing, extra, stale or reclassified, and a branch whose history is not available locally is BLOCKED, not clean.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "A branch is reported handled because a similarly named one was, because it was audited before new commits landed, or although it has uncommitted work in another worktree.",
+      "owning_modules": [
+        "src/agent_control/branch_audit.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/agent_control/test_branch_audit.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [
+        "GOV-060"
+      ]
+    },
+    {
+      "id": "GOV-063",
+      "kind": "requirement",
+      "title": "Completion is decided by the validator and enforced at Stop",
+      "statement": "verify-completion fails with exact blocking reasons unless the tree is clean, no Git operation is in progress, the checklist is done, HEAD is a verified commit beyond the baseline, deliverables are committed (pushed when required) with their paths changed, every required validation has passing evidence at HEAD on a clean tree, a final diff audit exists for HEAD, and the remote and PR heads equal HEAD when required; the Stop hook blocks the end of a turn while the active task is ACTIVE and incomplete and, after repeated blocks, pauses it honestly instead of trapping the session.",
+      "criticality": "high",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "The agent stops after the code looks right with validations unrun, the last commit unverified or the push missing, and the report claims completion.",
+      "owning_modules": [
+        "src/agent_control/completion.py",
+        "src/agent_control/hooks.py",
+        ".claude/hooks/completion_gate.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/agent_control/test_completion.py",
+          "test_type": "unit"
+        },
+        {
+          "test": "tests/agent_control/test_hooks.py",
+          "test_type": "integration"
+        }
+      ],
+      "depends_on": [
+        "GOV-060",
+        "GOV-061"
+      ]
+    },
+    {
+      "id": "GOV-064",
+      "kind": "requirement",
+      "title": "Task state survives compaction and session restarts",
+      "statement": "Before compaction the active task's checkpoint is written and read back, and compaction is blocked if either fails; every session start prints the active task, status, branch, HEAD, open blockers, dirty files, last checkpoint and next required action rebuilt from disk.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "Context compaction or an interrupted session loses which branch, phase and blockers the task had, and the next session resumes on wrong assumptions.",
+      "owning_modules": [
+        "src/agent_control/hooks.py",
+        ".claude/hooks/precompact_checkpoint.py",
+        ".claude/hooks/task_lifecycle.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/agent_control/test_hooks.py",
+          "test_type": "integration"
+        }
+      ],
+      "depends_on": [
+        "GOV-060"
+      ]
+    },
+    {
+      "id": "GOV-065",
+      "kind": "requirement",
+      "title": "The agent-control CLI's exit codes and documentation are truthful",
+      "statement": "scripts/agent_control.py exits 0 only when a check passes, 1 when a check ran and failed and 2 when a request is refused, and every agent_control invocation in CLAUDE.md, docs/ and the skills names a command that exists in the CLI's command table.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "A failed completion check exits 0 and a script treats it as passed, or the runbook tells the next session to run a command that was renamed.",
+      "owning_modules": [
+        "src/agent_control/cli.py",
+        "scripts/agent_control.py",
+        "docs/agent/AGENT_EXECUTION_PROTOCOL.md"
+      ],
+      "verification": [
+        {
+          "test": "tests/agent_control/test_cli.py",
+          "test_type": "integration"
+        }
+      ],
+      "depends_on": [
+        "GOV-063"
+      ]
     }
   ]
 }

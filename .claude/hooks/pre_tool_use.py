@@ -184,7 +184,29 @@ def _violations(event: dict[str, Any], policy: dict[str, Any]) -> list[str]:
                 f"{marker} after explicit human approval."
             )
 
+    # Last, and only when nothing else refused the command: the guard spends
+    # a single-use authorization, which a command denied anyway must not use.
+    if not problems:
+        guard = _git_guard_violation(event)
+        if guard:
+            problems.append(guard)
+
     return problems
+
+
+def _git_guard_violation(event: dict[str, Any]) -> str:
+    """Guarded Git operations need an agent-control task authorization (GOV-061)."""
+    tool_input = event.get("tool_input") or {}
+    command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+    if event.get("tool_name") != "Bash" or not isinstance(command, str) or "git" not in command:
+        return ""
+    try:
+        from src.agent_control.hooks import git_guard
+
+        return git_guard(event) or ""
+    except Exception as exc:  # fail open, like the rest of this hook
+        print(f"[pre_tool_use] git guard degraded, allowing: {exc!r}", file=sys.stderr)
+        return ""
 
 
 def main() -> None:

@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 173 |
+| VERIFIED | 179 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **173** |
+| **Total** | **179** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 8 | 8 |
 | Release and production | 13 | 13 |
-| Governance | 53 | 53 |
+| Governance | 59 | 59 |
 
 ## Outstanding work by phase
 
@@ -2112,6 +2112,85 @@ No two registry entries state the same requirement: entry titles are unique once
 - **Verification:**
   - `tests/quality/test_quality_registry.py` (contract)
 
+#### `GOV-060` — Agent task state is durable, validated, and never complete without proof
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+An agent-control task manifest persists in the common Git directory (outside every work tree), reads back identically through a fresh store, refuses unknown fields, wrong types and invalid phase or status transitions, and reaches COMPLETE only with a completion proof bound to the task's current HEAD; a dirty tree can only be paused as PAUSED_WITH_UNCOMMITTED_WIP with every dirty path recorded.
+
+- **If violated:** A long session ends with uncommitted work, an open checklist or an unpushed branch and the final report says complete, because completion was narrative or a boolean; after compaction the next session rebuilds the task from memory and repeats or skips work.
+- **Owned by:** `src/agent_control/model.py`, `src/agent_control/store.py`, `src/agent_control/workspace.py`
+- **Verification:**
+  - `tests/agent_control/test_model.py` (unit)
+  - `tests/agent_control/test_store.py` (unit)
+  - `tests/agent_control/test_workspace.py` (integration)
+
+> Phase 1 of the Universal Runtime Platform plan (docs/agent/AGENT_EXECUTION_PROTOCOL.md).
+
+#### `GOV-061` — Guarded Git operations need a task authorization and a pre-mutation checkpoint
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+While an agent-control task is active, checkout, switch, restore, reset, rebase, merge, pull, cherry-pick, stash (except list and show), clean and every force push are refused by the PreToolUse hook unless a single-use, expiring authorization naming the operation exists; granting one records a pre-mutation Git snapshot, and commits are verified against the branch head after they are made.
+
+- **If violated:** A vague instruction such as 'clean this up' or 'go back' becomes a checkout or reset that discards uncommitted work or rewrites a branch, with no record of the state before it.
+- **Owned by:** `src/agent_control/git_safety.py`, `src/agent_control/gitstate.py`, `.claude/hooks/pre_tool_use.py`
+- **Depends on:** `GOV-060`
+- **Verification:**
+  - `tests/agent_control/test_git_safety.py` (unit)
+  - `tests/agent_control/test_gitstate.py` (integration)
+
+> Extends, and does not replace, the destructive-command marker in common/command_schema.py.
+
+#### `GOV-062` — Branch audits are SHA-qualified and reconcile against a recomputed inventory
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-07
+
+Every branch audit entry records the SHA it audited and becomes STALE when the branch moves; PR and CI attestations are dropped when the head changes; verification recomputes local, remote-tracking and worktree state from Git and reports reconciled only when the inventory, ledger and classified counts agree with nothing missing, extra, stale or reclassified, and a branch whose history is not available locally is BLOCKED, not clean.
+
+- **If violated:** A branch is reported handled because a similarly named one was, because it was audited before new commits landed, or although it has uncommitted work in another worktree.
+- **Owned by:** `src/agent_control/branch_audit.py`
+- **Depends on:** `GOV-060`
+- **Verification:**
+  - `tests/agent_control/test_branch_audit.py` (unit)
+
+#### `GOV-063` — Completion is decided by the validator and enforced at Stop
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+verify-completion fails with exact blocking reasons unless the tree is clean, no Git operation is in progress, the checklist is done, HEAD is a verified commit beyond the baseline, deliverables are committed (pushed when required) with their paths changed, every required validation has passing evidence at HEAD on a clean tree, a final diff audit exists for HEAD, and the remote and PR heads equal HEAD when required; the Stop hook blocks the end of a turn while the active task is ACTIVE and incomplete and, after repeated blocks, pauses it honestly instead of trapping the session.
+
+- **If violated:** The agent stops after the code looks right with validations unrun, the last commit unverified or the push missing, and the report claims completion.
+- **Owned by:** `src/agent_control/completion.py`, `src/agent_control/hooks.py`, `.claude/hooks/completion_gate.py`
+- **Depends on:** `GOV-060`, `GOV-061`
+- **Verification:**
+  - `tests/agent_control/test_completion.py` (unit)
+  - `tests/agent_control/test_hooks.py` (integration)
+
+#### `GOV-064` — Task state survives compaction and session restarts
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-07
+
+Before compaction the active task's checkpoint is written and read back, and compaction is blocked if either fails; every session start prints the active task, status, branch, HEAD, open blockers, dirty files, last checkpoint and next required action rebuilt from disk.
+
+- **If violated:** Context compaction or an interrupted session loses which branch, phase and blockers the task had, and the next session resumes on wrong assumptions.
+- **Owned by:** `src/agent_control/hooks.py`, `.claude/hooks/precompact_checkpoint.py`, `.claude/hooks/task_lifecycle.py`
+- **Depends on:** `GOV-060`
+- **Verification:**
+  - `tests/agent_control/test_hooks.py` (integration)
+
+#### `GOV-065` — The agent-control CLI's exit codes and documentation are truthful
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-07
+
+scripts/agent_control.py exits 0 only when a check passes, 1 when a check ran and failed and 2 when a request is refused, and every agent_control invocation in CLAUDE.md, docs/ and the skills names a command that exists in the CLI's command table.
+
+- **If violated:** A failed completion check exits 0 and a script treats it as passed, or the runbook tells the next session to run a command that was renamed.
+- **Owned by:** `src/agent_control/cli.py`, `scripts/agent_control.py`, `docs/agent/AGENT_EXECUTION_PROTOCOL.md`
+- **Depends on:** `GOV-063`
+- **Verification:**
+  - `tests/agent_control/test_cli.py` (integration)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -2223,4 +2302,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 173 entries.
+Registry version: 1.0.0 — 179 entries.
