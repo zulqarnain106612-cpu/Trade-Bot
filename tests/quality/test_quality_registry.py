@@ -15,6 +15,7 @@ Decides:
   - GOV-001 — every production defect yields a permanent regression test
   - GOV-002 — every security finding yields a permanent SEC-#### test
   - GOV-005 — requirement-to-test traceability is machine-checked
+  - GOV-058 — every declared test_types term is used by an entry
 """
 
 from __future__ import annotations
