@@ -496,7 +496,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             tuning_scheduler.start()
 
         log.info("api.startup_complete", trading_mode=cfg.trading_mode.value)
-        yield
+        try:
+            yield
+        finally:
+            # `finally`, not a plain shutdown path: a lifespan unwound by an
+            # exception used to leave this subscription registered on the
+            # process-wide bus with its waiters parked on a loop that was
+            # about to close. The bus survives that now, but the leak is the
+            # defect -- nothing is reading this queue once we are here.
+            #
+            # Close the subscription before cancelling, so the fan-out loop's
+            # `async for` ends on its own rather than being torn out of an
+            # await.
+            ws_subscription.close()
+            for task in ws_tasks:
+                task.cancel()
+            await asyncio.gather(*ws_tasks, return_exceptions=True)
 
         # Close the subscription before cancelling, so the fan-out loop's
         # `async for` ends on its own rather than being torn out of an await.

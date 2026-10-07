@@ -202,3 +202,153 @@ class TestSubscribeCommand:
         await api_main._handle_ws_command(ws, json.dumps({"op": "subscribe", "topics": "price"}))
 
         assert ws.sent and "list of strings" in ws.sent[0]
+
+
+class _ScriptedWS(_FakeWS):
+    """
+    A socket that hands the reader a scripted list of frames, then hangs up.
+
+    Enough of the real surface for the endpoint and the reader: accept and
+    close are recorded rather than performed, and `client` is read only by
+    the connect/disconnect log lines.
+    """
+
+    client = "testclient"
+
+    def __init__(self, frames: list[str] | None = None) -> None:
+        super().__init__()
+        self._frames = list(frames or [])
+        self.accepted = False
+        self.close_codes: list[int] = []
+
+    async def accept(self) -> None:
+        self.accepted = True
+
+    async def close(self, code: int = 1000) -> None:
+        self.close_codes.append(code)
+
+    async def receive_text(self) -> str:
+        from fastapi import WebSocketDisconnect
+
+        if not self._frames:
+            raise WebSocketDisconnect(code=1000)
+        return self._frames.pop(0)
+
+
+def _client_frame(topics: list[str]) -> str:
+    """
+    The frame the dashboard actually sends -- see `_sendSubscribe` in
+    frontend/src/hooks/useApi.js.
+
+    Built here the way the client builds it, deliberately: the guard's
+    envelope and the command's payload are enforced by two different pieces
+    of code, and a client that satisfies one and not the other is closed on
+    every connect.
+    """
+    import time
+
+    return json.dumps(
+        {
+            "type": "subscribe",
+            "nonce": f"s-{int(time.time() * 1000):x}-sub",
+            "ts": time.time(),
+            "op": "subscribe",
+            "topics": topics,
+        }
+    )
+
+
+class TestTheFrameTheClientSends:
+    async def test_it_survives_the_guard_and_narrows_the_subscription(self, api_state) -> None:
+        """
+        End to end through `_guarded_ws_reader`, not straight into the
+        handler. The guard refuses a frame without `type`, `nonce` and `ts`
+        and *closes the socket* for it, so a subscribe carrying only `op` and
+        `topics` would turn every connect into a disconnect -- and the
+        reconnect would send the same frame again. Driving the real reader is
+        what makes that reachable by a test at all.
+        """
+        from src.api import main as api_main
+
+        ws = _ScriptedWS([_client_frame(["price", "equity"])])
+        api_state._ws_clients.add(ws)
+        api_state._ws_roles[ws] = Role.TRADE_AUTHORIZING
+
+        await api_main._guarded_ws_reader(ws)
+
+        assert api_state._ws_topics[ws] == frozenset({"price", "equity"})
+        assert ws.close_codes == []
+        assert ws.sent == []
+
+    async def test_a_frame_without_the_envelope_is_closed_not_subscribed(self, api_state) -> None:
+        """
+        The other half of the same fact, pinned so the client cannot quietly
+        go back to sending a bare command: the guard closes it, and nothing
+        is subscribed.
+        """
+        from src.api import main as api_main
+
+        ws = _ScriptedWS([json.dumps({"op": "subscribe", "topics": ["price"]})])
+        api_state._ws_clients.add(ws)
+        api_state._ws_roles[ws] = Role.TRADE_AUTHORIZING
+
+        await api_main._guarded_ws_reader(ws)
+
+        assert ws.close_codes  # closed on policy violation
+        assert ws not in api_state._ws_topics
+
+
+class TestTheConnectPath:
+    async def test_a_new_connection_starts_subscribed_to_what_its_key_allows(
+        self, api_state, monkeypatch
+    ) -> None:
+        """
+        Defaulting to nothing would silence every dashboard shipped before
+        subscriptions existed, which is worse than sending too much. A
+        read-only key still never starts subscribed to `approval`.
+        """
+        from unittest.mock import AsyncMock
+
+        from src.api import main as api_main
+
+        ws = _ScriptedWS()
+        monkeypatch.setattr(api_main, "verify_ws_key", AsyncMock(return_value=Role.READ_ONLY))
+        monkeypatch.setattr(api_main, "_build_tick_snapshot", AsyncMock(return_value=None))
+        granted: dict[object, frozenset[str]] = {}
+        real_set = api_state.set_ws_topics
+
+        async def _record(sock, topics):
+            granted[sock] = topics
+            await real_set(sock, topics)
+
+        monkeypatch.setattr(api_state, "set_ws_topics", _record)
+
+        await api_main.websocket_endpoint(ws)
+
+        assert ws.accepted
+        assert granted[ws] == api_state.permitted_topics(Role.READ_ONLY)
+        assert "approval" not in granted[ws]
+        # The finally arm ran: a hung-up connection leaves nothing behind.
+        assert ws not in api_state._ws_clients
+        assert ws not in api_state._ws_roles
+
+    async def test_the_cold_start_snapshot_goes_out_before_the_first_beat(
+        self, api_state, monkeypatch
+    ) -> None:
+        """
+        Without it a client that connects just after a beat renders empty
+        panels for most of a heartbeat, which reads as a broken dashboard.
+        """
+        from unittest.mock import AsyncMock
+
+        from src.api import main as api_main
+
+        ws = _ScriptedWS()
+        monkeypatch.setattr(api_main, "verify_ws_key", AsyncMock(return_value=Role.READ_ONLY))
+        monkeypatch.setattr(
+            api_main, "_build_tick_snapshot", AsyncMock(return_value={"type": "tick"})
+        )
+
+        await api_main.websocket_endpoint(ws)
+
+        assert json.loads(ws.sent[0]) == {"type": "tick"}

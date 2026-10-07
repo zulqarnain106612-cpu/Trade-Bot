@@ -1,0 +1,8 @@
+{
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.analysis.typeCheckingMode": "basic",
+  "ruff.nativeServer": true,
+  "ruff.organizeImports": true,
+  "github-actions.workflows.pinnedGitHubAction": "warning"
+}

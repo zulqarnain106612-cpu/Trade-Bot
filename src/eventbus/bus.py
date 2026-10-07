@@ -168,16 +168,43 @@ class Subscription:
         if len(self._queue) == self.maxlen:
             self.dropped += 1
         self._queue.append(event)
-        self._wake.set()
+        self._wake_consumer()
+
+    def _detach(self) -> None:
+        """Mark closed and unregister from the bus. Idempotent."""
+        self._closed = True
+        if self._unsubscribe is not None:
+            self._unsubscribe(self)
+            self._unsubscribe = None
+
+    def _wake_consumer(self) -> None:
+        """
+        Wake the iterator, or drop this subscription if its loop is gone.
+
+        ``asyncio.Event.set`` resolves the futures ``__aiter__`` parks on, and
+        resolving a future whose loop has since been closed raises. Any
+        subscriber whose consumer died without closing is in that state -- an
+        API lifespan unwound by an exception rather than through its shutdown
+        path, or a process that ran the server under one ``asyncio.run`` and
+        published under the next.
+
+        Catching it here rather than leaving it to ``publish``'s blanket guard
+        is the point: that guard would abandon the rest of the fan-out, so one
+        consumer that is already unreachable would cost every live subscriber
+        the event. Dropping it is also the honest reading -- nothing is going
+        to read that queue again.
+        """
+        try:
+            self._wake.set()
+        except RuntimeError:
+            self._detach()
 
     def close(self) -> None:
         """Unregister and wake the iterator so it can finish."""
         if self._closed:
             return
-        self._closed = True
-        if self._unsubscribe is not None:
-            self._unsubscribe(self)
-        self._wake.set()
+        self._detach()
+        self._wake_consumer()
 
     async def __aenter__(self) -> Subscription:
         return self
@@ -261,7 +288,9 @@ class EventBus:
                 topic=topic, data=payload, ts_ms=ts_ms if ts_ms is not None else _now_ms()
             )
             self.published += 1
-            for sub in self._subscribers:
+            # Snapshot: _offer drops a subscriber whose loop has been closed,
+            # which mutates this set while it is being walked.
+            for sub in tuple(self._subscribers):
                 if topic in sub.topics:
                     sub._offer(event)
         except Exception as exc:  # pragma: no cover - defence, not a path

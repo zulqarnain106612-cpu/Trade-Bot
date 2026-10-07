@@ -1,5 +1,5 @@
 """
-INV-032 / INV-033 -- the four observability producers, and the law that every
+INV-032 / API-011 -- the four observability producers, and the law that every
 declared topic has one.
 
 These four are the ones an operator cannot see any other way once the polls
@@ -17,7 +17,7 @@ are gone:
               fails open, so this transition is the *only* evidence that the
               feature pipeline has quietly started running on fallbacks.
 
-INV-033 is the structural half: a topic nobody publishes is a panel that
+API-011 is the structural half: a topic nobody publishes is a panel that
 renders once on mount and then stays wrong forever, and nothing about that
 looks like a failure from either end.
 """
@@ -427,7 +427,7 @@ def _published_topics() -> set[str]:
 
 
 class TestEveryTopicHasAProducer:
-    """INV-033."""
+    """API-011."""
 
     def test_no_topic_is_declared_without_a_producer(self) -> None:
         """

@@ -123,7 +123,7 @@ def load_horizon_architectures(path: Path) -> dict[str, list[str]]:
     that exists and names a bad architecture is an error.
     """
     try:
-        with open(path) as fh:
+        with open(path, encoding="utf-8") as fh:
             config = yaml.safe_load(fh) or {}
     except FileNotFoundError:
         return {}

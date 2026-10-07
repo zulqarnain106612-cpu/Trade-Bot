@@ -5,6 +5,8 @@ Authority sources:
   - Pydantic-Settings v2 docs (https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
   - López de Prado (2018) AFML — risk parameter foundations
   - Kelly (1956) A New Interpretation of Information Rate — position sizing constants
+
+Registry: REL-006 (config/quality_registry.json).
 """
 
 from __future__ import annotations

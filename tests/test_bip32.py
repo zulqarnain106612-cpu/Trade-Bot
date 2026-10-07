@@ -17,6 +17,10 @@ rather than trusted for being written down.
 watch-only module whose value is that it *cannot* produce a private key is
 verified by showing what it refuses: hardened derivation, an extended private
 key, a mistyped xpub, a child index past the serialisable depth.
+
+Decides:
+  - SECR-011 — Deposit-address derivation cannot produce or accept a private key
+  - SECR-012 — Derived addresses match what a BIP-32 wallet derives, checked against an indepen
 """
 
 from __future__ import annotations

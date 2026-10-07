@@ -8,6 +8,11 @@ notice trustworthy -- it fires on every not-green conclusion including an
 unexcused skip, carries the exact failing lines rather than only a step name,
 stays inside the same line budget the command policy enforces, and replaces its
 own prior comment instead of stacking new ones.
+
+Decides:
+  - GOV-013 — CI failure is pushed to the pull request, never polled for
+  - GOV-020 — One comment per commit carries the status and the exact failing lines
+  - REG-0023 — A crashed test worker is named in the notice, not reduced to its last stdout line
 """
 
 from __future__ import annotations
@@ -237,15 +242,15 @@ class TestCommentBody:
         """Annotations are check-run data; the token has to be allowed to read them."""
         assert spec["permissions"]["checks"] == "read"
 
-    def test_a_fork_pull_request_is_still_found(self, script):
+    def test_a_push_triggered_run_resolves_the_pull_request_from_the_commit(self, script):
         """
-        workflow_run carries `pull_requests` only for same-repo branches.
+        workflow_run.pull_requests can be empty for push-triggered runs.
 
-        Without the head-SHA fallback a fork's failure would be silently
-        dropped, which is the one case where silence is indistinguishable
-        from success.
+        The notice must resolve the commit directly; issue search on a bare SHA
+        is not a reliable association mechanism.
         """
-        assert "issuesAndPullRequests" in script
+        assert "listPullRequestsAssociatedWithCommit" in script
+        assert "issuesAndPullRequests" not in script
         assert "head_sha" in script
 
 
@@ -289,3 +294,83 @@ class TestGateLaw:
         assert "gate" not in spec["jobs"]
         triggers = spec.get("on") or spec.get(True)
         assert "pull_request" not in triggers
+
+
+SIGNAL_SRC = re.compile(r"const SIGNAL = \[(.*?)\n\s*\];", re.S)
+JS_LITERAL = re.compile(r"^\s*/(.+?)/[a-z]*,\s*(?://.*)?$")
+
+CRASHED_WORKER_LOG = [
+    "============================= test session starts ==============================",
+    "tests/test_alpha.py ....",
+    "[gw3] node down: Not properly terminated",
+    "replacing crashed worker gw3",
+    "worker 'gw3' crashed while running 'tests/test_ws_event_wakeup.py::test_wakeup'",
+    "Event loop is closed",
+    "Event loop is closed",
+]
+
+ORDINARY_FAILURE_LOG = [
+    "tests/test_alpha.py .F..",
+    "FAILED tests/test_alpha.py::test_beta - AssertionError: assert 1 == 2",
+]
+
+
+def signal_patterns(script: str) -> list[re.Pattern[str]]:
+    """The workflow's own SIGNAL list, read out of the workflow.
+
+    The order is the whole contract -- first pattern with a hit wins -- so the
+    list is parsed rather than restated here, where it could drift.
+    """
+    block = SIGNAL_SRC.search(script)
+    assert block, "SIGNAL list not found in the workflow"
+    out = []
+    for line in block.group(1).split("\n"):
+        if not line.strip() or line.strip().startswith("//"):
+            continue
+        literal = JS_LITERAL.match(line)
+        assert literal, f"unparsed SIGNAL entry: {line!r}"
+        out.append(re.compile(literal.group(1)))
+    assert out, "SIGNAL list is empty"
+    return out
+
+
+def first_match(script: str, log: list[str]) -> list[str]:
+    """Reproduce the workflow's selection: first pattern with hits, last four."""
+    for pattern in signal_patterns(script):
+        hits = [line for line in log if pattern.search(line)]
+        if hits:
+            return hits[-4:]
+    return []
+
+
+class TestACrashedWorkerIsNamed:
+    """
+    REG-0023. A dying worker takes the short summary with it, so the run ends
+    with no FAILED line and every pattern missed. The REG-0020 fallback then
+    published the step's last stdout, which made an entire notice read
+    "Event loop is closed" -- no node id, no file, no test. Section 8 makes
+    this notice the only failure channel a session may read, so a failure it
+    cannot name is one nobody can diagnose.
+    """
+
+    def test_the_notice_names_the_test_the_worker_died_on(self, script):
+        picked = first_match(script, CRASHED_WORKER_LOG)
+        assert picked, "no pattern matched a crashed-worker log"
+        assert any("crashed while running" in line for line in picked), picked
+        assert any("test_wakeup" in line for line in picked), picked
+
+    def test_the_last_stdout_line_is_not_what_gets_published(self, script):
+        picked = first_match(script, CRASHED_WORKER_LOG)
+        assert not any(line == "Event loop is closed" for line in picked), (
+            "the error text alone names no test; that is the defect"
+        )
+
+    def test_an_ordinary_failure_still_reports_its_summary_line(self, script):
+        # The crash patterns rank above the summary line, so this is the
+        # assertion that they did not shadow it for every other run.
+        picked = first_match(script, ORDINARY_FAILURE_LOG)
+        assert picked == ["FAILED tests/test_alpha.py::test_beta - AssertionError: assert 1 == 2"]
+
+    def test_a_session_level_abort_is_reported(self, script):
+        for line in ("INTERNALERROR> RuntimeError: boom", "!!!! Interrupted: 1 error !!!!"):
+            assert first_match(script, [line, "Event loop is closed"]) == [line], line

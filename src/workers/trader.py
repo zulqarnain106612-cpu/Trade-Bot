@@ -97,6 +97,11 @@ async def _run() -> None:
                 {orch_task, stop_waiter},
                 return_when=asyncio.FIRST_COMPLETED,
             )
+            # Whichever waiter lost the race is abandoned; cancelling it keeps
+            # a pending task from being collected out from under the loop. The
+            # orchestrator's own task is never cancelled here -- it is asked to
+            # stop below and given time to unwind.
+            stop_waiter.cancel()
             if orch_task in done and not stop_event.is_set():
                 # The orchestrator returned without a stop request — surface
                 # the reason (may be an exception) instead of silently
@@ -108,14 +113,12 @@ async def _run() -> None:
                 log.warning("worker.orchestrator_exited_unexpectedly")
         finally:
             orchestrator.stop()
-            try:
+            # wait_for cancels orch_task itself once the timeout expires, and
+            # re-raises whatever the orchestrator failed with -- which the block
+            # above already surfaces. Neither may skip the shutdown and the
+            # storage close below, so nothing from the wait escapes here.
+            with contextlib.suppress(Exception):
                 await asyncio.wait_for(orch_task, timeout=10.0)
-            except TimeoutError:
-                orch_task.cancel()
-                # Nothing raised here is actionable: the task is already being
-                # abandoned, and the shutdown below must run regardless.
-                with contextlib.suppress(BaseException):
-                    await orch_task
             await orchestrator.shutdown()
             await storage.close()
             log.info("worker.shutdown_complete")

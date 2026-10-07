@@ -240,8 +240,8 @@
       "properties": {
         "test": {
           "type": "string",
-          "description": "Repo-relative path to a test file, optionally ::-qualified to a node. Existence is checked by the loader -- a renamed test must turn the claim red rather than silently passing.",
-          "pattern": "^tests/[A-Za-z0-9_/]+\\.py(::[A-Za-z0-9_:]+)?$"
+          "description": "Repo-relative path to a test file, optionally ::-qualified to a node for a Python test. Existence is checked by the loader -- a renamed test must turn the claim red rather than silently passing. A frontend requirement names its vitest file under frontend/src/: the alternative is a Python proxy asserting that the JS test exists, which would make this registry describe a check rather than the one that decides the behaviour.",
+          "pattern": "^(tests/[A-Za-z0-9_/]+\\.py(::[A-Za-z0-9_:]+)?|frontend/src/[A-Za-z0-9_/.-]+\\.test\\.jsx?)$"
         },
         "test_type": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
         "note": { "type": "string" }
