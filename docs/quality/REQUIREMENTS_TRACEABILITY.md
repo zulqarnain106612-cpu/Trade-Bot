@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 186 |
+| VERIFIED | 187 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **186** |
+| **Total** | **187** |
 
 ## Summary by subsystem
 
@@ -61,7 +61,7 @@ deletion of the thing it points at.
 | Execution | 12 | 12 |
 | Portfolio | 1 | 1 |
 | Signal and features | 5 | 5 |
-| Models and leakage | 9 | 9 |
+| Models and leakage | 10 | 10 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 18 | 18 |
 | Cryptography and secrets | 29 | 29 |
@@ -527,6 +527,19 @@ Model validation uses combinatorial purged cross-validation with an embargo, so 
 - **Owned by:** `src/models/trainer.py`
 - **Verification:**
   - `tests/models/test_cpcv_purging.py` (verification) — Train and test never overlap, the purge gap before and the embargo after every test block are empty, and the fold count is the binomial coefficient rather than a single pass.
+
+#### `RES-016` — No adaptive candidate promotes itself
+
+**VERIFIED** · critical · requirement · source: OPS-2026-10-07
+
+A tuned parameter, retrained model or generated strategy becomes live only as an adaptive candidate that passes BACKTEST, STRESS, RED_TEAM, SHADOW, CANARY and PROMOTION_GATE in order, each recorded by the system or a human approver and never by its proposer or an AI actor; the promotion gate is the existing promotion gauntlet and a model's shadow stage is the model registry's own evaluation; promotion is a change request that waits for a human approver; probation ends by the post-promotion watchdog's outcome, CLEARED promoting and ROLLED_BACK rolling the change back.
+
+- **If violated:** An optimizer, trainer or AI agent validates and activates its own candidate, or a drifting promotion stays live.
+- **Owned by:** `src/runtime/adaptive.py`
+- **Depends on:** `RES-013`
+- **Verification:**
+  - `tests/runtime/test_adaptive_lifecycle.py` (integration)
+  - `tests/runtime/test_promotion_gates.py` (unit)
 
 #### `REG-0015` — A hung ensemble fit must not block orchestrator startup
 
@@ -2399,4 +2412,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 186 entries.
+Registry version: 1.0.0 — 187 entries.

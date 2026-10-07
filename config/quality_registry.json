@@ -4646,6 +4646,33 @@
       "depends_on": [
         "RES-013"
       ]
+    },
+    {
+      "id": "RES-016",
+      "kind": "requirement",
+      "title": "No adaptive candidate promotes itself",
+      "statement": "A tuned parameter, retrained model or generated strategy becomes live only as an adaptive candidate that passes BACKTEST, STRESS, RED_TEAM, SHADOW, CANARY and PROMOTION_GATE in order, each recorded by the system or a human approver and never by its proposer or an AI actor; the promotion gate is the existing promotion gauntlet and a model's shadow stage is the model registry's own evaluation; promotion is a change request that waits for a human approver; probation ends by the post-promotion watchdog's outcome, CLEARED promoting and ROLLED_BACK rolling the change back.",
+      "criticality": "critical",
+      "subsystem": "model",
+      "status": "verified",
+      "source": "OPS-2026-10-07",
+      "failure_mode": "An optimizer, trainer or AI agent validates and activates its own candidate, or a drifting promotion stays live.",
+      "owning_modules": [
+        "src/runtime/adaptive.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/runtime/test_adaptive_lifecycle.py",
+          "test_type": "integration"
+        },
+        {
+          "test": "tests/runtime/test_promotion_gates.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [
+        "RES-013"
+      ]
     }
   ]
 }

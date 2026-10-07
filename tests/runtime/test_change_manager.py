@@ -155,9 +155,8 @@ def test_a_failing_audit_sink_does_not_lose_the_audit(platform: Platform) -> Non
     platform.changes._sinks.append(broken)
     platform.registry.register(spec("w"), observed_state=S.ACTIVE)
     change = platform.changes.submit(_request("worker:w", A.DRAIN))
-    assert platform.changes.audit_log(change.change_id)[0].to_dict()["event"] == (
-        "submitted:APPROVED"
-    )
+    first = platform.changes.audit_log(change.change_id)[0]
+    assert first.to_dict()["event"] == "submitted:APPROVED"
 
 
 def test_request_desired_records_intent_and_audits(platform: Platform) -> None:
