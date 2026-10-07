@@ -4294,7 +4294,7 @@
       "id": "GOV-061",
       "kind": "requirement",
       "title": "Guarded Git operations need a task authorization and a pre-mutation checkpoint",
-      "statement": "While an agent-control task is active, checkout, switch, restore, reset, rebase, merge, cherry-pick, stash (except list and show), clean and every force push are refused by the PreToolUse hook unless a single-use, expiring authorization naming the operation exists; granting one records a pre-mutation Git snapshot, and commits are verified against the branch head after they are made.",
+      "statement": "While an agent-control task is active, checkout, switch, restore, reset, rebase, merge, pull, cherry-pick, stash (except list and show), clean and every force push are refused by the PreToolUse hook unless a single-use, expiring authorization naming the operation exists; granting one records a pre-mutation Git snapshot, and commits are verified against the branch head after they are made.",
       "criticality": "high",
       "subsystem": "governance",
       "status": "verified",

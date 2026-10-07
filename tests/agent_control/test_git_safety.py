@@ -74,6 +74,8 @@ NOW = datetime(2026, 10, 7, 12, 0, tzinfo=UTC)
         ("/usr/bin/git cherry-pick abc", ["cherry-pick"]),
         ("git --version", []),
         ("git merge-base a b", []),
+        ("git pull --ff-only origin main", ["pull"]),
+        ('echo "unterminated && git pull origin', ["pull"]),
         ("git clean -n", ["clean"]),
         ("git push -u origin b", []),
         ("git push --force-with-lease origin b", [FORCE_PUSH]),

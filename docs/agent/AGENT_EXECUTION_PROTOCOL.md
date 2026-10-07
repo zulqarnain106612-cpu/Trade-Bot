@@ -99,8 +99,8 @@ evidence recorded at the current HEAD, on a clean tree, counts.
 ## Git safety
 
 While a task is active, these operations need a single-use authorization:
-`checkout`, `switch`, `restore`, `reset`, `rebase`, `merge`, `cherry-pick`,
-`stash` (except `list`/`show`), `clean`, and every force push including
+`checkout`, `switch`, `restore`, `reset`, `rebase`, `merge`, `pull`,
+`cherry-pick`, `stash` (except `list`/`show`), `clean`, and every force push including
 `--force-with-lease`. Granting one takes a pre-mutation checkpoint of the
 whole Git state first:
 

@@ -6,8 +6,8 @@ Guarded Git operations -- what must not run without an explicit, recorded reason
 This module covers the next ring out: operations that are recoverable in
 principle but are exactly how uncommitted work and branch state get lost in a
 long session -- ``checkout``, ``switch``, ``restore``, ``reset``, ``rebase``,
-``merge``, ``cherry-pick``, ``stash``, ``clean`` and every force push,
-``--force-with-lease`` included.
+``merge``, ``pull`` (a merge or rebase in disguise), ``cherry-pick``,
+``stash``, ``clean`` and every force push, ``--force-with-lease`` included.
 
 While an agent-control task is active in a worktree, each such operation
 needs a single-use, expiring authorization recorded against the task, and
@@ -40,7 +40,18 @@ from src.agent_control.model import Authorization, ManifestError, TaskRun, next_
 
 FORCE_PUSH = "push-force"
 GUARDED_SUBCOMMANDS: frozenset[str] = frozenset(
-    {"checkout", "switch", "restore", "reset", "rebase", "merge", "cherry-pick", "stash", "clean"}
+    {
+        "checkout",
+        "switch",
+        "restore",
+        "reset",
+        "rebase",
+        "merge",
+        "pull",
+        "cherry-pick",
+        "stash",
+        "clean",
+    }
 )
 GUARDED_OPERATIONS: frozenset[str] = GUARDED_SUBCOMMANDS | {FORCE_PUSH}
 
@@ -58,7 +69,8 @@ _PUNCTUATION = frozenset("();<>|&")
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\2")
 _FALLBACK = re.compile(
-    r"\bgit\b[^\n;&|]*?\b(checkout|switch|restore|reset|rebase|merge|cherry-pick|stash|clean)\b"
+    r"\bgit\b[^\n;&|]*?"
+    r"\b(checkout|switch|restore|reset|rebase|merge|pull|cherry-pick|stash|clean)\b"
     r"|\bgit\b[^\n;&|]*?\bpush\b[^\n;&|]*?(--force|\s-[a-zA-Z]*f|\s\+)"
 )
 _MAX_DEPTH = 3

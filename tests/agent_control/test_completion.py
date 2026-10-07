@@ -50,10 +50,9 @@ NOW = "2026-10-07T00:00:00+00:00"
 
 
 def _evidence(kind: EvidenceKind, subject: str, **overrides: object) -> Evidence:
-    record_kind = overrides.pop("kind", kind)
     record = Evidence(
         evidence_id=f"EV-{subject}",
-        kind=record_kind,
+        kind=kind,
         source=EvidenceSource.EXECUTED,
         subject=subject,
         ok=True,
@@ -217,7 +216,9 @@ def test_validation_evidence_must_be_at_head_clean_and_passing(git) -> None:
         {"ok": False},
         {"kind": EvidenceKind.COMMIT},
     ):
-        evidence = [_evidence(EvidenceKind.COMMAND, "smoke", **stale)]
+        # replace() after construction: "kind" is also _evidence's first
+        # parameter, so passing it through **overrides binds it twice.
+        evidence = [replace(_evidence(EvidenceKind.COMMAND, "smoke"), **stale)]
         evidence += [e for e in _task().evidence if e.subject != "smoke"]
         report = _blockers(git, _task(evidence=evidence))
         assert report["blocking_reasons"] == [

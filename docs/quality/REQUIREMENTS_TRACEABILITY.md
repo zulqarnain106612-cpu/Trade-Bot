@@ -2131,7 +2131,7 @@ An agent-control task manifest persists in the common Git directory (outside eve
 
 **VERIFIED** · high · requirement · source: OPS-2026-10-07
 
-While an agent-control task is active, checkout, switch, restore, reset, rebase, merge, cherry-pick, stash (except list and show), clean and every force push are refused by the PreToolUse hook unless a single-use, expiring authorization naming the operation exists; granting one records a pre-mutation Git snapshot, and commits are verified against the branch head after they are made.
+While an agent-control task is active, checkout, switch, restore, reset, rebase, merge, pull, cherry-pick, stash (except list and show), clean and every force push are refused by the PreToolUse hook unless a single-use, expiring authorization naming the operation exists; granting one records a pre-mutation Git snapshot, and commits are verified against the branch head after they are made.
 
 - **If violated:** A vague instruction such as 'clean this up' or 'go back' becomes a checkout or reset that discards uncommitted work or rewrites a branch, with no record of the state before it.
 - **Owned by:** `src/agent_control/git_safety.py`, `src/agent_control/gitstate.py`, `.claude/hooks/pre_tool_use.py`

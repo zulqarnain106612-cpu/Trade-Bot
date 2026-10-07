@@ -258,7 +258,22 @@ class TestDocs:
         assert documented, "the agent execution protocol must document its commands"
         assert cli.docs_problems(REPO_ROOT) == []
 
-    def test_prose_about_cli_exit_codes_is_not_treated_as_an_invocation(self, tmp_path: Path) -> None:\n        docs = tmp_path / "docs"\n        docs.mkdir()\n        (docs / "quality.md").write_text(\n            "scripts/agent_control.py exits 0 only when a check passes.\\n",\n            encoding="utf-8",\n        )\n        assert cli.documented_commands(tmp_path) == []\n        assert cli.docs_problems(tmp_path) == ["no agent_control commands are documented"]\n\n    def test_unknown_commands_and_subcommands_are_reported(self, tmp_path: Path) -> None:
+    def test_prose_about_cli_exit_codes_is_not_treated_as_an_invocation(
+        self, tmp_path: Path
+    ) -> None:
+        docs = tmp_path / "docs"
+        docs.mkdir()
+        (docs / "quality.md").write_text(
+            "scripts/agent_control.py exits 0 only when a check passes.\n",
+            encoding="utf-8",
+        )
+        assert cli.documented_commands(tmp_path) == []
+        assert cli.docs_problems(tmp_path) == []
+        out = io.StringIO()
+        assert cli.main(["--cwd", str(tmp_path), "docs", "verify"], out=out) == 1
+        assert "no agent_control commands are documented" in out.getvalue()
+
+    def test_unknown_commands_and_subcommands_are_reported(self, tmp_path: Path) -> None:
         docs = tmp_path / "docs"
         docs.mkdir()
         (docs / "a.md").write_text(
