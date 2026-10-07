@@ -355,8 +355,7 @@ def verify_ledger(
             changed.append(name)
     classified = len(set(current) & set(live)) - len(stale) - len(changed)
     reconciled = (
-        not (missing or extra or stale or changed)
-        and len(current) == len(live) == classified
+        not (missing or extra or stale or changed) and len(current) == len(live) == classified
     )
     return {
         "reconciled": reconciled,
