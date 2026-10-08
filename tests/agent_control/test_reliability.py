@@ -106,21 +106,15 @@ def test_invalid_ci_status_is_rejected():
 
 def test_notice_parser_detects_green_and_pending(monkeypatch, tmp_path):
     monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
-    green = reliability.record_ci_from_notice(
-        sha="a" * 40, pr=1, notice="All checks green"
-    )
-    pending = reliability.record_ci_from_notice(
-        sha="b" * 40, pr=1, notice="CI still running"
-    )
+    green = reliability.record_ci_from_notice(sha="a" * 40, pr=1, notice="All checks green")
+    pending = reliability.record_ci_from_notice(sha="b" * 40, pr=1, notice="CI still running")
     assert green["status"] == "green"
     assert pending["status"] == "pending"
 
 
 def test_notice_parser_uses_non_green_fallback(monkeypatch, tmp_path):
     monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
-    record = reliability.record_ci_from_notice(
-        sha="a" * 40, pr=1, notice="CI result unavailable"
-    )
+    record = reliability.record_ci_from_notice(sha="a" * 40, pr=1, notice="CI result unavailable")
     assert record["status"] == "failed"
     assert record["failed_checks"] == ["non-green CI"]
 
@@ -132,9 +126,10 @@ def test_gate_short_circuits_when_ci_not_required(monkeypatch, tmp_path):
 
 def test_gate_requires_head_and_green_status(monkeypatch, tmp_path):
     monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
-    assert "HEAD unavailable" in reliability.gate(
-        task_id=None, head_sha=None, requires_ci=True
-    ).blockers[0]
+    assert (
+        "HEAD unavailable"
+        in reliability.gate(task_id=None, head_sha=None, requires_ci=True).blockers[0]
+    )
     reliability.record_ci_verdict(sha="a" * 40, pr=1, status="pending")
     result = reliability.gate(task_id=None, head_sha="a" * 40, requires_ci=True)
     assert not result.ok
