@@ -114,6 +114,10 @@ def record_tool_failure(
     task_id: str | None = None,
     head_sha: str | None = None,
 ) -> dict[str, Any]:
+    if task_id is None or head_sha is None:
+        active_task, active_head = _active_context()
+        task_id = task_id or active_task
+        head_sha = head_sha or active_head
     fp = fingerprint("tool", tool, re.sub(r"\s+", " ", command), summary)
     with _locked() as path:
         data = _load(path)

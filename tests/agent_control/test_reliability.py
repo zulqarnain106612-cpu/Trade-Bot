@@ -176,3 +176,14 @@ def test_active_context_handles_non_git_and_valid_git(monkeypatch, tmp_path):
 
     monkeypatch.setattr(reliability.subprocess, "run", fake_run)
     assert reliability._active_context()[1] == "a" * 40
+
+def test_tool_failure_binds_active_context_when_not_supplied(monkeypatch, tmp_path):
+    monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        reliability, "_active_context", lambda: ("task-1", "a" * 40)
+    )
+    event = reliability.record_tool_failure(
+        tool="Bash", command="cmd", summary="failure"
+    )
+    assert event["task_id"] == "task-1"
+    assert event["head_sha"] == "a" * 40
