@@ -33,90 +33,40 @@ def test_prepare_green_deletes_any_stale_plan(tmp_path, monkeypatch, capsys):
     module = load_module()
     module.PLAN = tmp_path / "plan.json"
     module.PLAN.write_text("stale", encoding="utf-8")
-    monkeypatch.setattr(
-        module, "git", lambda *args: "abc123" if args == ("rev-parse", "HEAD") else ""
-    )
-    monkeypatch.setattr(
-        module,
-        "current_pr",
-        lambda sha: {"number": 123},
-    )
-    monkeypatch.setattr(
-        module,
-        "check_runs",
-        lambda sha: [
-            {"name": "CI gate (all jobs green)", "status": "completed", "conclusion": "success"},
-            {
-                "name": "Security gate (all jobs green)",
-                "status": "completed",
-                "conclusion": "success",
-            },
-            {
-                "name": "CodeQL gate (all jobs green)",
-                "status": "completed",
-                "conclusion": "success",
-            },
-            {
-                "name": "Workflow lint gate (all jobs green)",
-                "status": "completed",
-                "conclusion": "success",
-            },
-            {
-                "name": "Python (lint + governance docs)",
-                "status": "completed",
-                "conclusion": "success",
-            },
-            {"name": "Python tests (shard 1/6)", "status": "completed", "conclusion": "success"},
-        ],
-    )
+    monkeypatch.setattr(module, "git", lambda *args: "abc123")
+    monkeypatch.setattr(module, "current_pr", lambda sha: {"number": 123})
+    monkeypatch.setattr(module, "latest_notice", lambda pr, sha: "CI abc1234 — all checks green")
+    monkeypatch.setattr(module, "STATE_DIR", tmp_path / "state")
+    from src.agent_control import reliability
 
+    monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
     assert module.prepare() == 0
     assert not module.PLAN.exists()
     assert "local execution locked" in capsys.readouterr().out
 
 
-def test_prepare_records_only_failed_checks(tmp_path, monkeypatch):
+def test_prepare_records_only_failed_checks_from_notice(tmp_path, monkeypatch):
     module = load_module()
     module.PLAN = tmp_path / "plan.json"
     monkeypatch.setattr(module, "git", lambda *args: "abc123")
     monkeypatch.setattr(module, "current_pr", lambda sha: {"number": 123})
     monkeypatch.setattr(
         module,
-        "check_runs",
-        lambda sha: [
-            {"name": "CI gate (all jobs green)", "status": "completed", "conclusion": "failure"},
-            {
-                "name": "Security gate (all jobs green)",
-                "status": "completed",
-                "conclusion": "success",
-            },
-            {
-                "name": "CodeQL gate (all jobs green)",
-                "status": "completed",
-                "conclusion": "success",
-            },
-            {
-                "name": "Workflow lint gate (all jobs green)",
-                "status": "completed",
-                "conclusion": "success",
-            },
-            {
-                "name": "Python (lint + governance docs)",
-                "status": "completed",
-                "conclusion": "success",
-            },
-            {"name": "Python tests (shard 1/6)", "status": "completed", "conclusion": "failure"},
-        ],
-    )
-    monkeypatch.setattr(
-        module,
         "latest_notice",
-        lambda pr, sha: "FAILED tests/test_event_loop_acquisition.py::test_no_source",
+        lambda pr, sha: (
+            "CI abc1234 — 2 not green\n"
+            "**CI / CI gate (all jobs green)** — failure\n"
+            "**CI / Python tests (shard 1/6)** — failure\n"
+            "FAILED tests/test_event_loop_acquisition.py::test_no_source"
+        ),
     )
+    monkeypatch.setattr(module, "STATE_DIR", tmp_path / "state")
+    from src.agent_control import reliability
 
+    monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
     assert module.prepare() == 0
     plan = json.loads(module.PLAN.read_text(encoding="utf-8"))
-    assert plan["failed_checks"] == ["ci-gate", "tests"]
+    assert plan["failed_checks"] == ["CI gate (all jobs green)", "Python tests (shard 1/6)"]
     assert plan["test_paths"] == ["tests/test_event_loop_acquisition.py"]
 
 
