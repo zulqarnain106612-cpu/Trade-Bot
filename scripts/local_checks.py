@@ -165,6 +165,7 @@ def prepare() -> int:
         print("unsupported locally: " + ", ".join(unsupported))
     return 0
 
+
 def changed_paths(source: str) -> list[str]:
     values = [
         git("diff", "--name-only", source),
