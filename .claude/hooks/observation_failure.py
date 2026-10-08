@@ -9,8 +9,8 @@ claim to erase or replace the platform's original failure record.
 from __future__ import annotations
 
 import json
-import re
 import os
+import re
 import sys
 from pathlib import Path
 
