@@ -1,4 +1,5 @@
 """GOV-057 / GOV-063 -- permanent agent reliability boundary."""
+
 from __future__ import annotations
 
 import importlib.util
