@@ -197,7 +197,7 @@ jobs:
               /^error(\[\w+\])?:\s*\S/,             // ruff / cargo style
             ];
 
-            const MAX_MSG_LINES = 4;
+            const MAX_MSG_LINES = 8;
 
             // REG-0020: a tool whose failure matches no SIGNAL -- pip-audit's
             // vulnerability table is the case that surfaced it -- left the
