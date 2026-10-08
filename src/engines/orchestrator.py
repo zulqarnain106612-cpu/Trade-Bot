@@ -258,6 +258,7 @@ class EngineOrchestrator:
 
     def stage_roster(self) -> tuple[tuple[str, str], ...]:
         """(stage id, implementation) for the steps after the fan-out."""
+
         def impl(obj: Any) -> str:
             return f"{obj.__module__}.{obj.__qualname__}"
 
