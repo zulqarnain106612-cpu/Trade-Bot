@@ -254,3 +254,59 @@ async def test_one_pass_resyncs_every_discovery_without_problems(
     report = loop.sync_once()
     assert report.problems == () and report.seen == len(rows)
     assert len(registry.components()) == len(rows)
+
+
+async def test_running_loops_providers_and_intel_join_the_graph(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from src.intel import CryptoIntelligence
+
+    monkeypatch.setenv("DUCKDB_PATH", str(tmp_path / "intel.duckdb"))
+    w = world(monkeypatch)
+    w.orch = orchestrator(
+        monkeypatch, engines={"15m": signal_engine(), "4h": signal_engine()}, crypto_box=True
+    )
+    gate = asyncio.Event()
+    loop_15m = asyncio.create_task(gate.wait(), name="loop_15m")
+    reset = asyncio.create_task(gate.wait(), name="midnight_reset")
+    sentiment = asyncio.create_task(gate.wait(), name="cb_sentiment_fg")
+    w.orch._run_tasks = (loop_15m, reset)  # what Orchestrator.run() keeps
+    w.orch._provider_tasks = {"sentiment": (sentiment,)}
+    intel = CryptoIntelligence(config_path=tmp_path / "intelligence.yaml")
+    sources = w.sources()
+    sources.intel = lambda: intel
+    sources.upgrade_rows = [{"name": "horizon_4h", "latest_version": "3"}]
+    try:
+        rows = {d.spec.component_id: d for d in production_discoveries(sources)}
+    finally:
+        gate.set()
+        await asyncio.gather(loop_15m, reset, sentiment)
+    loop_deps = [(d.component_id, d.required) for d in rows["task:loop_15m"].spec.dependencies]
+    assert loop_deps == [("model:15m/live", True), ("engine:ensemble", False)]
+    assert rows["task:midnight_reset"].spec.dependencies == ()
+    assert "task:loop_4h" not in rows  # no loop runs for 4h, so it has no edges either
+    assert rows["provider:sentiment"].state is LifecycleState.ACTIVE
+    e14 = [d.component_id for d in rows["engine:E-14"].spec.dependencies]
+    assert e14 == ["provider:sentiment"]
+    assert rows["worker:intel_horizons"].state is LifecycleState.STOPPED  # not started
+    assert rows["upgrade:horizon_4h"].spec.version.version == "3"
+    assert intel.worker_pool is intel._orchestrator
+    implementation = rows["upgrade:horizon_4h"].spec.version.implementation
+    assert implementation.endswith(type(intel.upgrade_registry).__qualname__)
+
+
+def test_a_runtime_pause_is_written_to_the_self_tuning_audit_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.api import main
+    from src.tuning.audit import TuningEventType
+
+    recorded: list[tuple[object, ...]] = []
+    monkeypatch.setattr(main.tuning_audit_log, "record", lambda *args: recorded.append(args))
+    sources = main.runtime_sources()
+    sources.on_pause_change(True)
+    sources.on_pause_change(False)
+    assert recorded == [
+        ("__global__", TuningEventType.PAUSED, {"operator": "runtime-platform"}),
+        ("__global__", TuningEventType.RESUMED, {"operator": "runtime-platform"}),
+    ]

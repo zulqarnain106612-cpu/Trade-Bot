@@ -66,7 +66,6 @@ from src.runtime.contracts import (
     HealthReport,
     HealthState,
     LifecycleState,
-    RuntimeContractError,
     make_component_id,
 )
 from src.runtime.controllers import (
@@ -82,7 +81,6 @@ from src.runtime.supervisor import Controller
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 EVENTBUS = make_component_id(ComponentType.EVENTBUS, "main")
-SIGNAL_GATE = make_component_id(ComponentType.ENGINE, "signal_gate")
 
 # Provider-cache field -> the component that fills it (ProviderCache.set_*):
 # the Crypto-Box provider loops (Orchestrator._crypto_box_provider_tasks,
@@ -191,9 +189,7 @@ def production_discoveries(sources: ProductionSources) -> list[Discovery]:
             scheduler_running=sources.scheduler_running(),
             implementation=_impl(sources.pause),
         ),
-        *task_discoveries(
-            sources.api_tasks(), owner="src.api", dependencies=API_TASK_DEPENDENCIES
-        ),
+        *task_discoveries(sources.api_tasks(), owner="src.api", dependencies=API_TASK_DEPENDENCIES),
     ]
     orchestrator = sources.orchestrator()
     if orchestrator is not None:
@@ -309,17 +305,13 @@ class RuntimeLoop:
             if cid in seen:
                 problems.append(f"{cid}: reported twice in one pass")
                 continue
-            try:
-                registry.resync(row.spec, row.state, row.health)
-            except RuntimeContractError as exc:
-                problems.append(f"{cid}: {exc}")
-                continue
+            registry.resync(row.spec, row.state, row.health)
             seen.add(cid)
         retired = []
         for cid in sorted(self._known - seen):
-            record = registry.find(cid)
-            if record is None:
-                continue
+            # Only this loop retires, and it forgets what it retired: a known
+            # id is always still registered.
+            record = registry.get(cid)
             if record.state is not LifecycleState.STOPPED:
                 registry.observe(
                     cid,

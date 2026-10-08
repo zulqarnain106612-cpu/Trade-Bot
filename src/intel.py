@@ -262,10 +262,6 @@ class CryptoIntelligence:
         return self._last_horizon_ts
 
     @property
-    def started(self) -> bool:
-        return self._started
-
-    @property
     def worker_pool(self) -> Any:
         """The horizon worker orchestrator (read-only view for the runtime platform)."""
         return self._orchestrator

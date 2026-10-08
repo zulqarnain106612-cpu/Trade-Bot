@@ -420,7 +420,8 @@ class RuntimeRegistry:
         observed and the health recorded. Every step is an observation -- the
         owner changed the component; the registry only records that it did.
         The observed content of a version string replaces any earlier content
-        under the same string: the subsystem is the truth being recorded.
+        under the same string: the subsystem is the truth being recorded. The
+        type cannot change: a spec's id carries its type (``ComponentSpec``).
         """
         with self._lock:
             component_id = spec.component_id
@@ -428,11 +429,6 @@ class RuntimeRegistry:
             if record is None:
                 self.register(spec, observed_state=state, actor=actor)
                 return self.record_health(component_id, health)
-            if spec.component_type is not record.spec.component_type:
-                raise RuntimeContractError(
-                    f"{component_id} is a {record.spec.component_type.value}, "
-                    f"not a {spec.component_type.value}"
-                )
             if spec.version != record.version:
                 transition = TransitionRecord(
                     component_id=component_id,

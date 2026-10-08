@@ -1595,6 +1595,7 @@ Through the production composition root (src/api/main.start_runtime_platform) th
 - **Depends on:** `RES-010`, `RES-017`, `SIG-004`
 - **Verification:**
   - `tests/runtime/test_production_runtime.py` (integration)
+  - `tests/runtime/test_registry_resync.py` (unit)
 
 #### `RES-022` — Production controllers perform only what their subsystem owns
 
@@ -1608,6 +1609,7 @@ QUARANTINE on a strategy with a kill switch disables it through StrategyKillSwit
 - **Verification:**
   - `tests/runtime/test_production_controllers.py` (integration)
   - `tests/runtime/test_runtime_safety.py` (security)
+  - `tests/runtime/test_controller_contracts.py` (contract)
 
 #### `RES-023` — Desired state is enforced continuously and across a restart
 
@@ -1620,6 +1622,7 @@ RuntimeLoop runs one pass per interval -- re-discover, apply stored intents whos
 - **Depends on:** `RES-014`, `RES-019`, `RES-021`, `RES-022`
 - **Verification:**
   - `tests/runtime/test_continuous_reconciliation.py` (recovery)
+  - `tests/runtime/test_runtime_loop_resilience.py` (resilience)
 
 ## Release and production
 

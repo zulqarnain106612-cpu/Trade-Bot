@@ -720,9 +720,7 @@ class Orchestrator:
                     asyncio.create_task(sp.run_rss_loop(), name="cb_sentiment_rss"),
                 ),
                 "macro": (asyncio.create_task(mp.run_loop(), name="cb_macro"),),
-                "exchange_flows": (
-                    asyncio.create_task(xp.run_loop(), name="cb_exchange_flows"),
-                ),
+                "exchange_flows": (asyncio.create_task(xp.run_loop(), name="cb_exchange_flows"),),
                 "block_height": (asyncio.create_task(bp.run_loop(), name="cb_block_height"),),
                 "options": tuple(
                     asyncio.create_task(dp.run_loop(f"{coin}/USDT"), name=f"cb_deribit_{coin}")

@@ -154,6 +154,12 @@ async def test_a_gated_step_is_queued_once_and_waits(monkeypatch: pytest.MonkeyP
     assert w.pause.paused  # nobody approved
 
 
+def test_a_retry_interval_below_one_pass_is_refused() -> None:
+    p = build_platform()
+    with pytest.raises(ValueError, match="retry_alerted_after"):
+        Reconciler(p.registry, p.changes, retry_alerted_after=0)
+
+
 def test_an_alerted_mismatch_is_not_resubmitted_until_it_changes() -> None:
     p = build_platform()
     p.registry.register(spec("w"), observed_state=S.ACTIVE)

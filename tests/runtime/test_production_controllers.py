@@ -47,9 +47,7 @@ def _platform(w: World) -> tuple[RuntimePlatform, RuntimeLoop]:
     return platform, RuntimeLoop(platform, lambda: production_discoveries(sources))
 
 
-def _submit(
-    platform: RuntimePlatform, cid: str, action: A, actor: Actor = HUMAN
-) -> ChangeRecord:
+def _submit(platform: RuntimePlatform, cid: str, action: A, actor: Actor = HUMAN) -> ChangeRecord:
     return runtime_control._submit(platform, ChangeRequest(cid, action, actor, "test"))
 
 
@@ -169,3 +167,44 @@ def test_a_risk_reduction_is_never_undone_on_health(action: A) -> None:
     assert [c[1] for c in p.controller.calls] == [action]  # no inverse was run
     events = [e.event for e in p.changes.audit_log(submitted.change_id)]
     assert "unhealthy_kept" in events
+
+
+def test_the_self_tuning_endpoints_record_the_operators_intent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """/self-tuning/pause and /resume change what the loop enforces: the act
+    becomes the desired state, so the loop keeps it rather than reverting."""
+    import os
+    from unittest.mock import AsyncMock, patch
+
+    from fastapi.testclient import TestClient
+
+    from src.api import main
+
+    w = world(monkeypatch)
+    platform, _ = _platform(w)
+    state = main.AppState()
+    state.ready = True
+    state.storage = AsyncMock()
+    state.runtime = platform
+    monkeypatch.setattr(main.tuning_audit_log, "record", lambda *args: None)
+    monkeypatch.setattr(main.tuning_pause_state, "_paused", False)
+    overrides = {
+        main.api_key_header: lambda: None,
+        main.resolve_role: lambda: main.Role.TRADE_AUTHORIZING,
+        main.require_ready: lambda: None,
+    }
+    body = {"operator": "alice", "operator_secret": "s" * 32}
+    with (
+        patch.dict(os.environ, {"OPERATOR_SECRET": "s" * 32}),
+        patch.object(main, "_state", state),
+        patch.dict(main.app.dependency_overrides, overrides),
+    ):
+        client = TestClient(main.app, raise_server_exceptions=False)
+        assert client.post("/self-tuning/pause", json=body).status_code == 200
+        paused = platform.registry.get("tuning:self_tuning").desired
+        assert client.post("/self-tuning/resume", json=body).status_code == 200
+        resumed = platform.registry.get("tuning:self_tuning").desired
+    assert paused is not None and (paused.target_state, paused.requested_by) == (S.PAUSED, "alice")
+    assert resumed is not None and resumed.target_state is S.ACTIVE
+    assert resumed.reason == "/self-tuning/resume"

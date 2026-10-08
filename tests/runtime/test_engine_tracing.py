@@ -58,8 +58,8 @@ async def test_a_cycle_publishes_one_event_with_every_engine(ensemble: EngineOrc
     assert index.record(event)
     trace = index.trace("tick-1")
     assert trace is not None and trace.stages == ("engines",)
-    assert STAGE_ORDER.index("features") < STAGE_ORDER.index("engines") < STAGE_ORDER.index(
-        "signal"
+    assert (
+        STAGE_ORDER.index("features") < STAGE_ORDER.index("engines") < STAGE_ORDER.index("signal")
     )
 
 
@@ -133,3 +133,33 @@ def _signal_ignoring_tail_risk(**kwargs: object) -> object:
     from src.engines.signal_gate import consensus_to_signal
 
     return consensus_to_signal(**{**kwargs, "tail_risk": 0.0})
+
+
+async def test_an_engine_answering_the_wrong_type_is_a_named_failure(
+    ensemble: EngineOrchestrator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def wrong(symbol: str, data: dict[str, object]) -> object:
+        return {"direction": 1}
+
+    monkeypatch.setattr(ensemble._engines[1], "run", wrong)  # E-02
+    result, event = await _cycle(ensemble, "tick-2")
+    assert "E-02" in result.failed_engines
+    expected = "returned dict, not EngineOutput"
+    assert ensemble.engine_health()["E-02"]["last_error"] == expected
+    (row,) = [r for r in event.data["engines"] if r["engine_id"] == "E-02"]
+    assert (row["ok"], row["error"]) == (False, expected) and "direction" not in row
+
+
+async def test_a_failing_stage_is_recorded_and_still_raises(
+    ensemble: EngineOrchestrator, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(*args: object, **kwargs: object) -> object:
+        raise ArithmeticError("degenerate consensus")
+
+    monkeypatch.setattr(ensemble._consensus, "compute", broken)
+    with pytest.raises(ArithmeticError, match="degenerate consensus"):
+        await ensemble.run("BTC/USDT", {})
+    record = ensemble.engine_health()["consensus"]
+    assert (record["runs"], record["failures"], record["last_ok"]) == (1, 1, False)
+    assert record["last_error"] == "ArithmeticError: degenerate consensus"
+    assert ensemble.engine_health()["risk_quantifier"]["runs"] == 0  # never reached

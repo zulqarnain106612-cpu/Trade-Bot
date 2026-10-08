@@ -4819,6 +4819,10 @@
         {
           "test": "tests/runtime/test_production_runtime.py",
           "test_type": "integration"
+        },
+        {
+          "test": "tests/runtime/test_registry_resync.py",
+          "test_type": "unit"
         }
       ],
       "depends_on": [
@@ -4853,6 +4857,10 @@
         {
           "test": "tests/runtime/test_runtime_safety.py",
           "test_type": "security"
+        },
+        {
+          "test": "tests/runtime/test_controller_contracts.py",
+          "test_type": "contract"
         }
       ],
       "depends_on": [
@@ -4881,6 +4889,10 @@
         {
           "test": "tests/runtime/test_continuous_reconciliation.py",
           "test_type": "recovery"
+        },
+        {
+          "test": "tests/runtime/test_runtime_loop_resilience.py",
+          "test_type": "resilience"
         }
       ],
       "depends_on": [
