@@ -58,6 +58,7 @@ def main() -> int:
         summary = summarize(compact(raw))
         try:
             from src.agent_control.reliability import record_tool_failure
+
             tool = str(event.get("tool_name") or event.get("toolName") or "unknown")
             inp = event.get("tool_input") or {}
             command = inp.get("command", "") if isinstance(inp, dict) else ""
