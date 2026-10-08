@@ -18,8 +18,9 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 ROOT = Path(os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2])).resolve()
 MAX_EVENTS = 200
