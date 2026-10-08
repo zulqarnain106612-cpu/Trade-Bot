@@ -20,9 +20,7 @@ def test_repeated_tool_failure_is_escalated(monkeypatch, tmp_path):
 
 def test_ci_verdict_is_bound_to_exact_head(monkeypatch, tmp_path):
     monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
-    reliability.record_ci_verdict(
-        sha="a" * 40, pr=1, status="failed", failed_checks=["lint"]
-    )
+    reliability.record_ci_verdict(sha="a" * 40, pr=1, status="failed", failed_checks=["lint"])
     assert not reliability.gate(task_id=None, head_sha="a" * 40, requires_ci=True).ok
     reliability.record_ci_verdict(sha="b" * 40, pr=1, status="green")
     assert reliability.gate(task_id=None, head_sha="b" * 40, requires_ci=True).ok
@@ -31,14 +29,10 @@ def test_ci_verdict_is_bound_to_exact_head(monkeypatch, tmp_path):
 
 def test_green_new_head_resolves_ci_lineage(monkeypatch, tmp_path):
     monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
-    reliability.record_ci_verdict(
-        sha="a" * 40, pr=1, status="failed", failed_checks=["coverage"]
-    )
+    reliability.record_ci_verdict(sha="a" * 40, pr=1, status="failed", failed_checks=["coverage"])
     reliability.record_ci_verdict(sha="b" * 40, pr=1, status="green")
     state = json.loads(reliability.state_path().read_text())
-    assert all(
-        event["status"] == "resolved" for event in state["events"] if event["kind"] == "ci"
-    )
+    assert all(event["status"] == "resolved" for event in state["events"] if event["kind"] == "ci")
 
 
 def test_notice_parser_keeps_failed_check_identity(monkeypatch, tmp_path):
