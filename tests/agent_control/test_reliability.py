@@ -1,9 +1,11 @@
 """GOV-057 / GOV-063 -- deterministic agent reliability controls."""
 from __future__ import annotations
 import json
+
 from src.agent_control import reliability
 
-def test_repeated_tool_failure_is_escalated(monkeypatch,tmp_path):
+
+def test_repeated_tool_failure_is_escalated(monkeypatch, tmp_path):
     monkeypatch.setattr(reliability,"_git_common_dir",lambda:tmp_path)
     for _ in range(3):
         event=reliability.record_tool_failure(tool="Bash",command="pytest -q",summary="FAILED tests/x.py::test_x")
