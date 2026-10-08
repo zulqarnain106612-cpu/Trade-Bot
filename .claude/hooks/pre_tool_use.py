@@ -45,7 +45,7 @@ PROTECTED_MUTATION_TOOLS = {
 
 BASH_MUTATOR_RE = re.compile(
     r"(?i)(?:>|>>|tee\b|sed\s+-i\b|perl\s+-pi\b|"
-    r"python(?:3)?\s+-c\b|ruby\s+-e\b|"
+    r"python(?:3)?\s+(?:-c\b|\S+)|ruby\s+-e\b|"
     r"\b(?:cp|mv|rm|dd|git\s+(?:apply|checkout|restore|reset|clean))\b)"
 )
 
