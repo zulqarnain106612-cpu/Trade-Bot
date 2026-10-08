@@ -159,15 +159,20 @@ def test_active_context_handles_non_git_and_valid_git(monkeypatch, tmp_path):
     monkeypatch.setattr(reliability.subprocess, "run", lambda *args, **kwargs: Failed())
     assert reliability._active_context() == (None, None)
 
-    calls = {"count": 0}
-
     class Ok:
         returncode = 0
-        stdout = str(tmp_path) if calls["count"] < 2 else "a" * 40
 
-    def fake_run(*args, **kwargs):
-        calls["count"] += 1
-        return Ok()
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(command, **kwargs):
+        if command[-1] == "--show-toplevel":
+            return Ok(str(tmp_path))
+        if command[-1] == "--git-common-dir":
+            return Ok(str(tmp_path))
+        if command[-1] == "HEAD":
+            return Ok("a" * 40)
+        return Ok("")
 
     monkeypatch.setattr(reliability.subprocess, "run", fake_run)
     assert reliability._active_context()[1] == "a" * 40
