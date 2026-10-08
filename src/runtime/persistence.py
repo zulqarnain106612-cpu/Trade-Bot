@@ -63,6 +63,11 @@ class DesiredStatePersister:
         self._clock_ms = clock_ms
         self._lock = threading.Lock()
         self._pending: dict[str, DesiredState | None] = {}
+        # Stored intents for components not registered yet at restore time.
+        # Components keep being discovered after startup (tuning parameters
+        # register when the scheduler starts, tasks when their loops do), so
+        # an intent for one of them waits here instead of being lost.
+        self._deferred: dict[str, dict[str, Any]] = {}
 
     def attach(self, registry: RuntimeRegistry) -> None:
         registry.add_desired_listener(self.enqueue)
@@ -111,7 +116,38 @@ class DesiredStatePersister:
             try:
                 registry.set_desired(component_id, desired_from_dict(data), notify=False)
             except UnknownComponentError:
+                with self._lock:
+                    self._deferred[component_id] = data
                 problems.append(f"{component_id}: stored desired state for an unknown component")
+            except RuntimeContractError as exc:
+                problems.append(f"{component_id}: {exc}")
+        return problems
+
+    @property
+    def deferred(self) -> tuple[str, ...]:
+        with self._lock:
+            return tuple(sorted(self._deferred))
+
+    def apply_deferred(self, registry: RuntimeRegistry) -> list[str]:
+        """
+        Apply stored intents whose component has registered since restore.
+        One problem per entry that was dropped as unusable; an entry whose
+        component is still unknown keeps waiting. An intent set since restore
+        (by an operator, or the change manager) is newer and wins.
+        """
+        problems: list[str] = []
+        with self._lock:
+            waiting = dict(self._deferred)
+        for component_id, data in sorted(waiting.items()):
+            record = registry.find(component_id)
+            if record is None:
+                continue
+            with self._lock:
+                self._deferred.pop(component_id, None)
+            if record.desired is not None:
+                continue
+            try:
+                registry.set_desired(component_id, desired_from_dict(data), notify=False)
             except RuntimeContractError as exc:
                 problems.append(f"{component_id}: {exc}")
         return problems

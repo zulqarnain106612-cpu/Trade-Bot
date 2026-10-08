@@ -59,6 +59,29 @@ _NOT_PATH_STEPS = frozenset({A.RELOAD, A.REPLACE, A.ROLLBACK, A.DISCOVER})
 
 RECONCILER = Actor("reconciler", ActorKind.SYSTEM, frozenset({ROLE_REQUESTER}))
 
+_FAILED_OUTCOMES = frozenset(
+    {
+        f"executed: {ChangeStatus.FAILED.value}",
+        f"executed: {ChangeStatus.ROLLBACK_FAILED.value}",
+        # Executed, found unhealthy and undone: the same step would only
+        # repeat the round trip every pass.
+        f"executed: {ChangeStatus.ROLLED_BACK.value}",
+    }
+)
+
+
+def _signature(mismatch: Mismatch) -> tuple[object, ...]:
+    """What makes a mismatch the same mismatch from one pass to the next."""
+    desired = mismatch.desired
+    return (
+        mismatch.kind,
+        mismatch.actual_state,
+        mismatch.actual_version,
+        desired.target_state,
+        desired.target_version,
+        desired.requested_at,
+    )
+
 
 class MismatchKind(StrEnum):
     VERSION = "VERSION"
@@ -191,22 +214,61 @@ class Reconciler:
         *,
         alert: Callable[[str], None] | None = None,
         actor: Actor = RECONCILER,
+        retry_alerted_after: int = 60,
     ) -> None:
+        if retry_alerted_after < 1:
+            raise ValueError("retry_alerted_after must be >= 1")
         self._registry = registry
         self._changes = changes
         self._alert = alert
         self._actor = actor
+        self._retry_alerted_after = retry_alerted_after
+        self._passes = 0
+        # Per component: the mismatch last alerted on and the pass it was
+        # alerted in (see reconcile_once's suppress_repeats).
+        self._alerted: dict[str, tuple[tuple[object, ...], int]] = {}
 
     def _raise_alert(self, message: str) -> None:
         log.warning("runtime.reconcile_alert", detail=message)
         if self._alert is not None:
             self._alert(message)
 
-    def reconcile_once(self) -> list[ReconcileOutcome]:
-        """One pass: at most one step per mismatched component."""
+    def reconcile_once(self, *, suppress_repeats: bool = False) -> list[ReconcileOutcome]:
+        """
+        One pass: at most one step per mismatched component.
+
+        ``suppress_repeats`` is for the continuous loop. A mismatch that was
+        already alerted on -- unreachable, a rejected step, a step that failed
+        or was refused -- is not submitted again while it stays exactly the
+        same: the alert is out, and resubmitting every pass would only grow
+        the change log with identical rejections. It is retried as soon as
+        the component's state or version or the desired state changes, after
+        ``retry_alerted_after`` passes (a refusal can be transient: a tick
+        held a lock), and on every manual pass (the default).
+        """
+        self._passes += 1
+        mismatches = diff(self._registry)
+        live = {m.component_id for m in mismatches}
+        for component_id in [c for c in self._alerted if c not in live]:
+            del self._alerted[component_id]
         outcomes = []
-        for mismatch in diff(self._registry):
-            outcomes.append(self._step(mismatch))
+        for mismatch in mismatches:
+            signature = _signature(mismatch)
+            alerted = self._alerted.get(mismatch.component_id)
+            if (
+                suppress_repeats
+                and alerted is not None
+                and alerted[0] == signature
+                and self._passes - alerted[1] < self._retry_alerted_after
+            ):
+                outcomes.append(ReconcileOutcome(mismatch, "suppressed: alerted, unchanged"))
+                continue
+            outcome = self._step(mismatch)
+            if outcome.outcome.startswith("alerted") or outcome.outcome in _FAILED_OUTCOMES:
+                self._alerted[mismatch.component_id] = (signature, self._passes)
+            else:
+                self._alerted.pop(mismatch.component_id, None)
+            outcomes.append(outcome)
         return outcomes
 
     def _step(self, mismatch: Mismatch) -> ReconcileOutcome:

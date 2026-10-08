@@ -3,7 +3,7 @@
 `src/runtime` is one model for every long-lived thing the bot runs. It answers
 what exists, at which version, in which state, how healthy, depending on what,
 able to do what, and whether that is what was asked for -- and it is the only
-path through which runtime state is changed. Registry ids: RES-009 .. RES-019
+path through which runtime state is changed. Registry ids: RES-009 .. RES-024
 (`config/quality_registry.json`, traced in
 `docs/quality/REQUIREMENTS_TRACEABILITY.md`).
 
@@ -36,6 +36,8 @@ RuntimeRegistry (identity, versions, lifecycle state, desired state, health,
 | `contracts.py` | `<type>:<name>` identity, immutable versions, `CapabilitySet`, the lifecycle table, `DesiredState`, `ChangeClass` |
 | `registry.py` | the bookkeeping of record; refuses anything the table or capabilities refuse |
 | `adapters.py` | read the existing strategy, model, tuning, upgrade, engine, worker, task, provider and event-bus registries -- none is replaced |
+| `controllers.py` | the production controllers: strategy QUARANTINE (kill switch `disable`), shadow-candidate STOP (`SignalEngine.discard_shadow_now`), self-tuning PAUSE / RESUME |
+| `production.py` | discovery over the running process, the controller wiring, and `RuntimeLoop` (continuous discovery and reconciliation) |
 | `supervisor.py` | preview, per-component lock, controller call, FAILED / quarantine policy, health probes |
 | `dependencies.py`, `classification.py` | dependency graph, cycles, impact analysis, rollout class |
 | `changes.py` | the change manager |
@@ -132,23 +134,49 @@ approver and never by the proposer. The promotion gate is
 a human approver; probation ends by `tuning.watchdog.WatchdogOutcome`
 (`CLEARED` promotes, `ROLLED_BACK` rolls back).
 
+## Production integration
+
+What the platform registers in the running process, the dependency edges and
+their sources, which components have a real controller and why the others are
+observe-only: [`INTEGRATION_AUDIT.md`](INTEGRATION_AUDIT.md).
+
+`RuntimeLoop` (started in the API lifespan, task `runtime_loop`) runs one pass
+every 5 s: re-discover, apply stored intents whose component has appeared,
+then one reconcile pass through the change manager. A mismatch that was
+alerted on (unreachable, rejected, failed) is not resubmitted while it stays
+the same, and is retried after 60 passes or on `POST /runtime/reconcile`. A
+pass runs on the event loop between ticks and awaits nothing but the flush;
+the MLflow listing runs on its own thread. A pass slower than 50 ms is logged
+(`runtime.loop_step_slow`).
+
+Subsystem endpoints that change what the loop enforces record the operator's
+act as desired state: `POST /strategies/{id}/re-enable` (ACTIVE) and
+`/self-tuning/pause` / `resume` (PAUSED / ACTIVE).
+
 ## Decision traces
 
 The orchestrator binds a `trace_id` per tick; every event published inside
 the tick carries it (`Event.context`). `GET /runtime/traces/{trace_id}` gives
-the stages reached (`market_data, features, signal, risk, approval, order,
-fill`), the first blocking condition (the first refusing risk gate, or the
+the stages reached (`market_data, features, engines, signal, risk, approval,
+order, fill`), the first blocking condition (the first refusing risk gate, or the
 signal's skip reason) and the final decision (`FILLED, ORDERED, REJECTED,
 NO_TRADE, INCOMPLETE`). The index keeps the latest 500 traces, 200 events
 each, and can fall behind (bus drop counters) but never slows a producer.
+
+With `CRYPTO_BOX=true` the `engines` stage is one `engine` event per cycle:
+each engine's outcome, latency, direction and confidence (or its error,
+`timeout` for a missed SLA), then consensus, the risk quantifier and the
+signal gate. The same run record is each engine's health in the registry
+(three consecutive failures: UNHEALTHY).
 
 ## Recovery
 
 * **Process restart** -- the lifespan rebuilds the platform from discovery,
   restores desired state from `runtime_desired_state` (unusable rows are
-  logged per entry, never guessed). A reconciliation pass
-  (`POST /runtime/reconcile`) then drives the gaps: risk-off steps execute at
-  once, anything else becomes a change awaiting approval. Change
+  logged per entry, never guessed; rows for components that register later
+  wait for them) and runs the first reconcile pass before the orchestrator's
+  first tick: risk-off steps (a strategy quarantine, a self-tuning pause)
+  execute at once, anything else becomes a change awaiting approval. Change
   audit written before the restart is in `audit_log` (`event_type =
   runtime_change`).
 * **Storage unavailable** -- changes still execute; desired state and audit
@@ -162,18 +190,15 @@ each, and can fall behind (bus drop counters) but never slows a producer.
 ## Known limitations
 
 * Change records, adaptive candidates and decision traces are in memory; after
-  a restart the change *history* is in `audit_log`, but an open change or an
-  in-flight candidate must be requested again.
-* Live discovery covers what the process exposes publicly: the default
-  strategy registry with its kill switch, the tuning parameter registry and the
-  event bus. Model registries, engines, worker pools and orchestrator tasks are
-  registered by whoever holds them (adapters and controllers exist for each);
-  the API lifespan does not reach into the orchestrator's private state.
-* Engine-level outputs (E-01..E-18) and consensus appear in a decision trace
-  only as the signal stage; a per-engine trace needs those producers to
-  publish.
-* Reconciliation runs when requested (`POST /runtime/reconcile`); there is no
-  periodic reconcile loop.
+  a restart the change *history* is in `audit_log`, and the loop resubmits
+  gated steps from the durable desired state, so an approval is asked again
+  rather than replayed.
+* Engines, the ensemble, live models, tuning parameters, tasks, workers,
+  providers and upgrade artifacts are observe-only; INTEGRATION_AUDIT.md says
+  why for each.
+* The tuning, retraining and strategy producers promote behind their own
+  gates and are not routed through `AdaptiveLifecycle` (an owner decision:
+  doing so puts every autonomous promotion behind a human approval).
 * Component resource usage, latency and event rate are not reported; health
   comes from adapters and controller probes.
 * A probe has no timeout of its own; a controller whose probe can hang must

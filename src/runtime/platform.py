@@ -8,11 +8,9 @@ hash-chained audit trail, and desired state persisted through the storage
 backend when one is given. The API holds exactly one of these; it is the
 only way the control plane reaches runtime state.
 
-``live_discoveries`` reads what the running process exposes publicly: the
-default strategy registry with its kill switch, the tuning parameter
-registry and the event bus. Model registries, engine orchestrators, worker
-pools and tasks are added by whoever holds them (``extra`` discoveries and
-controllers); nothing here reaches into another package's private state.
+What runs in production -- the discoveries over the real process, the
+concrete controllers and the continuous loop -- is assembled by
+``runtime.production``; this module only wires the parts together.
 """
 
 from __future__ import annotations
@@ -24,13 +22,7 @@ from typing import Any
 from src.diagnostics.audit_trail import AuditTrail
 from src.diagnostics.decision_trace import STAGE_OF_TOPIC, DecisionTraceIndex
 from src.eventbus import EventBus
-from src.risk.strategy_kill_switch import get_strategy_kill_switch_manager
-from src.runtime.adapters import (
-    Discovery,
-    eventbus_discovery,
-    strategy_discoveries,
-    tuning_discoveries,
-)
+from src.runtime.adapters import Discovery
 from src.runtime.adaptive import AdaptiveLifecycle
 from src.runtime.changes import TERMINAL, ChangeManager
 from src.runtime.contracts import ComponentType
@@ -45,8 +37,6 @@ from src.runtime.persistence import (
 from src.runtime.reconcile import Reconciler, diff
 from src.runtime.registry import RuntimeRegistry
 from src.runtime.supervisor import Controller, RestartPolicy, SupervisorSet
-from src.strategies.registry import get_default_registry
-from src.tuning.registry import parameter_registry
 
 # The bus topics a decision trace is built from.
 TRACE_TOPICS: frozenset[str] = frozenset(STAGE_OF_TOPIC)
@@ -104,14 +94,6 @@ class RuntimePlatform:
             "cycle": None if cycle is None else list(cycle),
             "issues": graph.issues(),
         }
-
-
-def live_discoveries(bus: EventBus) -> list[Discovery]:
-    return [
-        *strategy_discoveries(get_default_registry(), get_strategy_kill_switch_manager()),
-        *tuning_discoveries(parameter_registry),
-        eventbus_discovery(bus),
-    ]
 
 
 def build_runtime_platform(

@@ -261,6 +261,16 @@ class CryptoIntelligence:
     def last_horizon_ts(self) -> float | None:
         return self._last_horizon_ts
 
+    @property
+    def worker_pool(self) -> Any:
+        """The horizon worker orchestrator (read-only view for the runtime platform)."""
+        return self._orchestrator
+
+    @property
+    def upgrade_registry(self) -> Any:
+        """The MLflow model registry facade (read-only view for the runtime platform)."""
+        return self._registry
+
     def start(self) -> None:
         """Start the worker orchestrator (spawns model processes + ECC thread)."""
         if not self._started:
