@@ -206,7 +206,9 @@ def evaluate(
     _evidence_checks(checks, task, head)
     _delivery_checks(checks, task, head, remote_head, remote_error)
     reliability = reliability_gate(
-        task_id=task.task_id, head_sha=head, requires_ci=task.scope.requires_pr
+        task_id=task.task_id,
+        head_sha=head,
+        requires_ci=task.scope.requires_pr and task.delivery.pr_number is not None,
     )
     checks.add(
         "reliability",
