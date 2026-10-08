@@ -252,7 +252,6 @@ def _violations(event: dict[str, Any], policy: dict[str, Any]) -> list[str]:
     if tool == "Bash" and isinstance(command, str) and is_ci_log_access(command):
         problems.append(CI_LOG_REFUSAL)
 
-
     if not isinstance(command, str) or not command.strip():
         return problems
 
