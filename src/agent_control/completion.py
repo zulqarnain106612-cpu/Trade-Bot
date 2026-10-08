@@ -21,7 +21,6 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from src.agent_control.gitstate import GitError, GitLike, is_ancestor, range_paths
-from src.agent_control.reliability import gate as reliability_gate
 from src.agent_control.model import (
     CompletionState,
     DeliverableState,
@@ -29,6 +28,7 @@ from src.agent_control.model import (
     GitSnapshot,
     TaskRun,
 )
+from src.agent_control.reliability import gate as reliability_gate
 
 _ORDER = tuple(DeliverableState)
 _VALIDATION_KINDS = (EvidenceKind.COMMAND, EvidenceKind.CI_NOTICE)
