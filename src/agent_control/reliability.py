@@ -156,6 +156,7 @@ def _active_context() -> tuple[str | None, str | None]:
     common = _git_common_dir()
     try:
         from src.agent_control.store import TaskStore, default_state_dir
+
         store = TaskStore(default_state_dir(common))
         task_id = store.active_task_id(str(worktree.resolve()))
     except Exception:
@@ -200,7 +201,9 @@ def record_ci_verdict(
                     event["resolved_by_sha"] = sha
                     event["resolved_at"] = _now()
         else:
-            fp = fingerprint("ci", pr, ",".join(record["failed_checks"]), re.sub(r"\\s+", " ", notice))
+            fp = fingerprint(
+                "ci", pr, ",".join(record["failed_checks"]), re.sub(r"\\s+", " ", notice)
+            )
             previous = [event for event in data["events"] if event.get("fingerprint") == fp]
             data["events"].append(
                 {
@@ -278,7 +281,9 @@ def gate(
         and event.get("head_sha") == head_sha
     ]
     if repeats:
-        return ReliabilityResult(False, ("reliability: repeated failure remains unresolved at HEAD",))
+        return ReliabilityResult(
+            False, ("reliability: repeated failure remains unresolved at HEAD",)
+        )
     return ReliabilityResult(True)
 
 
