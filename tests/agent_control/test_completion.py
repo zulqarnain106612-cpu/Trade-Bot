@@ -199,8 +199,22 @@ def test_a_task_meeting_every_predicate_is_complete(git) -> None:
             {},
             "unchanged between baseline and HEAD: missing.txt",
         ),
-        ({"scope": TaskScope(requires_pr=True, requires_branch_audit=True), "delivery": Delivery()}, {}, "required PR not recorded"),
-        ({"scope": TaskScope(requires_pr=True, requires_branch_audit=True), "delivery": Delivery(pr_number=4, pr_head_sha=OLD)}, {}, "PR #4 head 000000000000"),
+        (
+            {
+                "scope": TaskScope(requires_pr=True, requires_branch_audit=True),
+                "delivery": Delivery(),
+            },
+            {},
+            "required PR not recorded",
+        ),
+        (
+            {
+                "scope": TaskScope(requires_pr=True, requires_branch_audit=True),
+                "delivery": Delivery(pr_number=4, pr_head_sha=OLD),
+            },
+            {},
+            "PR #4 head 000000000000",
+        ),
     ],
 )
 def test_each_breach_blocks_with_its_reason(git, task_change, snapshot_change, reason) -> None:
