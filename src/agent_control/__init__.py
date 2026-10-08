@@ -22,6 +22,7 @@ Modules:
 * ``git_safety``  -- guarded Git operation detection and authorization
 * ``branch_audit`` -- branch/worktree inventory, ledger and reconciliation
 * ``completion``  -- the completion predicate engine
+* ``reliability`` -- durable failure lineage, CI verdicts and repeat-failure gates
 * ``hooks``       -- Stop / PreCompact / SessionStart / PostToolUse entry points
 * ``cli``         -- ``scripts/agent_control.py``
 
