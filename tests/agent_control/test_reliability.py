@@ -39,8 +39,8 @@ def test_notice_parser_keeps_failed_check_identity(monkeypatch, tmp_path):
     monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
     notice = (
         "CI abc1234 - 2 not green\n"
-        "**CI / python-lint** - failure\n"
-        "**CI / python-coverage** - failure"
+        "**CI / python-lint** — failure\n"
+        "**CI / python-coverage** — failure"
     )
     record = reliability.record_ci_from_notice(sha="a" * 40, pr=7, notice=notice)
     assert record["status"] == "failed"
