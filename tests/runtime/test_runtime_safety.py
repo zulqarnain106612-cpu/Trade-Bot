@@ -20,7 +20,7 @@ rather than in production:
   manager, the reconciler and read-only registry calls -- never a
   supervisor or a controller.
 
-Decides: RES-019"""
+Decides: RES-019, RES-022"""
 
 from __future__ import annotations
 

@@ -70,6 +70,7 @@ async def _started(w: World) -> tuple[object, object]:
     ):
         platform = await main.start_runtime_platform()
     assert platform is not None
+    state.runtime = platform  # as the lifespan does with the return value
     return state, platform
 
 
@@ -130,7 +131,9 @@ async def test_the_runtime_api_serves_the_production_registry(
     state.ready = True
     with patch.dict(os.environ, env), patch("src.api.main._state", state):
         client = TestClient(app, raise_server_exceptions=False)
-        served = {c["component_id"] for c in client.get("/runtime/components", headers=READ).json()}
+        listing = client.get("/runtime/components", headers=READ)
+        assert listing.status_code == 200, listing.text
+        served = {c["component_id"] for c in listing.json()}
         ensemble = client.get("/runtime/components/engine:ensemble", headers=READ).json()
     assert served == {r.component_id for r in platform.registry.components()}
     assert "model:15m/live" in served and f"strategy:{STRATEGY}" in served

@@ -282,11 +282,11 @@ class EngineOrchestrator:
         return {cid: stats.snapshot() for cid, stats in self._stats.items()}
 
     @staticmethod
-    async def _timed(coro: Any, timeout: float) -> tuple[object, float]:
+    async def _timed(coro: Any, sla_s: float) -> tuple[object, float]:
         """The engine's result (or its failure, as data) and how long it took."""
         start = time.monotonic()
         try:
-            result: object = await asyncio.wait_for(coro, timeout=timeout)
+            result: object = await asyncio.wait_for(coro, timeout=sla_s)
         except Exception as exc:  # an engine failure degrades consensus; it never escapes
             result = exc
         return result, (time.monotonic() - start) * 1000.0

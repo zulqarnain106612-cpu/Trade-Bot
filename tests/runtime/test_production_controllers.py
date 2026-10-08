@@ -112,8 +112,9 @@ async def test_stop_discards_the_shadow_candidate_and_nothing_else(
     change = _submit(platform, "model:15m/candidate/m-2", A.STOP)
     assert change.status is ChangeStatus.PROMOTED
     assert engine.shadow_model_id is None and engine.live_model_id == "initial"
-    loop.step()
-    assert platform.registry.find("model:15m/candidate/m-2") is None  # retired
+    report = loop.sync_once()
+    assert report.retired == ("model:15m/candidate/m-2",)
+    assert platform.registry.find("model:15m/candidate/m-2") is None
 
 
 async def test_a_superseded_candidate_or_a_held_lock_is_refused_unchanged(

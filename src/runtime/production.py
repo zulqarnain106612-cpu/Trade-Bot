@@ -32,6 +32,7 @@ is awaited off the trading path.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -287,9 +288,11 @@ class RuntimeLoop:
         self._slow_refresh = slow_refresh
         self._slow_refresh_every = slow_refresh_every
         self._slow_refreshed_at: int | None = None
-        # Ids this loop has reported; a known id missing from a pass was
-        # dropped by its owner.
-        self._known: set[str] = set()
+        # Ids reported by the owners; a known id missing from a pass was
+        # dropped by its owner. Seeded with what the platform was built from
+        # (the same discovery), so a component dropped before the first pass
+        # is noticed too.
+        self._known: set[str] = {r.component_id for r in platform.registry.components()}
         self.passes = 0
 
     def sync_once(self) -> SyncReport:
@@ -367,10 +370,8 @@ class RuntimeLoop:
                 await self._platform.flush()
             except Exception as exc:
                 log.error("runtime.loop_flush_failed", error=f"{type(exc).__name__}: {exc}")
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=self._interval_s)
-            except TimeoutError:
-                pass
 
 
 class UpgradeListing:
