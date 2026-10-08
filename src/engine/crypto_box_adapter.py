@@ -48,6 +48,11 @@ class CryptoBoxSignalAdapter:
     def enabled(self) -> bool:
         return _ENABLED and self._orchestrator is not None
 
+    @property
+    def engine_orchestrator(self) -> Any | None:
+        """The running 18-engine orchestrator, or None when Crypto-Box is off."""
+        return self._orchestrator if self.enabled else None
+
     async def get_signal(self, symbol: str, data: dict[str, Any]) -> TradeSignal | None:
         """
         Run all 18 engines and return a TradeSignal.

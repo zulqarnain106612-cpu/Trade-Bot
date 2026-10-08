@@ -25,7 +25,8 @@ Policy:
 * A request carrying ``expected_version`` is rejected when the component has
   moved on (stale version).
 * After execution the supervisor probes the component; an unhealthy result
-  rolls the change back where an inverse action exists.
+  rolls the change back where an inverse action exists -- except after a
+  risk-reducing action, whose inverse would put exposure back unapproved.
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ from typing import Any
 
 import structlog
 
+from src.runtime.classification import RISK_REDUCING
 from src.runtime.contracts import (
     DESIRABLE_STATES,
     ChangeClass,
@@ -554,7 +556,14 @@ class ChangeManager:
         component_id = change.request.component_id
         report = self._supervisors.for_component(component_id).probe(component_id)
         if report.state is HealthState.UNHEALTHY:
-            return self._rollback(change, actor, f"unhealthy after change: {report.detail}")
+            if change.request.action in RISK_REDUCING:
+                # Never undo a risk reduction on health: the inverse (RESUME,
+                # ACTIVATE) puts exposure back without anyone approving it,
+                # and a paused or quarantined component is expected to look
+                # out of service. The probe result is audited instead.
+                self._audit_entry(change, "unhealthy_kept", actor.name, report.detail)
+            else:
+                return self._rollback(change, actor, f"unhealthy after change: {report.detail}")
         if not final:
             self._audit_entry(change, "observing", actor.name, report.state.value)
             return change

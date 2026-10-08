@@ -242,6 +242,32 @@ def set_desired(platform: RuntimePlatform, body: RuntimeDesiredBody) -> dict[str
     return desired.to_dict()
 
 
+def note_operator_intent(
+    platform: RuntimePlatform | None,
+    component_id: str,
+    target_state: LifecycleState,
+    operator: str,
+    reason: str,
+) -> str | None:
+    """
+    Record as desired state a change an operator made through the subsystem's
+    own endpoint (a gauntlet re-enable, /self-tuning/pause or /resume), so the
+    runtime loop keeps it rather than reverting it to an older intent. The
+    endpoint has already checked the operator second factor. Returns why it
+    could not be recorded, or None.
+    """
+    if platform is None:
+        return "runtime platform not started"
+    if platform.registry.find(component_id) is None:
+        return f"{component_id} is not registered"
+    actor = Actor(operator, ActorKind.HUMAN, frozenset({ROLE_REQUESTER}))
+    try:
+        platform.changes.request_desired(component_id, target_state, actor, reason)
+    except (UnknownComponentError, RuntimeContractError, UnauthorizedError) as exc:
+        return str(exc)
+    return None
+
+
 def reconcile(platform: RuntimePlatform, body: OperatorFactor) -> list[dict[str, Any]]:
     actor_for(body)
     return [o.to_dict() for o in platform.reconciler.reconcile_once()]

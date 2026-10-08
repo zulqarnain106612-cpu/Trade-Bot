@@ -344,6 +344,7 @@ class TestTopicRegistry:
             "price",
             "book",
             "runtime",  # RES-015: runtime transitions and change audit
+            "engine",  # RES-024: one per-engine evidence event per ensemble cycle
         } == set(TOPICS)
 
     def test_the_cached_accessor_returns_one_instance(self) -> None:

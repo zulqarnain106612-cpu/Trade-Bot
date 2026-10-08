@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 191 |
+| VERIFIED | 195 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **191** |
+| **Total** | **195** |
 
 ## Summary by subsystem
 
@@ -60,13 +60,13 @@ deletion of the thing it points at.
 | Risk | 10 | 10 |
 | Execution | 12 | 12 |
 | Portfolio | 1 | 1 |
-| Signal and features | 5 | 5 |
+| Signal and features | 6 | 6 |
 | Models and leakage | 10 | 10 |
 | Data, money and time | 8 | 8 |
 | API and WebSocket | 20 | 20 |
 | Cryptography and secrets | 29 | 29 |
 | Supply chain and artifacts | 7 | 7 |
-| Resilience and recovery | 17 | 17 |
+| Resilience and recovery | 20 | 20 |
 | Release and production | 13 | 13 |
 | Governance | 59 | 59 |
 
@@ -382,6 +382,18 @@ Aggregate exposure, cross-strategy correlation and portfolio agreement are evalu
   - `tests/test_portfolio_agreement.py` (risk)
 
 ## Signal and features
+
+#### `RES-024` — Every ensemble cycle leaves per-engine causal evidence off the trading path
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+EngineOrchestrator.run publishes one 'engine' event per cycle, under the tick's trace_id, carrying each engine's id (positional), outcome, latency and vote or error ('timeout' for a missed SLA), then consensus, the risk quantifier and the signal gate; a decision trace shows it as the 'engines' stage between features and signal. Each engine's and stage's run record is its runtime health (three consecutive failures: UNHEALTHY). Building or publishing the evidence never raises into the cycle: unbuildable evidence is dropped and the signal stands.
+
+- **If violated:** A tick's decision cannot be attributed to the engines that shaped it (a veto, a failing engine dropped from consensus), or the evidence path raises into the cycle and costs the tick its signal.
+- **Owned by:** `src/engines/orchestrator.py`, `src/diagnostics/decision_trace.py`, `src/eventbus/bus.py`
+- **Depends on:** `RES-015`, `SIG-004`, `INV-032`
+- **Verification:**
+  - `tests/runtime/test_engine_tracing.py` (integration)
 
 #### `SIG-001` — Golden signal fixtures pin end-to-end behaviour
 
@@ -1572,6 +1584,46 @@ Through the real API, an operator's desired state becomes a mismatch, a reconcil
 - **Verification:**
   - `tests/runtime/test_integration.py` (integration)
 
+#### `RES-021` — The runtime registry is the running process, kept current
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+Through the production composition root (src/api/main.start_runtime_platform) the runtime registry holds what the process runs: E-01..E-18 in positional order, consensus, the risk quantifier, the signal gate and the ensemble (STOPPED when CRYPTO_BOX is off), each timeframe's live-model slot and shadow candidate, every strategy, every registered tuning parameter and the self-tuning switch, the orchestrator's and the API's tasks, the thread pools, the Crypto-Box providers, the INTEL_ENABLED worker pool and MLflow artifacts, and the event bus; the Runtime API serves exactly that registry. Dependency edges are the ones the code reads -- each engine on the producer of the provider-cache field it reads, each post-fan-out stage on what EngineOrchestrator.run consumes, a shadow candidate on its live slot, a timeframe loop on its live model, bus consumers on the bus -- with no unmet edge and no cycle. RuntimeLoop re-discovers every pass: components that appear later are registered, a version their owner changed is recorded as an observation with the old version kept, and a component its owner dropped is retired only when STOPPED, unwanted, depended on by nothing and free of an open change.
+
+- **If violated:** The control plane describes a fixture rather than the bot: an operator reads a registry missing the engines, models and tasks that are trading, impact analysis sees no dependents, and a component that registers after startup (every tuning parameter) is invisible to it for the life of the process.
+- **Owned by:** `src/runtime/production.py`, `src/runtime/adapters.py`, `src/runtime/registry.py`, `src/engines/orchestrator.py`, `src/engine/orchestrator.py`, `src/api/main.py`
+- **Depends on:** `RES-010`, `RES-017`, `SIG-004`
+- **Verification:**
+  - `tests/runtime/test_production_runtime.py` (integration)
+  - `tests/runtime/test_registry_resync.py` (unit)
+
+#### `RES-022` — Production controllers perform only what their subsystem owns
+
+**VERIFIED** · critical · requirement · source: OPS-2026-10-07
+
+QUARANTINE on a strategy with a kill switch disables it through StrategyKillSwitchManager.disable -- LIVE_SAFE, executed at once, with the drift trip's decision-log record and killswitch event -- and no runtime action re-enables it; the gauntlet endpoint does, and records the operator's act as desired state so the loop keeps it. STOP on a shadow candidate discards it through SignalEngine.discard_shadow_now; a superseded candidate or a held model lock is refused with nothing changed, and no runtime action promotes a model. PAUSE of self-tuning is LIVE_SAFE; RESUME waits for a human approver; the /self-tuning endpoints record their act as desired state. A strategy without a kill switch, the live-model slot, every engine and the ensemble refuse every action as FORBIDDEN. A risk-reducing change is never rolled back because a post-change probe is unhealthy; the probe is audited instead.
+
+- **If violated:** A runtime action claims a state the subsystem is not in (a model 'promoted' in a registry while another predicts), puts exposure back without approval (an automatic RESUME after a pause), or is silently reverted by the loop (a strategy re-enabled through the gauntlet, quarantined again five seconds later).
+- **Owned by:** `src/runtime/controllers.py`, `src/runtime/changes.py`, `src/risk/strategy_kill_switch.py`, `src/engine/signal_engine.py`, `src/tuning/state.py`, `src/api/runtime_control.py`
+- **Depends on:** `RES-012`, `RES-019`, `RES-021`
+- **Verification:**
+  - `tests/runtime/test_production_controllers.py` (integration)
+  - `tests/runtime/test_runtime_safety.py` (security)
+  - `tests/runtime/test_controller_contracts.py` (contract)
+
+#### `RES-023` — Desired state is enforced continuously and across a restart
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-07
+
+RuntimeLoop runs one pass per interval -- re-discover, apply stored intents whose component has registered since restore, one reconcile pass through the change manager -- and its first pass runs inside start_runtime_platform before the orchestrator's first tick, so a strategy quarantine and a self-tuning pause stored before a restart are in force when trading resumes. An intent stored for a component that registers after startup is applied when it appears. A gated step is queued once and waits for an approver; a mismatch that was alerted on is not resubmitted while it is unchanged, and is retried when it changes, after the retry interval, or on a manual pass. A discovery that raises leaves the registry as it was and the loop running; run() exits on its stop event after flushing.
+
+- **If violated:** Intent is recorded but not enforced: a strategy quarantined before a restart trades again after it, a pause is lost, a stored intent for a late component is discarded at startup, or the loop floods the change log with the same rejected step every five seconds.
+- **Owned by:** `src/runtime/production.py`, `src/runtime/reconcile.py`, `src/runtime/persistence.py`, `src/api/main.py`
+- **Depends on:** `RES-014`, `RES-019`, `RES-021`, `RES-022`
+- **Verification:**
+  - `tests/runtime/test_continuous_reconciliation.py` (recovery)
+  - `tests/runtime/test_runtime_loop_resilience.py` (resilience)
+
 ## Release and production
 
 #### `INV-010` — Live mode cannot bypass qualification gates
@@ -2464,4 +2516,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 191 entries.
+Registry version: 1.0.0 — 195 entries.

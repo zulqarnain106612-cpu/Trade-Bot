@@ -87,5 +87,24 @@ class _PauseState:
         async with self._get_lock():
             self._paused = value
 
+    @property
+    def paused(self) -> bool:
+        """The flag as it stands. A bool read is atomic, and neither async
+        method above holds the lock across an await."""
+        return self._paused
+
+    def set_paused_now(self, value: bool) -> None:
+        """
+        Synchronous setter for the runtime platform's self-tuning controller,
+        which runs on the event-loop thread inside a change-manager call and
+        cannot await. Refuses rather than races if a coroutine holds the lock
+        (none can today -- the async methods never await while holding it --
+        and the check keeps that true if one ever does).
+        """
+        lock = self._lock
+        if lock is not None and lock.locked():
+            raise RuntimeError("the self-tuning pause state is being changed")
+        self._paused = value
+
 
 pause_state: _PauseState = _PauseState()
