@@ -95,11 +95,6 @@ def current_pr(sha: str) -> dict[str, Any]:
     return matches[0]
 
 
-def check_runs(sha: str) -> list[dict[str, Any]]:
-    data = api(f"repos/{repo_slug()}/commits/{sha}/check-runs?per_page=100&filter=latest")
-    return data.get("check_runs", [])
-
-
 def latest_notice(pr_number: int, sha: str) -> str:
     comments = api(f"repos/{repo_slug()}/issues/{pr_number}/comments?per_page=100")
     marker = "CI " + chr(96) + sha[:7] + chr(96)
@@ -130,41 +125,29 @@ def key_for(name: str) -> str | None:
 def prepare() -> int:
     sha = git("rev-parse", "HEAD")
     pr = current_pr(sha)
-    runs = check_runs(sha)
-    relevant: dict[str, dict[str, Any]] = {}
-
-    for run in runs:
-        key = key_for(str(run.get("name", "")))
-        if key is None:
-            continue
-        old = relevant.get(key)
-        if old is None or str(run.get("completed_at", "")) > str(old.get("completed_at", "")):
-            relevant[key] = run
-
-    missing_gates = sorted(REQUIRED_GATES - set(relevant))
-    if missing_gates:
-        die("required PR gate checks are missing: " + ", ".join(missing_gates))
-
-    pending = [k for k, r in relevant.items() if r.get("status") != "completed"]
-    if pending:
-        die("PR checks still running: " + ", ".join(sorted(pending)))
-
-    failed = sorted(
-        k for k, r in relevant.items() if r.get("conclusion") not in {"success", "skipped"}
-    )
-    if not failed:
+    notice = latest_notice(int(pr["number"]), sha)
+    if not notice:
+        die("CI diagnostic notice is not available for this HEAD; raw CI run data is intentionally unavailable")
+    from src.agent_control.reliability import record_ci_from_notice
+    record = record_ci_from_notice(sha=sha, pr=int(pr["number"]), notice=notice)
+    if record["status"] == "green":
         PLAN.unlink(missing_ok=True)
         print(f"GREEN PR#{pr['number']} {sha[:12]}: local execution locked")
         return 0
-
-    notice = latest_notice(int(pr["number"]), sha)
+    failed = [
+        match.group(2).strip()
+        for match in re.finditer(
+            r"^\*\*(.+?) / (.+?)\*\* — (?:failure|cancelled|timed_out|neutral|action_required|stale|no verdict)",
+            notice, re.MULTILINE,
+        )
+    ]
+    failed = sorted(set(failed))
+    if not failed:
+        die("CI notice is non-green but contains no actionable failed-check identity")
     plan = {
-        "version": 1,
-        "pr": int(pr["number"]),
-        "source_sha": sha,
-        "failed_checks": failed,
-        "test_paths": test_paths(notice),
-        "created_at": time.time(),
+        "version": 2, "pr": int(pr["number"]), "source_sha": sha,
+        "failed_checks": failed, "test_paths": test_paths(notice),
+        "notice": notice[:6000], "created_at": time.time(),
     }
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     PLAN.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
@@ -173,7 +156,6 @@ def prepare() -> int:
     if unsupported:
         print("unsupported locally: " + ", ".join(unsupported))
     return 0
-
 
 def changed_paths(source: str) -> list[str]:
     values = [
