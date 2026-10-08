@@ -197,7 +197,7 @@ jobs:
               /^error(\[\w+\])?:\s*\S/,             // ruff / cargo style
             ];
 
-            const MAX_MSG_LINES = 4;
+            const MAX_MSG_LINES = 8;
 
             // REG-0020: a tool whose failure matches no SIGNAL -- pip-audit's
             // vulnerability table is the case that surfaced it -- left the
@@ -266,6 +266,14 @@ jobs:
                   .map(l => l.replace(/^\S*\d{2}:\d{2}:\d{2}\.?\d*Z?\s*/, '').trim())
                   .filter(Boolean);
                 const lines = raw.filter(l => !isNoise(l));
+                const pathish = lines.filter(l =>
+                  /^(?:(?:src|tests|common|scripts|frontend)\/\S+|\S+\.py\s+\d+\s+\d+\s+\d+\s+\d+%)/.test(l)
+                  || /Would reformat:|would be reformatted/.test(l)
+                );
+                if (pathish.length && /lint|format|coverage/i.test(job.name)) {
+                  const selected = [...new Set(pathish)].slice(-MAX_MSG_LINES);
+                  if (selected.length) return selected;
+                }
                 for (const re of SIGNAL) {
                   const hits = lines.filter(l => re.test(l));
                   // The last ones: pytest prints what actually failed at the end.

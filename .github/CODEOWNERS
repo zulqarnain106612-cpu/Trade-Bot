@@ -1,2 +1,14 @@
 # Default owner for everything in the repository.
 * @zulqarnain106612-cpu
+
+# Security-sensitive agent-control paths. Keep owner review mandatory.
+/.claude/settings.json @zulqarnain106612-cpu
+/.claude/hooks/ @zulqarnain106612-cpu
+/config/command_policy.json @zulqarnain106612-cpu
+/config/observation_boundary.json @zulqarnain106612-cpu
+/src/agent_control/ @zulqarnain106612-cpu
+/common/command_schema.py @zulqarnain106612-cpu
+/common/shell_exec.py @zulqarnain106612-cpu
+/.github/workflows/ci-failure-notify.yml @zulqarnain106612-cpu
+/.github/workflows/ci.yml @zulqarnain106612-cpu
+/scripts/local_checks.py @zulqarnain106612-cpu

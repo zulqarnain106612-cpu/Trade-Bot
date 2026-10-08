@@ -9,8 +9,13 @@ claim to erase or replace the platform's original failure record.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
+from pathlib import Path
+
+PROJECT_DIR = Path(os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(PROJECT_DIR))
 
 MAX_LINES = 3
 MAX_CHARS = 900
@@ -51,6 +56,15 @@ def main() -> int:
         event = json.load(sys.stdin)
         raw = event.get("error") or event.get("message")
         summary = summarize(compact(raw))
+        try:
+            from src.agent_control.reliability import record_tool_failure
+
+            tool = str(event.get("tool_name") or event.get("toolName") or "unknown")
+            inp = event.get("tool_input") or {}
+            command = inp.get("command", "") if isinstance(inp, dict) else ""
+            record_tool_failure(tool=tool, command=str(command), summary=summary)
+        except Exception:
+            pass
         payload = {
             "hookSpecificOutput": {
                 "hookEventName": "PostToolUseFailure",

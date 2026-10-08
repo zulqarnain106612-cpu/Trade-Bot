@@ -28,6 +28,7 @@ from src.agent_control.model import (
     GitSnapshot,
     TaskRun,
 )
+from src.agent_control.reliability import gate as reliability_gate
 
 _ORDER = tuple(DeliverableState)
 _VALIDATION_KINDS = (EvidenceKind.COMMAND, EvidenceKind.CI_NOTICE)
@@ -204,6 +205,16 @@ def evaluate(
     _deliverable_checks(checks, task, runner, head)
     _evidence_checks(checks, task, head)
     _delivery_checks(checks, task, head, remote_head, remote_error)
+    reliability = reliability_gate(
+        task_id=task.task_id,
+        head_sha=head,
+        requires_ci=task.scope.requires_pr and task.delivery.pr_number is not None,
+    )
+    checks.add(
+        "reliability",
+        reliability.ok,
+        "; ".join(reliability.blockers) or "reliability controls satisfied",
+    )
     if task.scope.requires_branch_audit:
         report = branch_audit or {}
         keys = ("missing", "extra", "stale", "changed")

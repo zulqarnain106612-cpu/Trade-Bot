@@ -27,6 +27,9 @@ PROTECTED_BOUNDARY_PATHS = frozenset(
         ".claude/hooks/observation_gate.py",
         ".claude/hooks/observation_failure.py",
         "config/observation_boundary.json",
+        "config/command_policy.json",
+        "src/agent_control/reliability.py",
+        "src/agent_control/completion.py",
         "tests/test_observation_boundary_contract.py",
     }
 )
@@ -42,7 +45,7 @@ PROTECTED_MUTATION_TOOLS = {
 
 BASH_MUTATOR_RE = re.compile(
     r"(?i)(?:>|>>|tee\b|sed\s+-i\b|perl\s+-pi\b|"
-    r"python(?:3)?\s+-c\b|ruby\s+-e\b|"
+    r"python(?:3)?\s+(?:-c\b|\S+)|ruby\s+-e\b|"
     r"\b(?:cp|mv|rm|dd|git\s+(?:apply|checkout|restore|reset|clean))\b)"
 )
 
@@ -103,10 +106,10 @@ def _load_observation_config() -> dict[str, Any]:
 
 def _enforcement(policy: dict[str, Any]) -> str:
     override = os.environ.get("TB_COMMAND_POLICY", "").strip().lower()
-    if override in {"block", "warn", "off"}:
+    if override in {"block", "warn"}:
         return override
     configured = str(policy.get("enforcement", "block")).lower()
-    return configured if configured in {"block", "warn", "off"} else "block"
+    return configured if configured in {"block", "warn"} else "block"
 
 
 def _local_check_violation(command: str, policy: dict[str, Any]) -> str:
@@ -248,9 +251,6 @@ def _violations(event: dict[str, Any], policy: dict[str, Any]) -> list[str]:
 
     if tool == "Bash" and isinstance(command, str) and is_ci_log_access(command):
         problems.append(CI_LOG_REFUSAL)
-
-    if _enforcement(policy) == "off":
-        return problems
 
     if not isinstance(command, str) or not command.strip():
         return problems

@@ -177,7 +177,7 @@ class TestCommentBody:
         cannot silently grow past the policy limit.
         """
         assert "const MAX_JOBS = 6" in script
-        assert "const MAX_MSG_LINES = 4" in script
+        assert "const MAX_MSG_LINES = 8" in script
         assert "slice(0, MAX_JOBS)" in script
 
         # Worst case, with the consolidated shape: MAX_JOBS entries, each a
