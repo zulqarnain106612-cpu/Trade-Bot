@@ -163,7 +163,7 @@ def test_active_context_handles_non_git_and_valid_git(monkeypatch, tmp_path):
 
     class Ok:
         returncode = 0
-        stdout = str(tmp_path) if calls["count"] == 0 else "a" * 40
+        stdout = str(tmp_path) if calls["count"] < 2 else "a" * 40
 
     def fake_run(*args, **kwargs):
         calls["count"] += 1
