@@ -141,6 +141,35 @@ def record_tool_failure(
         return event
 
 
+def _active_context() -> tuple[str | None, str | None]:
+    """Resolve the active task and current HEAD without importing Workspace."""
+    proc = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode:
+        return None, None
+    worktree = Path(proc.stdout.strip())
+    common = _git_common_dir()
+    try:
+        from src.agent_control.store import TaskStore, default_state_dir
+        store = TaskStore(default_state_dir(common))
+        task_id = store.active_task_id(str(worktree.resolve()))
+    except Exception:
+        task_id = None
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return task_id, head.stdout.strip() if head.returncode == 0 else None
+
+
 def record_ci_verdict(
     *,
     sha: str,
@@ -171,7 +200,7 @@ def record_ci_verdict(
                     event["resolved_by_sha"] = sha
                     event["resolved_at"] = _now()
         else:
-            fp = fingerprint("ci", pr, sha, ",".join(record["failed_checks"]))
+            fp = fingerprint("ci", pr, ",".join(record["failed_checks"]), re.sub(r"\\s+", " ", notice))
             previous = [event for event in data["events"] if event.get("fingerprint") == fp]
             data["events"].append(
                 {
