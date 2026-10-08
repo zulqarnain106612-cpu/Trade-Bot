@@ -33,5 +33,6 @@ def test_reliability_control_files_are_protected():
 
 def test_policy_has_no_agent_controlled_off_mode():
     import json
+
     policy = json.loads(POLICY.read_text())
     assert "off" not in policy["_enforcement_values"]
