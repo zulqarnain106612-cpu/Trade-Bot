@@ -131,6 +131,7 @@ def prepare() -> int:
             "CI diagnostic notice is not available for this HEAD; raw CI run data is intentionally unavailable"
         )
     from src.agent_control.reliability import record_ci_from_notice
+
     record = record_ci_from_notice(sha=sha, pr=int(pr["number"]), notice=notice)
     if record["status"] == "green":
         PLAN.unlink(missing_ok=True)
