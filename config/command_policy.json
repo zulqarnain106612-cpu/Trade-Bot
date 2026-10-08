@@ -1,14 +1,13 @@
 {
   "_registry": "GOV-011, GOV-012 (config/quality_registry.json).",
   "$schema": "https://trade-bot.local/schemas/command-policy/1.0.0.json",
-  "policy_version": "1.2.0",
+  "policy_version": "1.3.0",
   "enforcement": "block",
   "_enforcement_values": [
     "block",
-    "warn",
-    "off"
+    "warn"
   ],
-  "_enforcement_note": "block: refuse the tool call and explain. warn: allow but inject the reason as feedback. off: allow silently. The TB_COMMAND_POLICY env var overrides this value for one session, which is the documented rollback path -- edit this file for a durable change.",
+  "_enforcement_note": "block: refuse the tool call and explain. warn: allow but inject the reason as feedback. There is no agent-controlled off mode; policy controls are security boundaries and can only be changed in repository source under review.",
   "bounded_output": {
     "enabled": true,
     "max_declared_lines": 30,
