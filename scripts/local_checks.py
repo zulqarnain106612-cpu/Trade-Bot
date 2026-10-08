@@ -127,7 +127,9 @@ def prepare() -> int:
     pr = current_pr(sha)
     notice = latest_notice(int(pr["number"]), sha)
     if not notice:
-        die("CI diagnostic notice is not available for this HEAD; raw CI run data is intentionally unavailable")
+        die(
+            "CI diagnostic notice is not available for this HEAD; raw CI run data is intentionally unavailable"
+        )
     from src.agent_control.reliability import record_ci_from_notice
     record = record_ci_from_notice(sha=sha, pr=int(pr["number"]), notice=notice)
     if record["status"] == "green":
@@ -138,16 +140,21 @@ def prepare() -> int:
         match.group(2).strip()
         for match in re.finditer(
             r"^\*\*(.+?) / (.+?)\*\* — (?:failure|cancelled|timed_out|neutral|action_required|stale|no verdict)",
-            notice, re.MULTILINE,
+            notice,
+            re.MULTILINE,
         )
     ]
     failed = sorted(set(failed))
     if not failed:
         die("CI notice is non-green but contains no actionable failed-check identity")
     plan = {
-        "version": 2, "pr": int(pr["number"]), "source_sha": sha,
-        "failed_checks": failed, "test_paths": test_paths(notice),
-        "notice": notice[:6000], "created_at": time.time(),
+        "version": 2,
+        "pr": int(pr["number"]),
+        "source_sha": sha,
+        "failed_checks": failed,
+        "test_paths": test_paths(notice),
+        "notice": notice[:6000],
+        "created_at": time.time(),
     }
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     PLAN.write_text(json.dumps(plan, indent=2) + "\n", encoding="utf-8")
