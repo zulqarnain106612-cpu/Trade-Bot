@@ -3586,7 +3586,8 @@
           "test": "frontend/src/desktop/terminalBridge.test.js",
           "test_type": "security"
         }
-      ]
+      ],
+      "notes": "layer: test-suite"
     },
     {
       "id": "GOV-022",
