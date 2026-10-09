@@ -57,6 +57,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
+from common.command_schema import redact
 from src.api import runtime_control
 from src.api.access_control import Permission, Role, require_permission
 from src.api.auth import verify_api_key, verify_ws_key
@@ -85,8 +86,15 @@ from src.api.runtime_control import (
 )
 from src.api.security_headers import SecurityHeadersMiddleware
 from src.api.ws_guard import WSFrameError, WSFrameGuard
-from src.config import ExecutionMode, Timeframe, get_settings, runtime_config
-from src.data.fetcher import open_fetcher
+from src.config import (
+    EXCHANGE_BINANCE,
+    EXCHANGE_OKX,
+    ExecutionMode,
+    Timeframe,
+    get_settings,
+    runtime_config,
+)
+from src.data.fetcher import VenueDisconnectRefused, open_fetcher
 from src.data.storage import AnyStorageBackend, TradeRecord, create_storage_backend
 from src.diagnostics.attribution import get_attribution_tracker
 from src.diagnostics.audit_trail import get_audit_trail
@@ -119,6 +127,8 @@ from src.runtime.production import (
 from src.strategies.bootstrap import register_default_strategies
 from src.strategies.capital_allocator import performance_weighted_allocate
 from src.strategies.registry import get_default_registry
+from src.terminal.config import TerminalConfig, TerminalConfigError
+from src.terminal.jobs import JobReporter
 from src.tuning.audit import TuningEventType
 from src.tuning.meta_allocator import get_allocation_controller
 from src.tuning.promotion_gauntlet import (
@@ -165,6 +175,30 @@ def _validate_operator(v: str) -> str:
     if not _OPERATOR_RE.match(v):
         raise ValueError("operator must be 1-64 alphanumeric/underscore/hyphen characters")
     return v
+
+
+def _terminal_job_reporter() -> JobReporter:
+    """
+    The process center's view of this API's long operations (TERM-007).
+
+    Best effort and local only: see src/terminal/jobs.py. A terminal
+    configuration that does not parse disables reporting; it never stops the
+    API from starting.
+    """
+    try:
+        socket_path = TerminalConfig.from_env().socket_path
+    except TerminalConfigError as exc:
+        log.warning("api.terminal_jobs_disabled", error=str(exc))
+        return JobReporter(None)
+    return JobReporter(socket_path)
+
+
+_job_reporter = _terminal_job_reporter()
+
+
+def _job_error(exc: BaseException) -> str:
+    text, _count = redact(f"{type(exc).__name__}: {exc}")
+    return text[:1024]
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +640,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except TimeoutError:
             orch_task.cancel()
         await _state.orchestrator.shutdown()
+        await _job_reporter.aclose()
         await _state.storage.close()
         log.info("api.shutdown_complete")
 
@@ -2504,7 +2539,26 @@ async def trigger_retrain(body: RetrainRequest, request: Request) -> dict[str, A
         details={"timeframe": tf.value},
     )
     log.info("api.manual_retrain_started", timeframe=tf.value, operator=body.operator)
+    _report_retrain(orchestrator, tf, body.operator)
     return {"status": outcome, "timeframe": tf.value, "operator": body.operator}
+
+
+def _report_retrain(orchestrator: Orchestrator, tf: Timeframe, operator: str) -> None:
+    """Follow a manual retrain into the process center (best effort)."""
+    task = orchestrator.retrain_task(tf)
+    if task is None:
+        return
+    job = _job_reporter.begin(f"model retrain {tf.value}", detail=f"started by {operator}")
+
+    def _finished(done: asyncio.Task[Any]) -> None:
+        if done.cancelled():
+            _job_reporter.end(job, ok=False, error="cancelled")
+        elif done.exception() is not None:
+            _job_reporter.end(job, ok=False, error=_job_error(cast(BaseException, done.exception())))
+        else:
+            _job_reporter.end(job, ok=True)
+
+    task.add_done_callback(_finished)
 
 
 @app.post(
@@ -2533,7 +2587,16 @@ async def trigger_backfill(body: BackfillRequest, request: Request) -> dict[str,
     tf = _parse_timeframe_or_400(body.timeframe)
     orchestrator = require_orchestrator()
 
-    written = await orchestrator.request_backfill(tf, body.lookback_days)
+    job = _job_reporter.begin(
+        f"backfill {tf.value}", detail=f"lookback_days={body.lookback_days}"
+    )
+    try:
+        written = await orchestrator.request_backfill(tf, body.lookback_days)
+    except Exception as exc:
+        _job_reporter.end(job, ok=False, error=_job_error(exc))
+        raise
+    _job_reporter.output(job, f"bars_written={written}\n")
+    _job_reporter.end(job, ok=True)
     log.info("api.manual_backfill_done", timeframe=tf.value, bars_written=written)
     return {
         "timeframe": tf.value,
@@ -3261,16 +3324,62 @@ async def risk_size_check(body: SizeCheckRequest, request: Request) -> dict[str,
 class VenueReconnectRequest(BaseModel):
     """Second factor for reconnecting a venue, as for every other control."""
 
-    operator_secret: str
+    operator_secret: str = Field(..., min_length=1, max_length=256)
+    operator: str = Field(default="operator", max_length=64)
+
+    @field_validator("operator")
+    @classmethod
+    def validate_operator(cls, v: str) -> str:
+        return _validate_operator(v)
+
+
+# The venues the fetcher knows. A path parameter outside this set is a 404
+# before anything else runs -- it never reaches the fetcher, a log line or the
+# audit trail as an attacker-chosen string.
+_KNOWN_VENUES: frozenset[str] = frozenset({EXCHANGE_BINANCE, EXCHANGE_OKX})
+
+_VENUE_GUARDS = [Depends(api_key_header), Depends(requires(Permission.MANAGE_VENUES))]
+
+
+def _known_venue_or_404(venue: str) -> str:
+    if venue not in _KNOWN_VENUES:
+        raise HTTPException(status_code=404, detail="unknown venue")
+    return venue
+
+
+async def _venue_action_recorded(
+    action: str, venue: str, operator: str, details: dict[str, Any]
+) -> dict[str, Any]:
+    """Audit, log and push one venue control action; return the venue's state."""
+    status = require_orchestrator()._fetcher.venue_status()[venue]
+    record = {
+        "venue": venue,
+        "available": status.get("available"),
+        "state": status.get("state"),
+        "account": (status.get("account") or {}).get("state"),
+    }
+    storage = getattr(_state, "storage", None)
+    if storage is not None:
+        await storage.insert_audit_event(
+            event_type=f"venue_{action}", operator=operator, details={**record, **details}
+        )
+    log.info(f"api.venue_{action}", operator=operator, **record)
+    # Out of band, like control_changed: every open dashboard re-reads the
+    # venue now rather than at its next poll.
+    await _state.broadcast({"type": "venue_changed", "venue": venue, "status": status})
+    return status
 
 
 @app.get("/venues", dependencies=[Depends(api_key_header)])
 async def venues_status() -> dict[str, Any]:
     """
-    Per-venue availability and, for a venue that is down, what it said.
+    Per-venue market-data and account state and, for a venue that is down,
+    what it said.
 
     The reason is the point: an operator has to tell a transient network fault
     from a 451 eligibility block, because only one of those is worth retrying.
+    Market data and authenticated account access are separate fields because
+    one does not imply the other.
     """
     orchestrator = require_orchestrator()
     status = orchestrator._fetcher.venue_status()
@@ -3281,7 +3390,7 @@ async def venues_status() -> dict[str, Any]:
     }
 
 
-@app.post("/venues/{venue}/reconnect", dependencies=[Depends(api_key_header)])
+@app.post("/venues/{venue}/reconnect", dependencies=_VENUE_GUARDS)
 async def reconnect_venue(
     venue: str,
     body: VenueReconnectRequest,
@@ -3291,25 +3400,82 @@ async def reconnect_venue(
     _state.check_endpoint_rate_limit(
         "reconnect_venue", request.client.host if request.client else ""
     )
+    _known_venue_or_404(venue)
     # SEC-007: same second-factor pattern as /execution-mode. Reconnecting is a
     # state change on the trading path -- it can put a venue back in service --
     # so the API key alone is not enough.
-    expected = os.environ.get("OPERATOR_SECRET", "").strip()
-    if not expected:
-        raise HTTPException(status_code=503, detail="OPERATOR_SECRET is not configured.")
-    if not hmac.compare_digest(body.operator_secret.encode("utf-8"), expected.encode("utf-8")):
-        log.warning("api.reconnect_venue_bad_operator_secret", venue=venue)
-        raise HTTPException(status_code=401, detail="Invalid operator secret.")
+    _verify_operator_secret(body.operator_secret, body.operator, "reconnect_venue")
 
     orchestrator = require_orchestrator()
-    try:
-        reconnected = await orchestrator._fetcher.reconnect(venue)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    status = orchestrator._fetcher.venue_status()[venue]
-    log.info("api.venue_reconnect", venue=venue, available=reconnected)
+    reconnected = await orchestrator._fetcher.reconnect(venue)
+    status = await _venue_action_recorded(
+        "reconnect", venue, body.operator, {"reconnected": reconnected}
+    )
     return {"venue": venue, "reconnected": reconnected, **status}
+
+
+@app.post("/venues/{venue}/connect", dependencies=_VENUE_GUARDS)
+async def connect_venue(venue: str, body: VenueReconnectRequest, request: Request) -> dict[str, Any]:
+    """
+    Connect (or retry) one venue, then check its account access.
+
+    The account check is one read-only fetch_balance; it runs only when the
+    market connection came up and credentials are configured, and its result
+    is reported separately from the connection's. Nothing here places an
+    order or changes the execution mode.
+    """
+    _state.check_endpoint_rate_limit("connect_venue", request.client.host if request.client else "")
+    _known_venue_or_404(venue)
+    _verify_operator_secret(body.operator_secret, body.operator, "connect_venue")
+
+    fetcher = require_orchestrator()._fetcher
+    connected = await fetcher.reconnect(venue)
+    if connected:
+        await fetcher.verify_account(venue)
+    status = await _venue_action_recorded("connect", venue, body.operator, {"connected": connected})
+    return {"venue": venue, "connected": connected, **status}
+
+
+@app.post("/venues/{venue}/disconnect", dependencies=_VENUE_GUARDS)
+async def disconnect_venue(
+    venue: str, body: VenueReconnectRequest, request: Request
+) -> dict[str, Any]:
+    """
+    Close one venue and keep it closed until it is connected again.
+
+    The other venue is not touched. 409 when this is the last connected venue:
+    a fetcher with no venue is a state the bot treats as fatal at startup, and
+    stopping trading is the kill switch's job.
+    """
+    _state.check_endpoint_rate_limit(
+        "disconnect_venue", request.client.host if request.client else ""
+    )
+    _known_venue_or_404(venue)
+    _verify_operator_secret(body.operator_secret, body.operator, "disconnect_venue")
+
+    fetcher = require_orchestrator()._fetcher
+    try:
+        await fetcher.disconnect(venue)
+    except VenueDisconnectRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    status = await _venue_action_recorded("disconnect", venue, body.operator, {})
+    return {"venue": venue, "disconnected": True, **status}
+
+
+@app.post("/venues/{venue}/verify", dependencies=_VENUE_GUARDS)
+async def verify_venue_account(
+    venue: str, body: VenueReconnectRequest, request: Request
+) -> dict[str, Any]:
+    """Re-check authenticated account access without reconnecting."""
+    _state.check_endpoint_rate_limit(
+        "verify_venue_account", request.client.host if request.client else ""
+    )
+    _known_venue_or_404(venue)
+    _verify_operator_secret(body.operator_secret, body.operator, "verify_venue_account")
+
+    account = await require_orchestrator()._fetcher.verify_account(venue)
+    status = await _venue_action_recorded("verify", venue, body.operator, {"account": account})
+    return {"venue": venue, **status}
 
 
 @app.get("/controls", dependencies=[Depends(api_key_header)])

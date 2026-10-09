@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
-import { useWebSocket, useStream, usePolling, useOperatorAction, apiFetch, postJson } from './hooks/useApi';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useWebSocket, useStream, usePolling, useOperatorAction, postJson } from './hooks/useApi';
 import { ControlHubPanel } from './components/panels/ControlHubPanel';
 import { Panel } from './components/Panel';
 import { ModeSwitcher, StatCard } from './components/Controls';
@@ -20,62 +20,63 @@ import {
   ModelTrainingPanel, BackfillPanel, CapitalFloorPanel,
 } from './components/panels/OperationsPanel';
 import { HorizonsPanel } from './components/panels/HorizonsPanel';
+import { VenuesPanel, useVenues } from './components/panels/VenuesPanel';
+import { Workspace } from './components/workspace/Workspace';
+import { TerminalDock } from './components/terminal/TerminalDock';
+import { ProcessCenter } from './components/terminal/ProcessCenter';
+import { StatusBar } from './components/terminal/StatusBar';
+import { TerminalProvider, useTerminal } from './terminal/TerminalContext';
+import {
+  compactLayout, defaultLayout, loadLayout, moveBy, resizeBy, saveLayout, setAllHidden, setHidden,
+  setMaximized, toggleMinimized,
+} from './workspace/layoutStore';
+import { WORKSPACE_ITEMS } from './workspace/items';
 import { fmt, pnlColor } from './utils/format';
 
 const REGIME_COLOR = { 0: '#22c55e', 1: '#da7756', 2: '#ef4444' };
 const REGIME_NAME = { 0: 'RANGING', 1: 'TRENDING', 2: 'VOLATILE' };
 
-const ALL_PANELS = [
-  { id: 'controlhub', label: 'Control Hub', icon: '🎚' },
-  { id: 'equity', label: 'Equity Curve', icon: '📈' },
-  { id: 'drawdown', label: 'Drawdown', icon: '📉' },
-  { id: 'positions', label: 'Positions', icon: '💼' },
-  { id: 'trades', label: 'Trade History', icon: '🔄' },
-  { id: 'missed', label: 'Missed Trades', icon: '⏭' },
-  { id: 'approvals', label: 'Approvals', icon: '✅' },
-  { id: 'risk', label: 'Risk Controls', icon: '🛡' },
-  { id: 'config', label: 'Configuration', icon: '⚙' },
-  { id: 'selftuning', label: 'Self-Tuning', icon: '🎛' },
-  { id: 'strategies', label: 'Strategies', icon: '🧠' },
-  { id: 'runtime', label: 'Runtime Platform', icon: '🧩' },
-  { id: 'health', label: 'Health', icon: '❤' },
-  { id: 'drift', label: 'Drift Monitor', icon: '🔬' },
-  { id: 'audit', label: 'Audit Trail', icon: '📋' },
-  { id: 'reconcile', label: 'Reconciliation', icon: '⚖' },
-  { id: 'model', label: 'Model Metrics', icon: '🤖' },
-  { id: 'ledger', label: 'Ledger', icon: '📒' },
-  { id: 'recovery', label: 'Recovery', icon: '🔧' },
-  { id: 'training', label: 'Model Training', icon: '🏋' },
-  { id: 'backfill', label: 'Backfill', icon: '📥' },
-  { id: 'capitalfloor', label: 'Capital Floor', icon: '🚨' },
-  { id: 'horizons', label: 'Horizons', icon: '🕰' },
-];
-
-function getInitialVisibility() {
-  const defaults = {};
-  ALL_PANELS.forEach((p) => { defaults[p.id] = true; });
-  try {
-    const saved = localStorage.getItem('panel-visibility');
-    if (saved) return { ...defaults, ...JSON.parse(saved) };
-  } catch {}
-  return defaults;
-}
+const SPEC_BY_ID = Object.fromEntries(WORKSPACE_ITEMS.map((spec) => [spec.id, spec]));
 
 export default function App() {
+  return (
+    <TerminalProvider>
+      <Dashboard />
+    </TerminalProvider>
+  );
+}
+
+function Dashboard() {
   const [tick, setTick] = useState(null);
-  const [visibility, setVisibility] = useState(getInitialVisibility);
+  const [layout, setLayout] = useState(() => compactLayout(loadLayout(WORKSPACE_ITEMS), WORKSPACE_ITEMS));
+  // Every change goes through compaction, so the stored layout is always the
+  // one the grid renders (see layoutStore.compactLayout).
+  const updateLayout = useCallback(
+    (change) => setLayout((current) => compactLayout(change(current), WORKSPACE_ITEMS)),
+    [],
+  );
   const [showPanelManager, setShowPanelManager] = useState(false);
+  const viewportRef = useRef(null);
+  const { state: terminal } = useTerminal();
+  // The dock is created the first time it is opened and then only hidden, so
+  // collapsing it never throws away a terminal's screen or scrollback.
+  const [dockMounted, setDockMounted] = useState(false);
+  useEffect(() => { if (terminal.dockOpen) setDockMounted(true); }, [terminal.dockOpen]);
 
   const { operatorId, setOperatorId, operatorSecret, setOperatorSecret, action } = useOperatorAction();
 
   const onTick = useCallback((msg) => setTick(msg), []);
   // A control_changed frame carries no tick fields, so it advances its own
   // counter rather than being pushed through setTick; the hub re-reads on it.
+  // venue_changed does the same for the venue state.
   const [controlVersion, setControlVersion] = useState(0);
+  const [venueVersion, setVenueVersion] = useState(0);
   const onEvent = useCallback((msg) => {
     if (msg.type === 'control_changed') setControlVersion((v) => v + 1);
+    if (msg.type === 'venue_changed') setVenueVersion((v) => v + 1);
   }, []);
   const { connected: wsConnected, lagMs } = useWebSocket(onTick, onEvent);
+  const { venues, error: venuesError, reload: reloadVenues } = useVenues(venueVersion);
 
   // Every list endpoint returns its rows under a named key
   // (src/api/main.py), while the panels below take plain arrays — so each
@@ -114,25 +115,7 @@ export default function App() {
   // polls the same endpoint for its own display.
   const modelsStatus = usePolling('/models/status', 30000);
 
-  useEffect(() => {
-    try { localStorage.setItem('panel-visibility', JSON.stringify(visibility)); } catch {}
-  }, [visibility]);
-
-  const togglePanel = (id) => {
-    setVisibility((v) => ({ ...v, [id]: !v[id] }));
-  };
-
-  const showAll = () => {
-    const next = {};
-    ALL_PANELS.forEach((p) => { next[p.id] = true; });
-    setVisibility(next);
-  };
-
-  const hideAll = () => {
-    const next = {};
-    ALL_PANELS.forEach((p) => { next[p.id] = false; });
-    setVisibility(next);
-  };
+  useEffect(() => { saveLayout(layout); }, [layout]);
 
   const handleModeSwitch = (mode) => {
     action('/execution-mode', 'POST', { mode });
@@ -177,8 +160,80 @@ export default function App() {
   const executionMode = status?.execution_mode || 'restricted';
   const startingCapital = status?.starting_capital_usd;
 
+  // id -> what the panel shows. Rendered only while visible, exactly as the
+  // flex layout did, so a hidden panel still costs no polling.
+  const panels = {
+    overview: {
+      accent: 'var(--c-claude)',
+      render: () => (
+        <StatsRow equity={equity} dailyPnl={dailyPnl} positions={positions} regime={regime}
+          prediction={prediction} startingCapital={startingCapital} status={status} />
+      ),
+    },
+    controlhub: { accent: 'var(--c-cyan)', render: () => <ControlHubPanel operatorAction={action} refreshToken={controlVersion} /> },
+    equity: { accent: 'var(--c-cyan)', render: () => <EquityChart curve={equityCurve} startingCapital={startingCapital} /> },
+    drawdown: { accent: 'var(--c-red)', render: () => <DrawdownChart curve={equityCurve} /> },
+    venues: {
+      accent: 'var(--c-green)',
+      render: () => <VenuesPanel venues={venues} error={venuesError} reload={reloadVenues} operatorAction={action} />,
+    },
+    positions: { accent: 'var(--c-blue)', badge: positions.length, render: () => <PositionsTable positions={positions} /> },
+    trades: { accent: 'var(--c-purple)', badge: trades?.length, render: () => <TradesTable trades={trades} /> },
+    missed: { accent: 'var(--c-yellow)', badge: missedTrades?.length, render: () => <MissedTradesTable missedTrades={missedTrades} /> },
+    approvals: {
+      accent: 'var(--c-green)',
+      badge: approvals?.length,
+      render: () => <ApprovalsPanel approvals={approvals} onResolve={handleApprovalResolve} />,
+    },
+    risk: { accent: 'var(--c-claude)', render: () => <RiskControlsPanel riskControls={riskControls} onUpdate={handleRiskUpdate} /> },
+    config: { accent: 'var(--c-silver)', render: () => <ConfigPanel status={status} /> },
+    selftuning: { accent: 'var(--c-cyan)', render: () => <SelfTuningPanel action={action} /> },
+    strategies: { accent: 'var(--c-purple)', render: () => <StrategiesPanel action={action} /> },
+    runtime: { accent: 'var(--c-cyan)', render: () => <RuntimePanel operatorAction={action} /> },
+    health: { accent: 'var(--c-green)', render: () => <HealthPanel /> },
+    drift: { accent: 'var(--c-yellow)', render: () => <DriftPanel /> },
+    audit: { accent: 'var(--c-silver)', render: () => <AuditPanel /> },
+    reconcile: { accent: 'var(--c-blue)', render: () => <ReconcilePanel /> },
+    model: { accent: 'var(--c-cyan)', render: () => <ModelMetricsPanel /> },
+    ledger: { accent: 'var(--c-silver)', render: () => <LedgerPanel /> },
+    recovery: { accent: 'var(--c-red)', render: () => <RecoveryPanel action={action} /> },
+    training: { accent: 'var(--c-claude)', render: () => <ModelTrainingPanel onRetrain={handleRetrain} /> },
+    backfill: { accent: 'var(--c-green)', render: () => <BackfillPanel onBackfill={handleBackfill} timeframes={activeTimeframes} /> },
+    capitalfloor: { accent: 'var(--c-red)', render: () => <CapitalFloorPanel onReAuthorize={handleFloorReAuthorize} /> },
+    horizons: { accent: 'var(--c-cyan)', render: () => <HorizonsPanel /> },
+  };
+
+  const renderPanel = (id) => {
+    const spec = SPEC_BY_ID[id];
+    const panel = panels[id];
+    const item = layout.items[id];
+    if (!spec || !panel || !item) return null;
+    return (
+      <Panel
+        title={spec.label}
+        icon={spec.icon}
+        accentColor={panel.accent}
+        badge={panel.badge}
+        minimized={item.minimized}
+        maximized={layout.maximized === id}
+        onMinimize={() => updateLayout((l) => toggleMinimized(l, id, spec))}
+        onMaximize={() => updateLayout((l) => setMaximized(l, l.maximized === id ? null : id))}
+        onHide={() => updateLayout((l) => setHidden(l, id, true))}
+        onMove={(dx, dy) => updateLayout((l) => moveBy(l, id, dx, dy))}
+        onResize={(dw, dh) => updateLayout((l) => resizeBy(l, id, dw, dh, spec))}
+      >
+        {panel.render()}
+      </Panel>
+    );
+  };
+
+  const hiddenCount = useMemo(
+    () => Object.values(layout.items).filter((item) => item.hidden).length,
+    [layout],
+  );
+
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--c-bg)', color: 'var(--c-text)', fontFamily: 'Inter, system-ui, -apple-system, sans-serif' }}>
+    <div className="app-shell">
       <Header
         wsConnected={wsConnected}
         lagMs={lagMs}
@@ -192,194 +247,51 @@ export default function App() {
         setShowPanelManager={setShowPanelManager}
       />
 
-      <div style={{ padding: '0 16px 16px' }}>
-        <StatsRow
-          equity={equity}
-          dailyPnl={dailyPnl}
-          positions={positions}
-          regime={regime}
-          prediction={prediction}
-          startingCapital={startingCapital}
-          status={status}
-        />
-
-        {showPanelManager && (
-          <PanelManager
-            visibility={visibility}
-            togglePanel={togglePanel}
-            showAll={showAll}
-            hideAll={hideAll}
-            onClose={() => setShowPanelManager(false)}
+      <div className="app-main">
+        <main ref={viewportRef} className="workspace-viewport" aria-label="Dashboard workspace">
+          {showPanelManager && (
+            <PanelManager
+              layout={layout}
+              togglePanel={(id) => updateLayout((l) => setHidden(l, id, !l.items[id].hidden))}
+              showAll={() => updateLayout((l) => setAllHidden(l, false))}
+              hideAll={() => updateLayout((l) => setAllHidden(l, true))}
+              resetLayout={() => {
+                if (window.confirm('Reset every panel to its default position, size and visibility?')) {
+                  updateLayout(() => defaultLayout(WORKSPACE_ITEMS));
+                }
+              }}
+              onClose={() => setShowPanelManager(false)}
+            />
+          )}
+          {hiddenCount > 0 && !showPanelManager && (
+            <button type="button" className="ws-hidden-chip" onClick={() => setShowPanelManager(true)}>
+              {hiddenCount} hidden panel{hiddenCount === 1 ? '' : 's'} — show
+            </button>
+          )}
+          <Workspace
+            specs={WORKSPACE_ITEMS}
+            layout={layout}
+            onChange={setLayout}
+            renderPanel={renderPanel}
+            viewportRef={viewportRef}
           />
-        )}
-
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start' }}>
-          {visibility.controlhub && (
-            <Panel title="Control Hub" icon="🎚" defaultWidth={620} defaultHeight={420}
-              accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('controlhub')}>
-              <ControlHubPanel operatorAction={action} refreshToken={controlVersion} />
-            </Panel>
-          )}
-
-          {visibility.equity && (
-            <Panel title="Equity Curve" icon="📈" defaultWidth={580} defaultHeight={260}
-              accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('equity')}>
-              <EquityChart curve={equityCurve} startingCapital={startingCapital} />
-            </Panel>
-          )}
-
-          {visibility.drawdown && (
-            <Panel title="Drawdown" icon="📉" defaultWidth={580} defaultHeight={200}
-              accentColor="var(--c-red)" onToggleVisible={() => togglePanel('drawdown')}>
-              <DrawdownChart curve={equityCurve} />
-            </Panel>
-          )}
-
-          {visibility.positions && (
-            <Panel title="Positions" icon="💼" defaultWidth={560} defaultHeight={250}
-              accentColor="var(--c-blue)" badge={positions.length}
-              onToggleVisible={() => togglePanel('positions')}>
-              <PositionsTable positions={positions} />
-            </Panel>
-          )}
-
-          {visibility.trades && (
-            <Panel title="Trade History" icon="🔄" defaultWidth={640} defaultHeight={300}
-              accentColor="var(--c-purple)" badge={trades?.length}
-              onToggleVisible={() => togglePanel('trades')}>
-              <TradesTable trades={trades} />
-            </Panel>
-          )}
-
-          {visibility.missed && (
-            <Panel title="Missed Trades" icon="⏭" defaultWidth={500} defaultHeight={250}
-              accentColor="var(--c-yellow)" badge={missedTrades?.length}
-              onToggleVisible={() => togglePanel('missed')}>
-              <MissedTradesTable missedTrades={missedTrades} />
-            </Panel>
-          )}
-
-          {visibility.approvals && (
-            <Panel title="Approvals" icon="✅" defaultWidth={440} defaultHeight={280}
-              accentColor="var(--c-green)" badge={approvals?.length}
-              onToggleVisible={() => togglePanel('approvals')}>
-              <ApprovalsPanel approvals={approvals} onResolve={handleApprovalResolve} />
-            </Panel>
-          )}
-
-          {visibility.risk && (
-            <Panel title="Risk Controls" icon="🛡" defaultWidth={420} defaultHeight={320}
-              accentColor="var(--c-claude)" onToggleVisible={() => togglePanel('risk')}>
-              <RiskControlsPanel riskControls={riskControls} onUpdate={handleRiskUpdate} />
-            </Panel>
-          )}
-
-          {visibility.config && (
-            <Panel title="Configuration" icon="⚙" defaultWidth={640} defaultHeight={400}
-              accentColor="var(--c-silver)" onToggleVisible={() => togglePanel('config')}>
-              <ConfigPanel status={status} />
-            </Panel>
-          )}
-
-          {visibility.selftuning && (
-            <Panel title="Self-Tuning" icon="🎛" defaultWidth={620} defaultHeight={300}
-              accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('selftuning')}>
-              <SelfTuningPanel action={action} />
-            </Panel>
-          )}
-
-          {visibility.strategies && (
-            <Panel title="Strategies" icon="🧠" defaultWidth={620} defaultHeight={340}
-              accentColor="var(--c-purple)" onToggleVisible={() => togglePanel('strategies')}>
-              <StrategiesPanel action={action} />
-            </Panel>
-          )}
-
-          {visibility.runtime && (
-            <Panel title="Runtime Platform" icon="🧩" defaultWidth={760} defaultHeight={420}
-              accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('runtime')}>
-              <RuntimePanel operatorAction={action} />
-            </Panel>
-          )}
-
-          {visibility.health && (
-            <Panel title="Health" icon="❤" defaultWidth={420} defaultHeight={260}
-              accentColor="var(--c-green)" onToggleVisible={() => togglePanel('health')}>
-              <HealthPanel />
-            </Panel>
-          )}
-
-          {visibility.drift && (
-            <Panel title="Drift Monitor" icon="🔬" defaultWidth={520} defaultHeight={300}
-              accentColor="var(--c-yellow)" onToggleVisible={() => togglePanel('drift')}>
-              <DriftPanel />
-            </Panel>
-          )}
-
-          {visibility.audit && (
-            <Panel title="Audit Trail" icon="📋" defaultWidth={460} defaultHeight={280}
-              accentColor="var(--c-silver)" onToggleVisible={() => togglePanel('audit')}>
-              <AuditPanel />
-            </Panel>
-          )}
-
-          {visibility.reconcile && (
-            <Panel title="Reconciliation" icon="⚖" defaultWidth={480} defaultHeight={260}
-              accentColor="var(--c-blue)" onToggleVisible={() => togglePanel('reconcile')}>
-              <ReconcilePanel />
-            </Panel>
-          )}
-
-          {visibility.model && (
-            <Panel title="Model Metrics" icon="🤖" defaultWidth={440} defaultHeight={280}
-              accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('model')}>
-              <ModelMetricsPanel />
-            </Panel>
-          )}
-
-          {visibility.ledger && (
-            <Panel title="Ledger" icon="📒" defaultWidth={520} defaultHeight={280}
-              accentColor="var(--c-silver)" onToggleVisible={() => togglePanel('ledger')}>
-              <LedgerPanel />
-            </Panel>
-          )}
-
-          {visibility.recovery && (
-            <Panel title="Recovery" icon="🔧" defaultWidth={440} defaultHeight={250}
-              accentColor="var(--c-red)" onToggleVisible={() => togglePanel('recovery')}>
-              <RecoveryPanel action={action} />
-            </Panel>
-          )}
-
-          {visibility.training && (
-            <Panel title="Model Training" icon="🏋" defaultWidth={440} defaultHeight={320}
-              accentColor="var(--c-claude)" onToggleVisible={() => togglePanel('training')}>
-              <ModelTrainingPanel onRetrain={handleRetrain} />
-            </Panel>
-          )}
-
-          {visibility.backfill && (
-            <Panel title="Backfill" icon="📥" defaultWidth={420} defaultHeight={200}
-              accentColor="var(--c-green)" onToggleVisible={() => togglePanel('backfill')}>
-              <BackfillPanel onBackfill={handleBackfill} timeframes={activeTimeframes} />
-            </Panel>
-          )}
-
-          {visibility.capitalfloor && (
-            <Panel title="Capital Floor" icon="🚨" defaultWidth={460} defaultHeight={300}
-              accentColor="var(--c-red)" onToggleVisible={() => togglePanel('capitalfloor')}>
-              <CapitalFloorPanel onReAuthorize={handleFloorReAuthorize} />
-            </Panel>
-          )}
-
-          {visibility.horizons && (
-            <Panel title="Horizons" icon="🕰" defaultWidth={640} defaultHeight={340}
-              accentColor="var(--c-cyan)" onToggleVisible={() => togglePanel('horizons')}>
-              <HorizonsPanel />
-            </Panel>
-          )}
-        </div>
+        </main>
+        {terminal.centerOpen && <ProcessCenter />}
       </div>
+
+      {dockMounted && (
+        <div className="dock-slot" hidden={!terminal.dockOpen}>
+          <TerminalDock />
+        </div>
+      )}
+      <StatusBar
+        venues={venues}
+        onVenueClick={() => updateLayout((l) => setHidden(l, 'venues', false))}
+      />
+      <p id="ws-keyboard-help" className="sr-only">
+        Arrow keys move the panel one grid step; Shift with an arrow key resizes it.
+        Escape restores a maximized panel.
+      </p>
     </div>
   );
 }
@@ -510,25 +422,20 @@ function StatsRow({ equity, dailyPnl, positions, regime, prediction, startingCap
   );
 }
 
-function PanelManager({ visibility, togglePanel, showAll, hideAll, onClose }) {
+function PanelManager({ layout, togglePanel, showAll, hideAll, resetLayout, onClose }) {
   return (
-    <div style={{
-      background: 'var(--c-surface)',
-      border: '1px solid var(--c-border)',
-      borderRadius: 8,
-      padding: 12,
-      marginBottom: 12,
-    }}
-      className="claude-fade-in"
-    >
+    <div className="panel-manager claude-fade-in" role="region" aria-label="Panel visibility and layout">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <span style={{ fontSize: 11, color: 'var(--c-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Panel Visibility
+          Panels
         </span>
         <div style={{ display: 'flex', gap: 6 }}>
-          <button className="btn btn-green" style={{ fontSize: 9, padding: '2px 8px' }} onClick={showAll}>Show All</button>
-          <button className="btn btn-red" style={{ fontSize: 9, padding: '2px 8px' }} onClick={hideAll}>Hide All</button>
+          <button type="button" className="btn btn-green" style={{ fontSize: 9, padding: '2px 8px' }} onClick={showAll}>Show All</button>
+          <button type="button" className="btn btn-red" style={{ fontSize: 9, padding: '2px 8px' }} onClick={hideAll}>Hide All</button>
+          <button type="button" className="btn btn-blue" style={{ fontSize: 9, padding: '2px 8px' }} onClick={resetLayout}>Reset Layout</button>
           <button
+            type="button"
+            aria-label="Close panel manager"
             style={{ background: 'none', border: 'none', color: 'var(--c-faint)', cursor: 'pointer', fontSize: 14 }}
             onClick={onClose}
           >
@@ -537,24 +444,20 @@ function PanelManager({ visibility, togglePanel, showAll, hideAll, onClose }) {
         </div>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-        {ALL_PANELS.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => togglePanel(p.id)}
-            style={{
-              padding: '4px 10px',
-              borderRadius: 4,
-              fontSize: 10,
-              border: '1px solid var(--c-border)',
-              background: visibility[p.id] ? 'rgba(0,212,255,0.12)' : 'var(--c-surface2)',
-              color: visibility[p.id] ? 'var(--c-cyan)' : 'var(--c-faint)',
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-            }}
-          >
-            {p.icon} {p.label}
-          </button>
-        ))}
+        {WORKSPACE_ITEMS.map((p) => {
+          const visible = !layout.items[p.id]?.hidden;
+          return (
+            <button
+              type="button"
+              key={p.id}
+              aria-pressed={visible}
+              onClick={() => togglePanel(p.id)}
+              className={`pm-toggle${visible ? ' on' : ''}`}
+            >
+              {p.icon} {p.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
