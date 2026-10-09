@@ -49,6 +49,7 @@ def _make_storage():
     s.earliest_equity_ts = AsyncMock(return_value=None)
     s.insert_bar = AsyncMock(return_value=None)
     s.fetch_bars = AsyncMock(return_value=_make_bars())  # ≥300 rows for trainer
+    s.latest_bar_ts = AsyncMock(return_value=None)
     s.initialize = AsyncMock(return_value=None)
     s.close = AsyncMock(return_value=None)
     return s
@@ -57,6 +58,7 @@ def _make_storage():
 def _make_fetcher():
     f = AsyncMock()
     f.bootstrap_history = AsyncMock(return_value=100)
+    f.gap_fill = AsyncMock(return_value=0)
     # A bare AsyncMock child returns a coroutine from .get(), which the
     # precision loader feeds straight to float(). Give it a real mapping.
     f.fetch_symbol_precision = AsyncMock(return_value={})
@@ -222,6 +224,60 @@ def _make_orch(storage=None, fetcher=None):
 
 
 class TestOrchestratorStartup:
+    @pytest.mark.asyncio
+    async def test_timeframe_loop_arms_tick_health_grace_at_loop_start(self):
+        orch = _make_orch()
+        orch._running = False
+        monitor = MagicMock()
+        with patch("src.engine.orchestrator.get_monitor", return_value=monitor):
+            await orch._timeframe_loop(Timeframe.INTRADAY)
+        monitor.mark_tick_source_active.assert_called_once_with(Timeframe.INTRADAY.value)
+
+    @pytest.mark.asyncio
+    async def test_prepare_timeframe_history_reuses_sufficient_recent_cache(self):
+        import time
+
+        storage = _make_storage()
+        fetcher = _make_fetcher()
+        orch = _make_orch(storage, fetcher)
+        recent_ts = int(time.time() * 1000) - 120_000
+        storage.latest_bar_ts.return_value = recent_ts
+
+        refreshed = await orch._prepare_timeframe_history(Timeframe.INTRADAY)
+
+        assert refreshed == 0
+        fetcher.gap_fill.assert_awaited_once_with("BTC/USDT", Timeframe.INTRADAY)
+        fetcher.bootstrap_history.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_prepare_timeframe_history_bootstraps_when_cache_is_insufficient(self):
+        storage = _make_storage()
+        storage.fetch_bars.return_value = _make_bars(299)
+        fetcher = _make_fetcher()
+        orch = _make_orch(storage, fetcher)
+
+        result = await orch._prepare_timeframe_history(Timeframe.INTRADAY)
+
+        assert result == 100
+        fetcher.bootstrap_history.assert_awaited_once_with("BTC/USDT", Timeframe.INTRADAY)
+        fetcher.gap_fill.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_prepare_timeframe_history_falls_back_if_refresh_remains_stale(self):
+        import time
+
+        storage = _make_storage()
+        fetcher = _make_fetcher()
+        orch = _make_orch(storage, fetcher)
+        stale_ts = int(time.time() * 1000) - 2 * 86_400_000
+        storage.latest_bar_ts.side_effect = [stale_ts, stale_ts]
+
+        result = await orch._prepare_timeframe_history(Timeframe.INTRADAY)
+
+        assert result == 100
+        fetcher.gap_fill.assert_awaited_once_with("BTC/USDT", Timeframe.INTRADAY)
+        fetcher.bootstrap_history.assert_awaited_once_with("BTC/USDT", Timeframe.INTRADAY)
+
     @pytest.mark.asyncio
     async def test_startup_paper_creates_executor(self):
         storage = _make_storage()

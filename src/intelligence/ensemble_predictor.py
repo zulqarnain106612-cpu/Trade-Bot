@@ -58,9 +58,9 @@ try:
         PicklingError whenever the LSTM member had been fit.
         """
 
-        def __init__(self, hidden_dim: int) -> None:
+        def __init__(self, hidden_dim: int, input_size: int = 1) -> None:
             super().__init__()
-            self.lstm = nn.LSTM(input_size=1, hidden_size=hidden_dim, batch_first=True)
+            self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_dim, batch_first=True)
             self.head = nn.Linear(hidden_dim, 1)
 
         def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -181,28 +181,42 @@ class ARIMAPredictor(PredictionModel):
         self.rmse = np.inf
 
     def fit(self, timeseries: pd.Series) -> None:
-        """Fit ARIMA on historical data."""
+        """Fit ARIMA on finite observations with a forecastable integer index."""
+        self.model = None
+        self.rmse = np.inf
         try:
             from statsmodels.tsa.arima.model import ARIMA
 
-            self.model = ARIMA(timeseries, order=self.order).fit()
-            self.rmse = np.sqrt(np.mean(self.model.resid**2))
+            values = pd.to_numeric(pd.Series(timeseries).reset_index(drop=True), errors="coerce")
+            values = values.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
+            if len(values) < 8:
+                log.warning("arima_insufficient_data", have=len(values), need_at_least=8)
+                return
+            # A datetime or irregular integer index can prevent statsmodels from
+            # constructing the forecast index. RangeIndex preserves row order.
+            self.model = ARIMA(values, order=self.order).fit()
+            residuals = np.asarray(self.model.resid, dtype=float)
+            residuals = residuals[np.isfinite(residuals)]
+            if residuals.size:
+                self.rmse = float(np.sqrt(np.mean(np.square(residuals))))
         except ImportError:
             log.warning("statsmodels not installed, ARIMA disabled")
+        except Exception as exc:
+            self.model = None
+            self.rmse = np.inf
+            log.error("arima_fit_failed", error=str(exc), exc_info=True)
 
     def predict(self, features: pd.DataFrame) -> float:
         if self.model is None:
             return 0.0
         try:
-            # statsmodels forecast() returns a Series whose index continues from
-            # the training series' length (e.g. label 60 for a 60-row fit), not
-            # from 0 — positional .iloc[0] is required, [0] label-indexes and
-            # raises KeyError on virtually every real call.
-            forecast = self.model.forecast(steps=1).iloc[0]
-            return float(forecast)
-        except Exception as e:
-            log.error("arima_prediction_failed", error=str(e), exc_info=True)
-            return 0.0
+            forecast = float(self.model.forecast(steps=1).iloc[0])
+            if not np.isfinite(forecast):
+                raise ValueError("ARIMA forecast is not finite")
+            return forecast
+        except Exception as exc:
+            log.error("arima_prediction_failed", error=str(exc), exc_info=True)
+            raise RuntimeError("ARIMA prediction failed") from exc
 
     def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
         point = self.predict(features)
@@ -271,7 +285,7 @@ class LSTMPredictor(PredictionModel):
     contributed 0.0 with weight 0 in every run — a silently-dead ensemble
     member. torch>=2.4 is now a pinned dependency (requirements.in) and is
     CPU-only here (no CUDA needed for a single-feature, 20-step LSTM at
-    this data scale).
+    this data scale; the input channels are the active tabular features).
     """
 
     def __init__(self, hidden_dim: int = 64, lookback: int = 20, epochs: int = 30):
@@ -280,25 +294,41 @@ class LSTMPredictor(PredictionModel):
         self.epochs = epochs
         self.model: Any = None
         self.rmse = np.inf
+        self.input_size = 1
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
-        """Fit LSTM (requires torch). X shape: (n_samples, lookback, 1)."""
+        """Fit aligned LSTM windows shaped (samples, lookback, feature_count)."""
+        self.model = None
+        self.rmse = np.inf
         if not _TORCH_AVAILABLE:
             log.warning("torch not installed, LSTM disabled")
             return
         try:
-            torch.manual_seed(42)
+            values = np.asarray(X, dtype=np.float32)
+            targets = np.asarray(y, dtype=np.float32).reshape(-1)
+            if values.ndim != 3 or values.shape[1] != self.lookback:
+                raise ValueError(
+                    f"LSTM windows must have shape (samples, {self.lookback}, features); "
+                    f"received {values.shape}"
+                )
+            if values.shape[0] == 0 or values.shape[0] != targets.size:
+                raise ValueError(
+                    f"LSTM sample/target length mismatch: {values.shape[0]} vs {targets.size}"
+                )
+            if not np.isfinite(values).all() or not np.isfinite(targets).all():
+                raise ValueError("LSTM training windows and targets must be finite")
 
-            net = _LSTMNet(self.hidden_dim)
-            X_t = torch.tensor(np.asarray(X), dtype=torch.float32)
-            y_t = torch.tensor(np.asarray(y), dtype=torch.float32).reshape(-1, 1)
+            self.input_size = int(values.shape[2])
+            torch.manual_seed(42)
+            net = _LSTMNet(self.hidden_dim, input_size=self.input_size)
+            X_t = torch.from_numpy(np.ascontiguousarray(values))
+            y_t = torch.from_numpy(np.ascontiguousarray(targets.reshape(-1, 1)))
 
             optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
             loss_fn = nn.MSELoss()
-
-            net.train()
-            batch_size = min(32, len(X_t))
+            batch_size = min(64, len(X_t))
             n = len(X_t)
+            net.train()
             for _epoch in range(self.epochs):
                 perm = torch.randperm(n)
                 for start in range(0, n, batch_size):
@@ -309,13 +339,26 @@ class LSTMPredictor(PredictionModel):
                     loss.backward()
                     optimizer.step()
 
+            # Keep RMSE evaluation's temporary LSTM outputs bounded.
             net.eval()
+            squared_error_sum = 0.0
+            observed = 0
+            inference_batch_size = 128
             with torch.no_grad():
-                fitted = net(X_t).numpy().flatten()
-            self.rmse = float(np.sqrt(np.mean((fitted - np.asarray(y)) ** 2)))
+                for start in range(0, n, inference_batch_size):
+                    stop = min(start + inference_batch_size, n)
+                    fitted = net(X_t[start:stop]).reshape(-1)
+                    errors = fitted - y_t[start:stop].reshape(-1)
+                    squared_error_sum += float(torch.sum(errors * errors).item())
+                    observed += stop - start
+            if not observed:
+                raise ValueError("LSTM model produced no fitted observations")
+            self.rmse = float(np.sqrt(squared_error_sum / observed))
             self.model = net
-        except Exception as e:
-            log.error("lstm_fit_failed", error=str(e), exc_info=True)
+        except Exception as exc:
+            self.model = None
+            self.rmse = np.inf
+            log.error("lstm_fit_failed", error=str(exc), exc_info=True)
 
     @property
     def is_fitted(self) -> bool:
@@ -329,21 +372,39 @@ class LSTMPredictor(PredictionModel):
         """
         return self.model is not None and _TORCH_AVAILABLE
 
-    def predict(self, features: pd.DataFrame) -> float:
+    def predict(self, features: pd.DataFrame | np.ndarray) -> float:
         if self.model is None or not _TORCH_AVAILABLE:
             return 0.0
         try:
-            # Reshape for LSTM (assumes timeseries input — same contract
-            # as the original implementation: caller supplies `lookback`
-            # raw sequential values).
-            X_reshaped = np.array(features, dtype=np.float32).reshape(-1, self.lookback, 1)
+            values = np.asarray(features, dtype=np.float32)
+            # Models persisted before multivariate-window support do not carry
+            # input_size; their network was built with one input channel.
+            input_size = int(getattr(self, "input_size", 1))
+            expected = self.lookback * input_size
+            if values.ndim == 2 and values.shape == (self.lookback, input_size):
+                values = values[np.newaxis, :, :]
+            elif values.ndim == 2 and values.shape == (1, expected):
+                values = values.reshape(1, self.lookback, input_size)
+            elif values.ndim == 3 and values.shape[1:] == (self.lookback, input_size):
+                pass
+            else:
+                raise ValueError(
+                    "LSTM inference window shape mismatch: "
+                    f"expected ({self.lookback}, {self.input_size}) or "
+                    f"(1, {self.lookback}, {self.input_size}), got {values.shape}"
+                )
+            if not np.isfinite(values).all():
+                raise ValueError("LSTM inference window must contain only finite values")
             self.model.eval()
             with torch.no_grad():
-                out = self.model(torch.tensor(X_reshaped, dtype=torch.float32))
-            return float(out.numpy().flatten()[0])
-        except Exception as e:
-            log.error("lstm_prediction_failed", error=str(e), exc_info=True)
-            return 0.0
+                out = self.model(torch.from_numpy(np.ascontiguousarray(values)))
+            prediction = float(out.reshape(-1)[0].item())
+            if not np.isfinite(prediction):
+                raise ValueError("LSTM forecast is not finite")
+            return prediction
+        except Exception as exc:
+            log.error("lstm_prediction_failed", error=str(exc), exc_info=True)
+            raise RuntimeError("LSTM prediction failed") from exc
 
     def predict_with_uncertainty(self, features: pd.DataFrame) -> tuple[float, float]:
         point = self.predict(features)
@@ -577,6 +638,8 @@ class EnsemblePredictor:
         # column-order-sensitive; a mismatch silently mispredicts rather
         # than raising). Set by fit(); None until then.
         self._feature_cols: list[str] | None = None
+        self._lstm_feature_history: pd.DataFrame | None = None
+        self._lstm_replace_tail_on_next_prediction = True
         self._update_weights()
 
     def fit(self, X: pd.DataFrame, y: pd.Series) -> None:
@@ -591,10 +654,10 @@ class EnsemblePredictor:
           not a feature matrix). Calling it with (X, y) raised a TypeError
           on every single fit, silently swallowed by the broad except --
           meaning ARIMA was never actually trained through this path.
-        - LSTMPredictor.fit() expects pre-windowed 3D sequences
-          (n_samples, lookback, 1), not a raw tabular DataFrame. Calling it
-          with the raw (X, y) either raised inside Keras or silently
-          produced a meaningless fit.
+        - LSTMPredictor.fit() expects pre-windowed multivariate sequences
+          (n_samples, lookback, n_features). The windows are built from prior
+          feature rows and aligned to the following log-return target so live
+          inference uses the same feature contract as training.
 
         Each model is now dispatched with the input shape it actually
         requires, and weights are refreshed immediately after fitting
@@ -604,6 +667,9 @@ class EnsemblePredictor:
         """
         log.info("ensemble_fitting", num_models=len(self.models))
         self._feature_cols = list(X.columns)
+        lookback = int(getattr(self.models.get("lstm"), "lookback", 20))
+        self._lstm_feature_history = X.tail(lookback).copy().reset_index(drop=True)
+        self._lstm_replace_tail_on_next_prediction = True
 
         for name, model in self.models.items():
             try:
@@ -613,12 +679,12 @@ class EnsemblePredictor:
                     model.fit(y)
                 elif name == "lstm":
                     lookback: int = getattr(model, "lookback", 20)
-                    X_seq, y_seq = self._build_lstm_sequences(y, lookback)
+                    X_seq, y_seq = self._build_lstm_feature_sequences(X, y, lookback)
                     if X_seq is None:
                         log.warning(
                             f"{name}_insufficient_data",
                             need_at_least=lookback + 1,
-                            have=len(y),
+                            have=min(len(X), len(y)),
                         )
                         continue
                     model.fit(X_seq, y_seq)
@@ -654,6 +720,68 @@ class EnsemblePredictor:
         y_seq = values[lookback:]
         return X_seq.reshape(-1, lookback, 1), y_seq
 
+    @staticmethod
+    def _build_lstm_feature_sequences(
+        X: pd.DataFrame, y: pd.Series, lookback: int
+    ) -> tuple[np.ndarray | None, np.ndarray | None]:
+        """Build prior-feature windows aligned to the following return target."""
+        values = np.asarray(X, dtype=np.float32)
+        targets = np.asarray(y, dtype=np.float32).reshape(-1)
+        n = min(len(values), len(targets))
+        values = values[:n]
+        targets = targets[:n]
+        if lookback <= 0:
+            raise ValueError("LSTM lookback must be positive")
+        if n <= lookback:
+            return None, None
+        if values.ndim != 2:
+            raise ValueError(f"LSTM feature matrix must be two-dimensional, got {values.shape}")
+
+        # Each window X[t-lookback:t] predicts y[t], avoiding target leakage.
+        windows = np.lib.stride_tricks.sliding_window_view(values, window_shape=lookback, axis=0)
+        windows = np.moveaxis(windows, -1, 1)[:-1]
+        window_targets = targets[lookback:]
+        valid = np.isfinite(window_targets) & np.isfinite(windows).all(axis=(1, 2))
+        if not valid.any():
+            return None, None
+        return (
+            np.ascontiguousarray(windows[valid], dtype=np.float32),
+            np.ascontiguousarray(window_targets[valid], dtype=np.float32),
+        )
+
+    def _lstm_window_for_prediction(self, features: pd.DataFrame) -> pd.DataFrame | None:
+        """Return a validated feature window, advancing state for a single live row."""
+        model = self.models.get("lstm")
+        if model is None or self._feature_cols is None:
+            return None
+        lookback = int(getattr(model, "lookback", 20))
+        current = features.reindex(columns=self._feature_cols)
+        if current.shape[0] != 1:
+            window = current.tail(lookback)
+            return window if len(window) == lookback else None
+        if not np.isfinite(current.to_numpy(dtype=float)).all():
+            return None
+
+        history = self._lstm_feature_history
+        if (
+            history is None
+            or list(history.columns) != self._feature_cols
+            or len(history) < lookback
+        ):
+            return None
+        history = history.tail(lookback).copy().reset_index(drop=True)
+        replace_tail = self._lstm_replace_tail_on_next_prediction
+        if replace_tail:
+            history.iloc[-1] = current.iloc[0].to_numpy()
+        else:
+            history = pd.concat([history.iloc[1:], current], ignore_index=True)
+        if not np.isfinite(history.to_numpy(dtype=float)).all():
+            return None
+        if replace_tail:
+            self._lstm_replace_tail_on_next_prediction = False
+        self._lstm_feature_history = history
+        return history
+
     def predict_row(self, features: dict[str, float] | pd.Series) -> EnsemblePrediction:
         """
         Convenience wrapper for live single-row inference.
@@ -682,6 +810,9 @@ class EnsemblePredictor:
         individual_uncertainties: dict[str, float] = {}
         failed: list[str] = []
 
+        # For one-row live calls, supply the LSTM with chronological feature history.
+        lstm_features = self._lstm_window_for_prediction(features)
+
         # Get predictions from all models
         for name, model in self.models.items():
             if not model.is_fitted:
@@ -691,7 +822,12 @@ class EnsemblePredictor:
                 failed.append(name)
                 continue
             try:
-                point, uncertainty = model.predict_with_uncertainty(features)
+                model_features = features
+                if name == "lstm":
+                    if lstm_features is None:
+                        raise RuntimeError("no valid LSTM feature history for inference window")
+                    model_features = lstm_features
+                point, uncertainty = model.predict_with_uncertainty(model_features)
             except Exception as e:
                 log.error("ensemble_member_failed", model=name, error=str(e), exc_info=True)
                 failed.append(name)
@@ -848,6 +984,8 @@ class EnsemblePredictor:
             "models": self.models,
             "weights": self.weights,
             "feature_cols": self._feature_cols,
+            "lstm_feature_history": self._lstm_feature_history,
+            "lstm_replace_tail_on_next_prediction": self._lstm_replace_tail_on_next_prediction,
             "symbol": symbol,
             "timeframe": timeframe,
         }
@@ -877,4 +1015,8 @@ class EnsemblePredictor:
         instance.models = payload["models"]
         instance.weights = payload["weights"]
         instance._feature_cols = payload["feature_cols"]
+        instance._lstm_feature_history = payload.get("lstm_feature_history")
+        instance._lstm_replace_tail_on_next_prediction = payload.get(
+            "lstm_replace_tail_on_next_prediction", True
+        )
         return instance

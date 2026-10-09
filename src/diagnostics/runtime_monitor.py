@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import gc
+import math
 import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
@@ -34,7 +35,8 @@ from src.eventbus import get_event_bus
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 POLL_INTERVAL_S: Final[float] = 30.0  # health probe cadence
-STALL_THRESHOLD_S: Final[float] = 300.0  # tick stall: 5 min silence → alert
+STALL_THRESHOLD_S: Final[float] = 300.0  # minimum tick stall threshold
+TICK_SCHEDULE_GRACE_S: Final[float] = 60.0  # scheduler/network delay after each bar
 MEMORY_WARN_MB: Final[float] = 512.0  # RSS warn threshold
 MEMORY_CRITICAL_MB: Final[float] = 1024.0  # RSS critical threshold
 MAX_CONSECUTIVE_FAILURES: Final[int] = 3  # auto-escalate after N failures
@@ -103,6 +105,7 @@ class RuntimeMonitor:
     def __init__(self) -> None:
         self._probes: dict[str, Callable[[], Coroutine[Any, Any, dict[str, Any]]]] = {}
         self._tick_sources: dict[str, Callable[[], float]] = {}
+        self._tick_registered_at: dict[str, float] = {}
         self._results: dict[str, ProbeResult] = {}
         self._task: asyncio.Task | None = None
         self._snapshot: HealthSnapshot | None = None
@@ -124,6 +127,31 @@ class RuntimeMonitor:
     def register_tick_source(self, timeframe: str, ts_getter: Callable[[], float]) -> None:
         """Register a callable returning the last-tick monotonic timestamp."""
         self._tick_sources[timeframe] = ts_getter
+        self._tick_registered_at[timeframe] = time.monotonic()
+
+    def mark_tick_source_active(self, timeframe: str) -> None:
+        """Start first-tick grace when the timeframe loop becomes runnable."""
+        if timeframe not in self._tick_sources:
+            raise KeyError(f"tick source is not registered: {timeframe}")
+        # Initial model fitting can take several minutes. A tick source is not
+        # expected to advance until its loop starts after startup training.
+        self._tick_registered_at[timeframe] = time.monotonic()
+
+    @staticmethod
+    def _tick_stall_limit_s(timeframe: str) -> float:
+        """Use the larger of the base stall window or timeframe cadence plus grace."""
+        unit = timeframe[-1:].lower()
+        try:
+            amount = int(timeframe[:-1])
+        except (TypeError, ValueError):
+            return STALL_THRESHOLD_S
+        multipliers = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+        if amount <= 0 or unit not in multipliers:
+            return STALL_THRESHOLD_S
+        return max(
+            STALL_THRESHOLD_S,
+            amount * multipliers[unit] + TICK_SCHEDULE_GRACE_S,
+        )
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -251,10 +279,57 @@ class RuntimeMonitor:
         now = time.monotonic()
         for tf, getter in self._tick_sources.items():
             try:
-                last_ts = getter()
-                stale_s = now - last_ts
+                last_ts = float(getter())
                 pr_name = f"tick_stall_{tf}"
-                if stale_s > STALL_THRESHOLD_S:
+                stall_limit_s = self._tick_stall_limit_s(tf)
+
+                if not math.isfinite(last_ts):
+                    pr = ProbeResult(
+                        name=pr_name,
+                        passed=False,
+                        value=None,
+                        detail="invalid_tick_timestamp",
+                        consecutive_failures=1,
+                    )
+                    log.error("health_probe.invalid_tick_timestamp", timeframe=tf)
+                    alerts.append(f"tick_stall_{tf}: invalid_tick_timestamp")
+                    self._results[pr_name] = pr
+                    continue
+
+                # Zero means no tick has happened. Measure from registration, not
+                # from process start (monotonic zero is not a real first-tick time).
+                if last_ts <= 0.0:
+                    registered_at = self._tick_registered_at.get(tf, now)
+                    waiting_s = max(0.0, now - registered_at)
+                    if waiting_s > stall_limit_s:
+                        pr = ProbeResult(
+                            name=pr_name,
+                            passed=False,
+                            value=round(waiting_s, 1),
+                            detail=f"first_tick_not_seen_for_{waiting_s:.0f}s",
+                            consecutive_failures=1,
+                            last_ok_ts=registered_at,
+                        )
+                        log.critical(
+                            "health_probe.first_tick_missing",
+                            timeframe=tf,
+                            waiting_s=round(waiting_s, 1),
+                            threshold_s=stall_limit_s,
+                        )
+                        alerts.append(f"tick_stall_{tf}: first_tick_not_seen_for_{waiting_s:.0f}s")
+                    else:
+                        pr = ProbeResult(
+                            name=pr_name,
+                            passed=True,
+                            value=round(waiting_s, 1),
+                            detail="awaiting_first_tick",
+                            last_ok_ts=registered_at,
+                        )
+                    self._results[pr_name] = pr
+                    continue
+
+                stale_s = max(0.0, now - last_ts)
+                if stale_s > stall_limit_s:
                     pr = ProbeResult(
                         name=pr_name,
                         passed=False,
@@ -267,6 +342,7 @@ class RuntimeMonitor:
                         "health_probe.tick_stall",
                         timeframe=tf,
                         stale_s=round(stale_s, 1),
+                        threshold_s=stall_limit_s,
                         action="check_exchange_connection_and_orchestrator",
                     )
                     alerts.append(f"tick_stall_{tf}: {stale_s:.0f}s")
