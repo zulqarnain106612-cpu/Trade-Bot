@@ -49,6 +49,8 @@ __tb_term_precmd() {
 # History must be on for the command text; it is per-session and in memory,
 # HISTFILE is left exactly as the user's configuration set it.
 set -o history
+# Explicitly enable job control for reliable foreground process-group tracking.
+set -m
 PROMPT_COMMAND="__tb_term_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 PS0="${PS0:-}"'$(__tb_term_preexec)'
 """
