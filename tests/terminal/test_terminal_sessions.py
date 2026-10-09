@@ -187,7 +187,7 @@ class TestJobs:
         self, harness, monkeypatch
     ):
         monkeypatch.setattr(sessions_module, "FINALIZE_GRACE_S", 0.0)
-        argv = ["sh", "-c", "sleep 30 & echo BG=$!; exit 4"]
+        argv = ["sh", "-c", "trap '' HUP; sleep 30 & echo BG=$!; exit 4"]
         job = await harness.manager.create(argv=argv)
         done = await harness.wait_finished(by_id(job.job_entry))
         assert done["exit_code"] == 4
