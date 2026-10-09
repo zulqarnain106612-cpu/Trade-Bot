@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import tempfile
 import stat
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -114,7 +115,7 @@ class TerminalConfig:
         else:
             # The per-user fallback lives in a shared directory, which is why
             # ensure_private_dir() refuses one that somebody else created.
-            runtime_dir = Path("/tmp") / f"tradebot-terminal-{uid}"
+            runtime_dir = Path(tempfile.gettempdir()) / f"tradebot-terminal-{uid}"
 
         state_override = source.get(_ENV_PREFIX + "STATE_DIR", "").strip()
         if state_override:
