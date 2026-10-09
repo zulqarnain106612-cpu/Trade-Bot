@@ -213,7 +213,7 @@ class AsyncClient:
                 self.frames.remove(frame)
                 return frame
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
+        deadline = loop.time() + wait_s
         while True:
             frame = await self.recv(max(0.01, deadline - loop.time()))
             if frame is None:
