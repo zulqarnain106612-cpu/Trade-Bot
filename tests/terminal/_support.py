@@ -80,9 +80,9 @@ class Changes:
     def notify(self, *_args: Any) -> None:
         self._event.set()
 
-    async def until(self, predicate: Callable[[], Any], timeout: float = WAIT_S) -> Any:
+    async def until(self, predicate: Callable[[], Any], wait_s: float = WAIT_S) -> Any:
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
+        deadline = loop.time() + wait_s
         while True:
             result = predicate()
             if result:
@@ -196,8 +196,8 @@ class AsyncClient:
         self.writer.write(raw + b"\n")
         await self.writer.drain()
 
-    async def recv(self, timeout: float = WAIT_S) -> dict[str, Any] | None:
-        async with asyncio.timeout(timeout):
+    async def recv(self, wait_s: float = WAIT_S) -> dict[str, Any] | None:
+        async with asyncio.timeout(wait_s):
             line = await self.reader.readline()
         if not line:
             return None
@@ -206,7 +206,7 @@ class AsyncClient:
         return frame
 
     async def wait_for(
-        self, predicate: Callable[[dict[str, Any]], bool], timeout: float = WAIT_S
+        self, predicate: Callable[[dict[str, Any]], bool], wait_s: float = WAIT_S
     ) -> Any:
         for frame in list(self.frames):
             if predicate(frame):
@@ -230,10 +230,10 @@ class AsyncClient:
             lambda f: f.get("id") == request_id and f["t"] in ("ok", "welcome", "error")
         )
 
-    async def closed(self, timeout: float = WAIT_S) -> bool:
+    async def closed(self, wait_s: float = WAIT_S) -> bool:
         """True once the daemon has closed this connection."""
         while True:
-            frame = await self.recv(timeout)
+            frame = await self.recv(wait_s)
             if frame is None:
                 return True
 
