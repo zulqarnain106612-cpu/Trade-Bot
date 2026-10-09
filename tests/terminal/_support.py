@@ -92,7 +92,8 @@ class Changes:
                 raise AssertionError("the expected state was never reported")
             self._event.clear()
             try:
-                await asyncio.wait_for(self._event.wait(), remaining)
+                async with asyncio.timeout(remaining):
+                    await self._event.wait()
             except TimeoutError as exc:
                 raise AssertionError("the expected state was never reported") from exc
 
@@ -196,7 +197,8 @@ class AsyncClient:
         await self.writer.drain()
 
     async def recv(self, timeout: float = WAIT_S) -> dict[str, Any] | None:
-        line = await asyncio.wait_for(self.reader.readline(), timeout)
+        async with asyncio.timeout(timeout):
+            line = await self.reader.readline()
         if not line:
             return None
         frame = json.loads(line)
@@ -277,7 +279,8 @@ class Daemon:
 
     async def shutdown(self) -> None:
         self.stop.set()
-        await asyncio.wait_for(self.task, WAIT_S)
+        async with asyncio.timeout(WAIT_S):
+            await self.task
 
 
 class ThreadedDaemon:
