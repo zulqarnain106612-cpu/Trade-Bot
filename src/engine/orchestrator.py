@@ -414,6 +414,85 @@ class Orchestrator:
         """
         self._cfg_pinned = value
 
+    async def _prepare_timeframe_history(self, tf: Timeframe) -> int:
+        """Reuse a sufficient recent cache; only cold/inadequate data needs full bootstrap."""
+        timeframe = tf.value
+        tf_seconds = TIMEFRAME_SECONDS[tf]
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+        cutoff_ms = now_ms - (_HISTORY_BARS_FOR_TRAIN * tf_seconds * 1000)
+        cached = await self._storage.fetch_bars(
+            self._symbol,
+            timeframe,
+            since_ts=cutoff_ms,
+            limit=_HISTORY_BARS_FOR_TRAIN,
+        )
+        latest_ts = await self._storage.latest_bar_ts(self._symbol, timeframe)
+
+        if len(cached) < 300 or latest_ts is None:
+            self._log.info(
+                "orchestrator.bootstrap_cache_insufficient",
+                timeframe=timeframe,
+                cached_bars=len(cached),
+                minimum_bars=300,
+            )
+            return await self._fetcher.bootstrap_history(self._symbol, tf)
+
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+        cache_age_s = max(0.0, (now_ms - latest_ts) / 1000.0)
+        freshness_limit_s = max(300.0, 2.0 * tf_seconds)
+        try:
+            refreshed = await self._fetcher.gap_fill(self._symbol, tf)
+            latest_after_refresh = await self._storage.latest_bar_ts(self._symbol, timeframe)
+            now_after_refresh_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+            if latest_after_refresh is not None:
+                latest_age_s = max(0.0, (now_after_refresh_ms - latest_after_refresh) / 1000.0)
+                if latest_age_s <= freshness_limit_s:
+                    self._log.info(
+                        "orchestrator.bootstrap_cache_reused",
+                        timeframe=timeframe,
+                        cached_bars=len(cached),
+                        refreshed_bars=int(refreshed or 0),
+                        latest_age_s=round(latest_age_s, 1),
+                    )
+                    return int(refreshed or 0)
+            else:
+                latest_age_s = float("inf")
+            self._log.warning(
+                "orchestrator.bootstrap_cache_stale_after_refresh",
+                timeframe=timeframe,
+                cached_bars=len(cached),
+                latest_age_s=round(latest_age_s, 1),
+                freshness_limit_s=freshness_limit_s,
+            )
+        except Exception as exc:
+            # If persisted bars were fresh enough before the refresh attempt,
+            # startup can retain them while the regular tick path retries the
+            # live feed. A genuinely stale cache must still take the full,
+            # existing fail-closed bootstrap path.
+            if cache_age_s <= freshness_limit_s:
+                self._log.warning(
+                    "orchestrator.bootstrap_cache_refresh_failed_using_recent_cache",
+                    timeframe=timeframe,
+                    cached_bars=len(cached),
+                    latest_age_s=round(cache_age_s, 1),
+                    error=str(exc)[:200],
+                )
+                return 0
+            self._log.warning(
+                "orchestrator.bootstrap_cache_refresh_failed",
+                timeframe=timeframe,
+                cached_bars=len(cached),
+                latest_age_s=round(cache_age_s, 1),
+                error=str(exc)[:200],
+            )
+
+        self._log.info(
+            "orchestrator.bootstrap_fallback_full_history",
+            timeframe=timeframe,
+            cached_bars=len(cached),
+        )
+        return await self._fetcher.bootstrap_history(self._symbol, tf)
+
     async def startup(self) -> None:
         """
         Initialize all subsystems in order:
@@ -472,7 +551,7 @@ class Orchestrator:
 
         async def _bootstrap_one(tf: Timeframe) -> int:
             async with bootstrap_sem:
-                return await self._fetcher.bootstrap_history(self._symbol, tf)
+                return await self._prepare_timeframe_history(tf)
 
         bootstrap_tasks = [_bootstrap_one(tf) for tf in self._timeframes]
         results = await asyncio.gather(*bootstrap_tasks, return_exceptions=True)
@@ -823,6 +902,9 @@ class Orchestrator:
         then fires a tick.
         """
         tf_seconds = TIMEFRAME_SECONDS[tf]
+        # Initial training happens in startup(); first-tick grace must start
+        # when this actual scheduler loop begins, not during model fitting.
+        get_monitor().mark_tick_source_active(tf.value)
         self._log.info("orchestrator.tf_loop_start", timeframe=tf.value)
 
         while self._running:

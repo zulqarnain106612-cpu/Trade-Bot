@@ -16,6 +16,7 @@ from src.diagnostics.runtime_monitor import (
     MEMORY_CRITICAL_MB,
     MEMORY_WARN_MB,
     STALL_THRESHOLD_S,
+    TICK_SCHEDULE_GRACE_S,
     HealthSnapshot,
     ProbeResult,
     RuntimeMonitor,
@@ -230,10 +231,71 @@ async def test_run_all_probes_tick_ok():
 
 
 @pytest.mark.asyncio
+async def test_initially_unseen_four_hour_tick_is_pending_not_stale():
+    m = RuntimeMonitor()
+    m.register_tick_source("4h", lambda: 0.0)
+    await m._run_all_probes()
+    result = m._results["tick_stall_4h"]
+    assert result.passed is True
+    assert result.detail == "awaiting_first_tick"
+    assert not any("tick_stall_4h" in alert for alert in m.get_snapshot().alerts)
+
+
+@pytest.mark.asyncio
+async def test_first_tick_grace_restarts_when_timeframe_loop_activates():
+    m = RuntimeMonitor()
+    with patch("src.diagnostics.runtime_monitor.time.monotonic", return_value=100.0):
+        m.register_tick_source("1m", lambda: 0.0)
+    # Simulate a lengthy initial-model-training phase before the loop starts.
+    with patch("src.diagnostics.runtime_monitor.time.monotonic", return_value=10_000.0):
+        m.mark_tick_source_active("1m")
+    with patch("src.diagnostics.runtime_monitor.time.monotonic", return_value=10_005.0):
+        await m._run_all_probes()
+
+    result = m._results["tick_stall_1m"]
+    assert result.passed is True
+    assert result.detail == "awaiting_first_tick"
+    assert result.value == 5.0
+
+
+@pytest.mark.asyncio
+async def test_first_tick_missing_after_timeframe_deadline_is_critical():
+    m = RuntimeMonitor()
+    with patch("src.diagnostics.runtime_monitor.time.monotonic", return_value=1000.0):
+        m.register_tick_source("4h", lambda: 0.0)
+    deadline = 1000.0 + 4 * 60 * 60 + TICK_SCHEDULE_GRACE_S + 1
+    with patch("src.diagnostics.runtime_monitor.time.monotonic", return_value=deadline):
+        await m._run_all_probes()
+    result = m._results["tick_stall_4h"]
+    assert result.passed is False
+    assert result.detail.startswith("first_tick_not_seen_for_")
+
+
+@pytest.mark.asyncio
+async def test_fifteen_minute_tick_is_not_stale_after_only_five_minutes():
+    m = RuntimeMonitor()
+    stale_ts = time.monotonic() - 400
+    m.register_tick_source("15m", lambda: stale_ts)
+    await m._run_all_probes()
+    assert m._results["tick_stall_15m"].passed is True
+
+
+@pytest.mark.asyncio
 async def test_run_all_probes_tick_getter_exception():
     m = RuntimeMonitor()
     m.register_tick_source("bad", lambda: 1 / 0)
     await m._run_all_probes()  # should not raise
+
+
+@pytest.mark.asyncio
+async def test_non_finite_tick_timestamp_is_immediately_unhealthy():
+    m = RuntimeMonitor()
+    m.register_tick_source("4h", lambda: float("nan"))
+    await m._run_all_probes()
+    result = m._results["tick_stall_4h"]
+    assert result.passed is False
+    assert result.detail == "invalid_tick_timestamp"
+    assert result.value is None
 
 
 @pytest.mark.asyncio

@@ -90,31 +90,86 @@ class TestARIMAPredictor:
         m = p.get_performance_metrics()
         assert "rmse" in m
 
-    def test_fit_and_predict_success(self):
+    def test_fit_and_predict_supports_irregular_datetime_index(self):
         p = ARIMAPredictor()
-        ts = pd.Series(np.cumsum(np.random.default_rng(1).standard_normal(60)) + 100)
-        p.fit(ts)
-        if p.model is not None:
-            # NOTE: statsmodels' forecast() returns a Series whose index
-            # continues from the end of the training series (e.g. label 60
-            # for a 60-row fit), so the real `self.model.forecast(steps=1)[0]`
-            # label lookup raises KeyError for any non-trivial series and
-            # always falls into the except branch in practice (suspected
-            # production bug — not fixed here, out of scope for this test
-            # pass). Mock a 0-indexed forecast result to exercise the
-            # intended success path.
-            with patch.object(p.model, "forecast", return_value=pd.Series([42.0], index=[0])):
-                pred = p.predict(_make_features(1))
-            assert pred == pytest.approx(42.0)
+        dates = pd.to_datetime(
+            [
+                "2024-01-01",
+                "2024-01-02",
+                "2024-01-04",
+                "2024-01-07",
+                "2024-01-08",
+                "2024-01-10",
+                "2024-01-12",
+                "2024-01-15",
+                "2024-01-19",
+                "2024-01-20",
+                "2024-01-22",
+                "2024-01-24",
+                "2024-01-27",
+                "2024-01-29",
+                "2024-02-01",
+                "2024-02-03",
+                "2024-02-05",
+                "2024-02-09",
+                "2024-02-10",
+                "2024-02-13",
+                "2024-02-15",
+                "2024-02-18",
+                "2024-02-20",
+                "2024-02-22",
+                "2024-02-25",
+                "2024-02-27",
+                "2024-03-01",
+                "2024-03-04",
+                "2024-03-06",
+                "2024-03-09",
+                "2024-03-11",
+                "2024-03-14",
+                "2024-03-16",
+                "2024-03-19",
+                "2024-03-21",
+                "2024-03-24",
+                "2024-03-26",
+                "2024-03-29",
+                "2024-04-01",
+                "2024-04-03",
+                "2024-04-06",
+                "2024-04-08",
+                "2024-04-11",
+                "2024-04-13",
+                "2024-04-16",
+                "2024-04-18",
+                "2024-04-21",
+                "2024-04-23",
+                "2024-04-26",
+                "2024-04-28",
+                "2024-05-01",
+                "2024-05-03",
+                "2024-05-06",
+                "2024-05-08",
+                "2024-05-11",
+                "2024-05-13",
+                "2024-05-16",
+                "2024-05-18",
+                "2024-05-21",
+                "2024-05-23",
+            ]
+        )
+        values = np.cumsum(np.random.default_rng(1).standard_normal(len(dates))) + 100
+        p.fit(pd.Series(values, index=dates))
+        if p.model is None:
+            pytest.skip("statsmodels ARIMA could not be fitted in this environment")
+        assert isinstance(p.model.model.data.row_labels, pd.RangeIndex)
+        assert np.isfinite(p.predict(_make_features(1)))
 
-    def test_predict_forecast_exception_returns_zero(self):
+    def test_predict_forecast_exception_abstains(self):
         p = ARIMAPredictor()
-        ts = pd.Series(np.cumsum(np.random.default_rng(1).standard_normal(60)) + 100)
-        p.fit(ts)
+        p.fit(pd.Series(np.cumsum(np.random.default_rng(1).standard_normal(60)) + 100))
         if p.model is not None:
             with patch.object(p.model, "forecast", side_effect=RuntimeError("boom")):
-                pred = p.predict(_make_features(1))
-            assert pred == 0.0
+                with pytest.raises(RuntimeError, match="ARIMA prediction failed"):
+                    p.predict(_make_features(1))
 
 
 # ---------------------------------------------------------------------------
@@ -223,15 +278,31 @@ class TestLSTMPredictor:
         pred = p.predict(X[:1].reshape(1, -1))
         assert isinstance(pred, float)
 
-    def test_predict_exception_returns_zero(self):
+    def test_predict_exception_abstains(self):
         p = LSTMPredictor(hidden_dim=4, lookback=5, epochs=1)
         rng = np.random.default_rng(3)
         X = rng.standard_normal((30, 5, 1)).astype(np.float32)
         y = rng.standard_normal(30).astype(np.float32)
         p.fit(X, y)
         with patch.object(p.model, "eval", side_effect=RuntimeError("boom")):
-            result = p.predict(X[:1].reshape(1, -1))
-        assert result == 0.0
+            with pytest.raises(RuntimeError, match="LSTM prediction failed"):
+                p.predict(X[:1].reshape(1, -1))
+
+    def test_fit_predict_multivariate_feature_windows(self):
+        from src.intelligence.ensemble_predictor import _TORCH_AVAILABLE
+
+        if not _TORCH_AVAILABLE:
+            pytest.skip("torch not installed")
+        p = LSTMPredictor(hidden_dim=4, lookback=5, epochs=1)
+        rng = np.random.default_rng(23)
+        X = rng.standard_normal((30, 5, 8)).astype(np.float32)
+        y = rng.standard_normal(30).astype(np.float32)
+        p.fit(X, y)
+        assert p.model is not None
+        assert p.input_size == 8
+        assert np.isfinite(p.predict(X[0]))
+        with pytest.raises(RuntimeError, match="LSTM prediction failed"):
+            p.predict(pd.DataFrame([[0.1] * 8]))
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +550,15 @@ class TestEnsemblePredictor:
         assert y_out is not None
         assert X.shape == (25, 5, 1)
         assert len(y_out) == 25
+
+    def test_build_lstm_feature_sequences_aligns_past_features_to_next_target(self):
+        X = pd.DataFrame({"a": np.arange(8), "b": np.arange(100, 108)})
+        y = pd.Series(np.arange(10, 18))
+        windows, targets = EnsemblePredictor._build_lstm_feature_sequences(X, y, lookback=3)
+        assert windows is not None and targets is not None
+        assert windows.shape == (5, 3, 2)
+        assert windows[0] == pytest.approx(X.iloc[:3].to_numpy())
+        assert targets == pytest.approx(y.iloc[3:].to_numpy())
 
     def test_weights_updated_after_fit(self):
         ep = EnsemblePredictor()
