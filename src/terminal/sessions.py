@@ -695,13 +695,7 @@ class SessionManager:
         # observe a process that the close operation promised to terminate.
         kill_deadline = self._monotonic() + max(self._limits.close_grace_s, 1.0)
         while self._monotonic() < kill_deadline:
-            members = procfs.session_members(procfs.scan(self._proc), session.pid)
-            if not any(
-                (stat := procfs.read_stat(pid, self._proc)) is not None
-                and stat.comm
-                and stat.comm != " "
-                for pid in members
-            ):
+            if not procfs.session_members(procfs.scan(self._proc), session.pid):
                 break
             await asyncio.sleep(0.01)
 
