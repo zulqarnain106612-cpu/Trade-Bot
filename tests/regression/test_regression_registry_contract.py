@@ -230,6 +230,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "SEC-0007",
             "SEC-0008",
             "SEC-0009",
+            "SEC-0010",
         }
 
     def test_every_filed_defect_names_a_permanent_test(self, registry):
