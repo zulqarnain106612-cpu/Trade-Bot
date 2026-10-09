@@ -149,7 +149,9 @@ def _write_managed(path: Path, text: str, mode: int, report: InstallReport) -> b
 
 
 def systemd_user_available(run: Runner) -> bool:
-    return shutil.which("systemctl") is not None and run(["systemctl", "--user", "show-environment"]) == 0
+    if shutil.which("systemctl") is None:
+        return False
+    return run(["systemctl", "--user", "show-environment"]) == 0
 
 
 def install(

@@ -175,9 +175,7 @@ def validate_name(value: object) -> str:
         raise ProtocolError("bad_name", "name must be a string")
     name = value.strip()
     if not name or len(name) > MAX_NAME_CHARS or _CONTROL_RE.search(name):
-        raise ProtocolError(
-            "bad_name", f"name must be 1-{MAX_NAME_CHARS} printable characters"
-        )
+        raise ProtocolError("bad_name", f"name must be 1-{MAX_NAME_CHARS} printable characters")
     return name
 
 

@@ -17,7 +17,7 @@ chosen; nothing here is taken from documentation alone.
 
 ## 2. Requirements → design decisions
 
-### 2.1 One authoritative terminal/process service: `tradebot-termd`
+### 2.1 One authoritative terminal/process service
 
 A host-user daemon (`python -m src.terminal daemon`, package `src/terminal`,
 layer *orchestration*) owns every PTY session and the process registry. The
@@ -37,7 +37,8 @@ Rejected alternatives:
 
 The daemon uses only the Python standard library for the terminal itself
 (`pty`, `termios`, `fcntl`, `subprocess`) plus `websockets`, which is already a
-pinned runtime dependency. No new Python dependency.
+pinned runtime dependency; its floor rises from 12.0 to 13.0, the first
+release with `websockets.asyncio.server`. No new Python dependency.
 
 **PTY mechanics.** `pty.openpty()`; the child is started with
 `subprocess.Popen(start_new_session=True)` and acquires the slave as its
@@ -54,8 +55,9 @@ the shell with `$?=130`, `exit 3` is reaped as 3.
   cwd = `/proc/<pgid>/cwd`, start time = `/proc/<pgid>/stat`.
 * Exact exit status for interactive commands: bash shell integration (an
   rcfile that sources `~/.bashrc`, then adds `PS0`/`PROMPT_COMMAND` hooks)
-  emits `OSC 133;E;<command>`, `OSC 133;C` (started), `OSC 133;D;<status>`
-  (finished) and `OSC 7` (cwd). Verified on bash 5.3.
+  emits `OSC 133;E;<command>`, `OSC 133;C` (started) and
+  `OSC 133;D;<status>` (finished). Verified on bash 5.3. The working
+  directory is read from `/proc/<pid>/cwd`, not from the shell.
 * Without integration (zsh, fish, `exec`'d shells) commands are still detected
   from the foreground group; their status is reported as **unknown**, never
   invented.
@@ -64,7 +66,7 @@ the shell with `$?=130`, `exit 3` is reaped as 3.
 * Application jobs (retrain, backfill inside the API) register over the Unix
   socket (`job.begin/output/end`); best effort, bounded by a short timeout,
   never on the order path, never able to fail the request.
-* Resource usage: `/proc/<pid>/stat` + `statm` summed over the process group,
+* Resource usage: `/proc/<pid>/stat` (CPU ticks, RSS) summed over the process group,
   sampled once per poll tick; omitted when `/proc` cannot be read.
 
 ### 2.2 Transports and authentication
@@ -116,14 +118,16 @@ group still belongs to the session (pid-reuse guard).
 
 `react-grid-layout` 2.3.0 (MIT; deps `react-draggable` and `react-resizable`,
 both MIT; passes `nodeRef`, so no `findDOMNode`, which React 19 removed).
-Every panel and the overview cards become grid items with: drag (header handle
-only; buttons, inputs, tables and charts are in the cancel selector), resize
-with minimum sizes, minimize (header only), maximize (fills the visible
-workspace via CSS without remounting the panel, previous geometry restored),
-hide/restore, keyboard move/resize (`Alt+Arrow`, `Alt+Shift+Arrow`), `Esc` to
-leave maximize. Layout persists as versioned JSON
-(`tradebot.workspace.v1`); invalid data is discarded field by field; the old
-`panel-visibility` key is migrated; "Reset layout" restores defaults.
+Every panel (the overview included) is a grid item with: drag (from the
+header's title area only; buttons, inputs, links, labels and anything marked
+`.ws-no-drag` cancel a drag), resize with minimum sizes, minimize (header
+only, body kept mounted), maximize (fills the measured visible workspace via
+CSS without remounting the panel, previous geometry restored), hide/restore,
+keyboard move/resize (focus the grip, then arrows to move and Shift+arrows
+to resize), `Esc` to leave maximize. Layout persists as versioned JSON under
+`localStorage['tradebot.workspace']` (`version: 1`); invalid data is repaired
+panel by panel; the old `panel-visibility` key is migrated; "Reset layout"
+restores defaults.
 Narrow screens render a single column without touching the saved layout.
 
 ### 2.6 Venue controls
@@ -132,8 +136,9 @@ Extend `MarketDataFetcher` instead of a second client: per-venue lock (no
 duplicate clients), explicit phases (`connecting`, `connected`,
 `reconnecting`, `disconnected`, `failed`, `unavailable`), credential presence
 (`configured`/`incomplete`/`missing`, never values), and a separate account
-state (`unconfigured`, `unverified`, `authenticated`, `failed`,
-`unavailable`) decided by a read-only `fetch_balance()` with a 10 s bound.
+state (`unconfigured`, `unverified`, `verifying`, `authenticated`,
+`rejected`, `failed`, `unavailable`) decided by a read-only
+`fetch_balance()` with a 10 s bound.
 New endpoints `POST /venues/{venue}/connect`, `/disconnect`, `/verify`, and the
 existing `/reconnect`, all require the API key, a new `MANAGE_VENUES`
 permission (trade-authorizing role only), the operator secret, a rate limit,
@@ -163,28 +168,30 @@ browser ──┴── WS 127.0.0.1 + token ┘        │                │  
 * The Electron main process runs `tradebot-term start` on launch; `start` is
   idempotent (systemd unit if installed, otherwise a detached daemon).
 * Upgrade: re-run the installer; the running daemon keeps its sessions until
-  `tradebot-term restart`, and the GUI shows a version mismatch notice.
+  `tradebot-term restart`. A client whose protocol version differs from the
+  daemon's is refused at hello and the dock asks for a restart.
 * Rollback/uninstall: `tradebot-term uninstall [--purge]` stops and removes
   exactly the files it created.
 
 ## 5. Acceptance criteria → deciding tests
 
-| Criterion | Deciding test |
-|---|---|
-| PTY semantics, Ctrl+C, resize, exit status, concurrency | `tests/terminal/test_sessions.py` |
-| Shell integration markers, split-chunk parsing | `tests/terminal/test_markers.py` |
-| Registry lifecycle, history bounds, failure state | `tests/terminal/test_registry.py` |
-| Protocol validation and limits | `tests/terminal/test_protocol.py` |
-| Auth: token, origin, host, peer uid, root refusal | `tests/terminal/test_server_auth.py` |
-| GUI/CLI share sessions; attach/detach/inspect | `tests/terminal/test_server.py`, `tests/terminal/test_cli.py` |
-| Install/uninstall never clobbers | `tests/terminal/test_install.py` |
-| Venue lifecycle with mocked clients | `tests/test_venue_controls.py` |
-| Venue endpoints: auth, role, secret, audit, 409 | `tests/test_venue_api.py` |
-| Workspace persistence, migration, invalid data | `frontend/src/workspace/layoutStore.test.js` |
-| Workspace controls and keyboard | `frontend/src/components/workspace/Workspace.test.jsx` |
-| Status bar, process center, terminal dock | `frontend/src/components/terminal/*.test.jsx` |
-| Terminal client reconnect and resync | `frontend/src/terminal/client.test.js` |
-| Venue panel | `frontend/src/components/panels/VenuesPanel.test.jsx` |
+Every row is a registry entry in `config/quality_registry.json`; the
+traceability document is generated from it.
+
+| Registry | Criterion | Deciding tests |
+|---|---|---|
+| TERM-001 | Real PTY: Ctrl+C, Ctrl+D, resize, ANSI/Unicode, concurrency; GUI and CLI share sessions | `tests/terminal/test_terminal_sessions.py`, `tests/terminal/test_terminal_server.py` |
+| TERM-002 | Process identity and exit status observed, never invented | `tests/terminal/test_terminal_registry.py`, `tests/terminal/test_terminal_host.py`, `tests/terminal/test_terminal_markers_buffer.py`, `tests/terminal/test_terminal_sessions.py` |
+| TERM-003 | Every request validated; the Electron bridge relays only allowed types | `tests/terminal/test_terminal_protocol.py`, `tests/terminal/test_terminal_server.py`, `frontend/src/desktop/terminalBridge.test.js` |
+| TERM-004 | Local-only and authenticated: socket modes, peer uid, loopback, Host/Origin, token, root refusal | `tests/terminal/test_terminal_server.py`, `tests/terminal/test_terminal_host.py`, `frontend/src/terminal/client.test.js` |
+| TERM-005 | Output survives reconnect; gaps reported; snapshot resync | `tests/terminal/test_terminal_markers_buffer.py`, `frontend/src/terminal/client.test.js` |
+| TERM-006 | No orphans on close or stop; kill only the recorded group | `tests/terminal/test_terminal_sessions.py`, `tests/terminal/test_terminal_server.py` |
+| TERM-007 | Host CLI; API backfill/retrain reported as jobs without blocking | `tests/terminal/test_terminal_cli.py`, `tests/terminal/test_terminal_install_jobs.py`, `tests/test_api_terminal_jobs.py` |
+| TERM-008 | Install/upgrade/uninstall never clobber; stop never kills a stranger | `tests/terminal/test_terminal_install_jobs.py`, `tests/terminal/test_terminal_cli.py` |
+| TERM-009 | Status bar, process center, terminal dock | `frontend/src/components/terminal/terminalUi.test.jsx` |
+| TERM-010 | Workspace persistence, repair, maximize/minimize, keyboard | `frontend/src/workspace/layoutStore.test.js`, `frontend/src/components/workspace/Workspace.test.jsx` |
+| VEN-001 | Per-venue connect/disconnect/verify with honest state and every guard | `tests/test_venue_controls.py`, `tests/test_venue_controls_api.py`, `frontend/src/components/panels/VenuesPanel.test.jsx` |
+| SEC-0010 | No path hands a shell to anyone but the local user | `tests/terminal/test_terminal_server.py`, `tests/terminal/test_terminal_host.py`, `frontend/src/desktop/terminalBridge.test.js` |
 
 ## 6. Known limitations
 

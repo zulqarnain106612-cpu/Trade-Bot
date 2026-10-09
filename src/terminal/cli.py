@@ -54,6 +54,8 @@ from src.terminal.protocol import PROCESS_ID_RE, SESSION_ID_RE, SIGNALS
 DETACH_BYTE = b"\x1d"  # Ctrl+]
 EXIT_NOT_RUNNING = 3
 LOG_ROTATE_BYTES = 5 << 20
+_LS_HEADER = "ID          NAME             KIND  STATE        PID  FOREGROUND               CWD"
+_PS_HEADER = "ID          STATE      EXIT     PID SESSION         TIME   CPU%     RSS  TITLE"
 _ANSI_RE = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]")
 
 
@@ -90,6 +92,12 @@ def _resolve_session(client: TerminalClient, ref: str) -> str:
     if len(matches) != 1:
         raise CliError(f"no unique session named {ref!r}; use its id (tradebot-term ls)")
     return matches[0]
+
+
+def _ws_url(config: TerminalConfig) -> str | None:
+    if config.ws_port is None:
+        return None
+    return f"ws://{config.ws_host}:{config.ws_port}/"
 
 
 def _decode(frame: dict[str, Any]) -> bytes:
@@ -164,7 +172,8 @@ def _spawn_detached(config: TerminalConfig) -> None:
         log_path.unlink()
     descriptor = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     env = dict(os.environ)
-    env["PYTHONPATH"] = str(REPO_ROOT) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = f"{REPO_ROOT}{os.pathsep}{existing}" if existing else str(REPO_ROOT)
     try:
         subprocess.Popen(
             [sys.executable, "-m", "src.terminal", "daemon"],
@@ -208,10 +217,10 @@ def ensure_running(
     )
 
 
-def _daemon_pid(config: TerminalConfig) -> int | None:
+def _daemon_pid(config: TerminalConfig, proc: Path = Path("/proc")) -> int | None:
     try:
         pid = int(config.pid_path.read_text(encoding="utf-8").strip())
-        cmdline = Path(f"/proc/{pid}/cmdline").read_bytes()
+        cmdline = (proc / str(pid) / "cmdline").read_bytes()
     except (OSError, ValueError):
         return None
     # A stale pid file can name a recycled pid; only signal our own daemon.
@@ -219,7 +228,12 @@ def _daemon_pid(config: TerminalConfig) -> int | None:
 
 
 def stop_daemon(
-    config: TerminalConfig, *, run: install.Runner = install.run_quietly, timeout_s: float = 20.0
+    config: TerminalConfig,
+    *,
+    run: install.Runner = install.run_quietly,
+    timeout_s: float = 20.0,
+    kill: Callable[[int, int], None] = os.kill,
+    proc: Path = Path("/proc"),
 ) -> bool:
     """Stop the daemon (which closes every session). True if it was running."""
     if _ping(config) is None:
@@ -227,10 +241,10 @@ def stop_daemon(
     if _unit_active(run):
         run(["systemctl", "--user", "stop", install.UNIT_NAME])
     else:
-        pid = _daemon_pid(config)
+        pid = _daemon_pid(config, proc)
         if pid is None:
             raise CliError("the daemon answers but its pid file is missing; stop it by hand")
-        os.kill(pid, signal.SIGTERM)
+        kill(pid, signal.SIGTERM)
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline and config.socket_path.exists():
         time.sleep(0.1)
@@ -244,7 +258,7 @@ def cmd_start(config: TerminalConfig, args: argparse.Namespace, out: TextIO) -> 
         "version": welcome.get("version"),
         "client_version": SERVICE_VERSION,
         "pid": welcome.get("server_pid"),
-        "ws_url": f"ws://{config.ws_host}:{config.ws_port}/" if config.ws_port is not None else None,
+        "ws_url": _ws_url(config),
     }
     if args.json:
         _write(out, json.dumps(info))
@@ -295,7 +309,8 @@ def cmd_status(config: TerminalConfig, args: argparse.Namespace, out: TextIO) ->
             f"sessions={status['sessions']} active={status['active_processes']}",
         )
         if status["outdated"]:
-            _write(out, f"note: installed version is {SERVICE_VERSION}; run `tradebot-term restart`")
+            note = f"note: installed version is {SERVICE_VERSION}; run `tradebot-term restart`"
+            _write(out, note)
     return 0
 
 
@@ -308,7 +323,7 @@ def cmd_ls(config: TerminalConfig, args: argparse.Namespace, out: TextIO) -> int
     if args.json:
         _write(out, json.dumps(sessions))
         return 0
-    _write(out, f"{'ID':<11} {'NAME':<16} {'KIND':<5} {'STATE':<8} {'PID':>7}  {'FOREGROUND':<24} CWD")
+    _write(out, _LS_HEADER)
     for s in sessions:
         foreground = (s.get("foreground") or {}).get("title") or ""
         state = s["state"] if s["state"] == "running" else f"exit {s.get('exit_code', '?')}"
@@ -329,7 +344,7 @@ def cmd_ps(config: TerminalConfig, args: argparse.Namespace, out: TextIO) -> int
     rows = list(processes.get("active", []))
     if args.all:
         rows += processes.get("history", [])
-    _write(out, f"{'ID':<11} {'STATE':<9} {'EXIT':>5} {'PID':>7} {'SESSION':<11} {'TIME':>8} {'CPU%':>6} {'RSS':>7}  TITLE")
+    _write(out, _PS_HEADER)
     for p in rows:
         elapsed = p.get("elapsed_s")
         if elapsed is None and p.get("ended_at") is not None:
@@ -437,7 +452,9 @@ def attach(
     exited = False
     try:
         if interactive:
-            tty.setraw(stdin_fd)
+            # TCSANOW, not setraw's default TCSAFLUSH: flushing would throw
+            # away whatever the user typed while the attach was starting.
+            tty.setraw(stdin_fd, termios.TCSANOW)
         while True:
             if interactive and resized["pending"]:
                 resized["pending"] = False
@@ -466,7 +483,8 @@ def attach(
                     break
                 head, found, _tail = data.partition(DETACH_BYTE)
                 if head:
-                    client.send({"t": "session.input", "sid": sid, "data": head.decode("utf-8", errors="replace")})
+                    text = head.decode("utf-8", errors="replace")
+                    client.send({"t": "session.input", "sid": sid, "data": text})
                 if found:
                     break
     finally:
@@ -567,7 +585,8 @@ def signal_number(name: str) -> int:
 def cmd_kill(config: TerminalConfig, args: argparse.Namespace, out: TextIO) -> int:
     with _client(config) as client:
         if PROCESS_ID_RE.match(args.target):
-            reply = client.request("process.kill", process_id=args.target, signal=args.signal or "TERM")
+            chosen = args.signal or "TERM"
+            reply = client.request("process.kill", process_id=args.target, signal=chosen)
         else:
             sid = _resolve_session(client, args.target)
             reply = client.request("session.signal", sid=sid, signal=args.signal or "INT")
@@ -598,7 +617,10 @@ def cmd_close(config: TerminalConfig, args: argparse.Namespace, out: TextIO) -> 
 
 def cmd_token(config: TerminalConfig, args: argparse.Namespace, out: TextIO) -> int:
     ensure_private_dir(config.state_dir)
-    value = auth.rotate_token(config.token_path) if args.rotate else auth.load_or_create_token(config.token_path)
+    if args.rotate:
+        value = auth.rotate_token(config.token_path)
+    else:
+        value = auth.load_or_create_token(config.token_path)
     _write(out, value)
     return 0
 
@@ -610,15 +632,21 @@ def cmd_paths(config: TerminalConfig, args: argparse.Namespace, out: TextIO) -> 
         "state_dir": str(config.state_dir),
         "token": str(config.token_path),
         "log": str(config.log_path),
-        "ws_url": f"ws://{config.ws_host}:{config.ws_port}/" if config.ws_port is not None else None,
+        "ws_url": _ws_url(config),
     }
-    _write(out, json.dumps(paths) if args.json else "\n".join(f"{k}: {v}" for k, v in paths.items()))
+    if args.json:
+        _write(out, json.dumps(paths))
+    else:
+        _write(out, "\n".join(f"{key}: {value}" for key, value in paths.items()))
     return 0
 
 
 def cmd_install(config: TerminalConfig, args: argparse.Namespace, out: TextIO) -> int:
     report = install.install(
-        python=Path(sys.executable), repo=REPO_ROOT, env=dict(os.environ), use_systemd=not args.no_systemd
+        python=Path(sys.executable),
+        repo=REPO_ROOT,
+        env=dict(os.environ),
+        use_systemd=not args.no_systemd,
     )
     return _report(report, out)
 

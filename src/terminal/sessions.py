@@ -249,7 +249,10 @@ class SessionManager:
         while sid in self._sessions:  # pragma: no cover - 32-bit collision
             sid = new_session_id()
         kind = "job" if argv is not None else "shell"
-        command = list(argv) if argv is not None else shell_argv(self._shell, self._config.rcfile_path)
+        if argv is not None:
+            command = list(argv)
+        else:
+            command = shell_argv(self._shell, self._config.rcfile_path)
         workdir = str(cwd or self._config.default_cwd)
         try:
             process, master = spawn_pty(
@@ -304,11 +307,12 @@ class SessionManager:
             self._queue_input(session, data)
             return
         try:
-            written = os.write(session.master_fd, data)
+            written = self._write_fd(session.master_fd, data)
         except BlockingIOError:
             written = 0
         except OSError as exc:
-            raise ProtocolError("write_failed", f"could not write to {sid}: {exc.strerror}") from exc
+            detail = f"could not write to {sid}: {exc.strerror}"
+            raise ProtocolError("write_failed", detail) from exc
         if written < len(data):
             self._queue_input(session, data[written:])
 
@@ -357,11 +361,13 @@ class SessionManager:
         except ProcessLookupError as exc:
             raise ProtocolError("not_running", f"process group {entry.pgid} is gone") from exc
         if owner != session.pid:
-            raise ProtocolError("not_owned", f"process group {entry.pgid} left session {session.id}")
+            detail = f"process group {entry.pgid} left session {session.id}"
+            raise ProtocolError("not_owned", detail)
         try:
             os.killpg(entry.pgid, signum)
         except OSError as exc:
-            raise ProtocolError("signal_failed", f"could not signal {entry_id}: {exc.strerror}") from exc
+            detail = f"could not signal {entry_id}: {exc.strerror}"
+            raise ProtocolError("signal_failed", detail) from exc
         log.info("terminal.process_signalled", process=entry_id, signal=signal_name(signum))
         return entry.pgid
 
@@ -375,7 +381,11 @@ class SessionManager:
         done: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         self._closing[sid] = done
         try:
-            if session.state == "running":
+            # Also when the leader has already exited: a background child can
+            # outlive it in the same session and must not outlive the close.
+            if session.state == "running" or procfs.session_members(
+                procfs.scan(self._proc), session.pid
+            ):
                 await self._terminate(session)
             self._check_exit(session)
             session.eof = True
@@ -440,6 +450,11 @@ class SessionManager:
         )
         return env
 
+    @staticmethod
+    def _write_fd(fd: int, data: bytes) -> int:
+        """The one place input reaches a PTY (a seam for back-pressure tests)."""
+        return os.write(fd, data)
+
     def _queue_input(self, session: PtySession, data: bytes) -> None:
         if len(session.pending_input) + len(data) > MAX_PENDING_INPUT:
             raise ProtocolError("input_backlog", f"session {session.id} is not reading its input")
@@ -450,7 +465,7 @@ class SessionManager:
 
     def _flush_input(self, session: PtySession) -> None:
         try:
-            written = os.write(session.master_fd, bytes(session.pending_input))
+            written = self._write_fd(session.master_fd, bytes(session.pending_input))
         except BlockingIOError:
             return
         except OSError:
@@ -520,7 +535,8 @@ class SessionManager:
         session.command_entry = None
         entry = self._registry.get(entry_id)
         start = entry.output_start if entry.output_start is not None else session.buffer.end
-        output, truncated = session.buffer.slice(start, session.buffer.end if until is None else until)
+        end = session.buffer.end if until is None else until
+        output, truncated = session.buffer.slice(start, end)
         self._cpu_samples.pop(entry_id, None)
         self._registry.finish(
             entry_id,

@@ -154,6 +154,8 @@ fills, reconnects, and exchange-side rejections.
 | GET | /strategies/attribution | Per-strategy P&L attribution (lifetime counts/P&L; risk ratios over a bounded recent window) |
 | GET | /strategies/allocation | Performance-weighted capital allocation |
 | GET | /strategies/gauntlet | Promotion-gauntlet status per strategy candidate |
+| GET | /venues | Per-venue market-data state, account-access state and credential presence (never values) |
+| POST | /venues/{venue}/connect \| /reconnect \| /disconnect \| /verify | Per-venue connection control (requires OPERATOR_SECRET and the trade-authorizing role) |
 
 All endpoints require `X-API-Key` header. A key set in `API_READONLY_KEY`
 authenticates the same way but is refused with `403` on the four mutating
@@ -353,6 +355,15 @@ cd frontend
 npm run electron:dev     # dev mode: vite + electron together
 npm run electron:build   # packaged build via electron-builder
 ```
+
+### 6a. Integrated terminal and process center
+
+The dashboard's Terminal and Processes panes are served by a per-user
+terminal service on this machine; `npm run desktop:install` installs it and
+the `tradebot-term` CLI. See
+[docs/terminal/OPERATIONS.md](docs/terminal/OPERATIONS.md) for install, usage,
+CLI attach, troubleshooting, upgrade and uninstall, and
+[docs/terminal/ARCHITECTURE.md](docs/terminal/ARCHITECTURE.md) for the design.
 
 ### 7. Claude Code on the web (cloud sessions)
 

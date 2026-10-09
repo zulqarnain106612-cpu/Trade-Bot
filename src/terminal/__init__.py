@@ -8,7 +8,7 @@ it, so they see the same sessions, the same output and the same process state
 by construction rather than by synchronisation.
 
 Design and threat model: docs/terminal/ARCHITECTURE.md.
-Registry: TERM-001..TERM-008, SEC-0011 (config/quality_registry.json).
+Registry: TERM-001..TERM-008, SEC-0010 (config/quality_registry.json).
 """
 
 from __future__ import annotations

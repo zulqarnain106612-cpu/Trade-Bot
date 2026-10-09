@@ -67,7 +67,9 @@ class ProcessEntry:
     output_truncated: bool = False
     detail: str | None = None
 
-    def to_dict(self, *, include_output: bool = False, now_mono: float | None = None) -> dict[str, Any]:
+    def to_dict(
+        self, *, include_output: bool = False, now_mono: float | None = None
+    ) -> dict[str, Any]:
         elapsed = None
         if self.state == STATE_RUNNING and now_mono is not None:
             elapsed = max(0.0, now_mono - self.started_mono)

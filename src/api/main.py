@@ -2554,7 +2554,8 @@ def _report_retrain(orchestrator: Orchestrator, tf: Timeframe, operator: str) ->
         if done.cancelled():
             _job_reporter.end(job, ok=False, error="cancelled")
         elif done.exception() is not None:
-            _job_reporter.end(job, ok=False, error=_job_error(cast(BaseException, done.exception())))
+            error = cast(BaseException, done.exception())
+            _job_reporter.end(job, ok=False, error=_job_error(error))
         else:
             _job_reporter.end(job, ok=True)
 
@@ -2587,9 +2588,7 @@ async def trigger_backfill(body: BackfillRequest, request: Request) -> dict[str,
     tf = _parse_timeframe_or_400(body.timeframe)
     orchestrator = require_orchestrator()
 
-    job = _job_reporter.begin(
-        f"backfill {tf.value}", detail=f"lookback_days={body.lookback_days}"
-    )
+    job = _job_reporter.begin(f"backfill {tf.value}", detail=f"lookback_days={body.lookback_days}")
     try:
         written = await orchestrator.request_backfill(tf, body.lookback_days)
     except Exception as exc:
@@ -3415,7 +3414,9 @@ async def reconnect_venue(
 
 
 @app.post("/venues/{venue}/connect", dependencies=_VENUE_GUARDS)
-async def connect_venue(venue: str, body: VenueReconnectRequest, request: Request) -> dict[str, Any]:
+async def connect_venue(
+    venue: str, body: VenueReconnectRequest, request: Request
+) -> dict[str, Any]:
     """
     Connect (or retry) one venue, then check its account access.
 

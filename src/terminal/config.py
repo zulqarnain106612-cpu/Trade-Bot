@@ -122,7 +122,8 @@ class TerminalConfig:
         elif source.get("XDG_STATE_HOME", "").strip():
             state_dir = Path(source["XDG_STATE_HOME"]) / "tradebot-terminal"
         else:
-            state_dir = Path(source.get("HOME", str(Path.home()))) / ".local/state/tradebot-terminal"
+            home = Path(source.get("HOME", str(Path.home())))
+            state_dir = home / ".local/state/tradebot-terminal"
 
         for name, path in (("RUNTIME_DIR", runtime_dir), ("STATE_DIR", state_dir)):
             if not path.is_absolute():
@@ -159,9 +160,10 @@ class TerminalConfig:
                 # is as permissive as the wildcard.
                 raise TerminalConfigError(f"origin {origin!r} would admit any website")
 
+        buffer_bytes = _int_from(source, "BUFFER_BYTES", Limits.buffer_bytes, 1 << 16, 16 << 20)
         limits = Limits(
             max_sessions=_int_from(source, "MAX_SESSIONS", Limits.max_sessions, 1, 64),
-            buffer_bytes=_int_from(source, "BUFFER_BYTES", Limits.buffer_bytes, 64 * 1024, 16 << 20),
+            buffer_bytes=buffer_bytes,
             history_entries=_int_from(source, "HISTORY", Limits.history_entries, 1, 1000),
         )
         return cls(

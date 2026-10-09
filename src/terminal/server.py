@@ -46,6 +46,7 @@ from src.terminal.shell_integration import write_rcfile
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 REPLAY_CHUNK = 64 * 1024
+Frame = dict[str, Any]
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]"})
 
 
@@ -230,7 +231,9 @@ class TerminalServer:
 
     # -- Unix socket ---------------------------------------------------------
 
-    async def _handle_unix(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _handle_unix(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         sock = writer.get_extra_info("socket")
         uid = auth.peer_uid(sock) if sock is not None else None
         if uid is not None and uid != os.getuid():
@@ -332,7 +335,7 @@ class TerminalServer:
             client.push(item)
         return True
 
-    async def _dispatch(self, client: ClientConnection, frame: dict[str, Any]) -> list[dict[str, Any]]:
+    async def _dispatch(self, client: ClientConnection, frame: Frame) -> list[Frame]:
         kind = frame["t"]
         request_id = frame.get("id")
         if not client.authenticated:
@@ -359,7 +362,8 @@ class TerminalServer:
             )
         kind = frame.get("client", "gui")
         if kind not in protocol.CLIENT_KINDS:
-            raise ProtocolError("bad_field", f"client must be one of {sorted(protocol.CLIENT_KINDS)}")
+            kinds = sorted(protocol.CLIENT_KINDS)
+            raise ProtocolError("bad_field", f"client must be one of {kinds}")
         if client.transport == "ws" and not auth.token_accepted(
             self.config.token_path, frame.get("token")
         ):
@@ -440,7 +444,7 @@ class TerminalServer:
             )
         return frames
 
-    def _req_session_detach(self, client: ClientConnection, frame: dict[str, Any]) -> dict[str, Any]:
+    def _req_session_detach(self, client: ClientConnection, frame: Frame) -> Frame:
         sid = protocol.session_id(frame)
         client.attached.discard(sid)
         return {"sid": sid}
@@ -451,19 +455,19 @@ class TerminalServer:
         self.manager.write(sid, data.encode("utf-8", errors="replace"))
         return {"sid": sid}
 
-    def _req_session_resize(self, client: ClientConnection, frame: dict[str, Any]) -> dict[str, Any]:
+    def _req_session_resize(self, client: ClientConnection, frame: Frame) -> Frame:
         sid = protocol.session_id(frame)
         rows = protocol.bounded_int(frame, "rows", 1, protocol.MAX_ROWS)
         cols = protocol.bounded_int(frame, "cols", 1, protocol.MAX_COLS)
         self.manager.resize(sid, rows, cols)
         return {"sid": sid}
 
-    def _req_session_rename(self, client: ClientConnection, frame: dict[str, Any]) -> dict[str, Any]:
+    def _req_session_rename(self, client: ClientConnection, frame: Frame) -> Frame:
         sid = protocol.session_id(frame)
         self.manager.rename(sid, protocol.validate_name(frame.get("name")))
         return {"sid": sid}
 
-    def _req_session_signal(self, client: ClientConnection, frame: dict[str, Any]) -> dict[str, Any]:
+    def _req_session_signal(self, client: ClientConnection, frame: Frame) -> Frame:
         sid = protocol.session_id(frame)
         signum = protocol.signal_from(frame, "INT")
         group = self.manager.signal_foreground(sid, signum)
@@ -483,7 +487,7 @@ class TerminalServer:
         group = self.manager.kill_process(entry_id, signum)
         return {"process_id": entry_id, "pgid": group}
 
-    def _req_process_output(self, client: ClientConnection, frame: dict[str, Any]) -> dict[str, Any]:
+    def _req_process_output(self, client: ClientConnection, frame: Frame) -> Frame:
         entry_id = protocol.process_id(frame)
         entry = self.registry.get(entry_id)
         payload = entry.to_dict(include_output=True, now_mono=time.monotonic())
@@ -543,7 +547,8 @@ class TerminalServer:
         self._broadcast({"t": kind, "process": payload})
 
     def _on_output(self, sid: str, offset: int, data: bytes) -> None:
-        message = encode_frame({"t": "output", "sid": sid, "offset": offset, "data": b64encode(data)})
+        frame = {"t": "output", "sid": sid, "offset": offset, "data": b64encode(data)}
+        message = encode_frame(frame)
         for client in list(self._clients):
             if sid in client.attached:
                 client.push(message)
