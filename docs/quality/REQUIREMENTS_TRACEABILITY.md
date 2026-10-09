@@ -1315,6 +1315,8 @@ The integrated terminal adds a command-execution surface; nothing reaches it exc
   - `tests/terminal/test_terminal_host.py` (security)
   - `frontend/src/desktop/terminalBridge.test.js` (security)
 
+> layer: test-suite
+
 ## Supply chain and artifacts
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
