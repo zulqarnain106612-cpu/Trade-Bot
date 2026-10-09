@@ -483,7 +483,7 @@ class TestTheMetricsCollector:
         # about the workflow's own YAML or a review of it says which shape of
         # triggering run leaves workflow_run.pull_requests empty; only a test
         # asserting the resolution path does -- test-suite, 19 to 20.
-        assert metric["value"] == {"test-suite": 20, "review": 1, "supply-chain": 2}
+        assert metric["value"] == {"test-suite": 21, "review": 1, "supply-chain": 2}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different
