@@ -12,6 +12,7 @@ attach ends.
 Decides:
   - TERM-007 -- the host CLI lists, creates, attaches to, inspects and detaches
   - TERM-008 -- install, start and stop never clobber and never orphan
+  - REG-0025 -- attach closes only after the daemon has applied what it sent
 """
 
 from __future__ import annotations
@@ -185,6 +186,49 @@ class TestAttach:
         assert f"[detached from {sid}; it keeps running]" in text
         wait_for_output(threaded_daemon.config.socket_path, sid, b"piped-25")
         assert threaded_daemon.server.manager.describe(sid)["state"] == "running"
+
+    def test_attach_closes_only_after_its_detach_is_answered(self, tmp_path):
+        # REG-0025: attach sent its keystrokes and detach without waiting and
+        # closed. With frames still unread on its side, Linux reset the
+        # daemon's end and asyncio dropped the requests it had not read yet:
+        # the typed line never reached the shell. A detach that is answered
+        # proves everything sent before it was applied.
+        calls: list[tuple[str, str]] = []
+        sock, peer = socket.socketpair()
+
+        class Recorder:
+            def __init__(self) -> None:
+                self.sock = sock
+
+            def request(self, kind: str, **_fields: object) -> dict:
+                calls.append(("request", kind))
+                return {"t": "ok"}
+
+            def send(self, frame: dict) -> None:
+                calls.append(("send", frame["t"]))
+
+            def pop_events(self) -> list:
+                return []
+
+            def has_buffered_frame(self) -> bool:
+                return False
+
+        read_end, write_end = os.pipe()
+        os.write(write_end, b"echo typed\n" + cli.DETACH_BYTE)
+        os.close(write_end)
+        out_fd = os.open(tmp_path / "out", os.O_WRONLY | os.O_CREAT, 0o600)
+        try:
+            assert cli.attach(Recorder(), "s-00000000", stdin_fd=read_end, stdout_fd=out_fd) == 0
+        finally:
+            for closable in (sock, peer):
+                closable.close()
+            for fd in (read_end, out_fd):
+                os.close(fd)
+        assert calls == [
+            ("request", "session.attach"),
+            ("send", "session.input"),
+            ("request", "session.detach"),
+        ]
 
     def test_a_tty_is_put_back_exactly_as_it_was(self, threaded_daemon, tmp_path):
         sid = self._session(threaded_daemon.config.socket_path)

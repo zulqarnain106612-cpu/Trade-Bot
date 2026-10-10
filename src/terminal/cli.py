@@ -492,8 +492,13 @@ def attach(
             termios.tcsetattr(stdin_fd, termios.TCSADRAIN, saved)
         if interactive:
             signal.signal(signal.SIGWINCH, previous_winch or signal.SIG_DFL)
+        # REG-0025: wait for the detach to be answered before the socket is
+        # closed. The daemon applies one connection's requests in order, so the
+        # answer means every resize and keystroke sent above has been applied.
+        # Closing with frames still unread makes Linux reset the daemon's end,
+        # and asyncio then drops the requests it had received but not yet read.
         with contextlib.suppress(TerminalClientError, OSError):
-            client.send({"t": "session.detach", "sid": sid})
+            client.request("session.detach", sid=sid)
     note = "session ended" if exited else f"detached from {sid}; it keeps running"
     os.write(stdout_fd, f"\r\n[{note}]\r\n".encode())
     return 0

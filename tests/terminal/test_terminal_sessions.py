@@ -52,6 +52,19 @@ def sleeping(entry: dict) -> bool:
     return entry["command"] == "sleep 30" and bool(entry["pgid"])
 
 
+async def wait_sleeping(harness, session) -> dict:
+    """The typed `sleep 30`, once its group leader has exec'd sleep.
+
+    The group owns the terminal from fork. Until exec its leader is a copy of
+    the interactive shell, which ignores SIGTERM and handles SIGINT itself, so
+    a signal sent in that window is lost and the job sleeps its full 30s. The
+    foreground title is read from /proc, and stays None until that exec.
+    """
+    running = await harness.wait_running(sleeping)
+    await harness.changes.until(lambda: (session.foreground or {}).get("title") == "sleep 30")
+    return harness.running(by_id(running["id"]))
+
+
 async def _yield_until(predicate, rounds: int = 2000) -> bool:
     """Scheduler yields only (sleep(0)): for loop callbacks that raise no event."""
     for _ in range(rounds):
@@ -81,7 +94,7 @@ class TestInteractiveShell:
     async def test_ctrl_c_interrupts_the_foreground_job_not_the_shell(self, harness):
         session = await harness.shell()
         await harness.type(session.id, "sleep 30\r")
-        running = await harness.wait_running(sleeping)
+        running = await wait_sleeping(harness, session)
         # Identity comes from the PTY and /proc, not from what was typed.
         assert running["title"] == "sleep 30"
         assert running["pid"] == running["pgid"]
@@ -115,7 +128,7 @@ class TestInteractiveShell:
     async def test_a_signal_reaches_only_the_foreground_group(self, harness):
         session = await harness.shell()
         await harness.type(session.id, "sleep 30\r")
-        running = await harness.wait_running(sleeping)
+        running = await wait_sleeping(harness, session)
         group = harness.manager.signal_foreground(session.id, signal.SIGTERM)
         assert group == running["pgid"]
         done = await harness.wait_finished(by_id(running["id"]))
@@ -283,7 +296,7 @@ class TestProcessControl:
     async def test_kill_targets_its_own_group_and_guards_against_reuse(self, harness, monkeypatch):
         session = await harness.shell()
         await harness.type(session.id, "sleep 30\r")
-        running = await harness.wait_running(sleeping)
+        running = await wait_sleeping(harness, session)
         entry_id, real_group = running["id"], running["pgid"]
         kill = harness.manager.kill_process
 
@@ -397,10 +410,13 @@ class TestWithoutIntegration:
         try:
             session = await harness.manager.create()
             assert session.argv[-1] == "-i"
-            await harness.type(session.id, "sleep 0.2; sleep 30\r")
-            first = await harness.wait_running(lambda e: e["title"] == "sleep 0.2")
+            # The first job holds the foreground until the test answers it; a
+            # timed one (sleep 0.2) could end before a loaded poller saw it.
+            await harness.type(session.id, "head -n1 >/dev/null; sleep 30\r")
+            first = await harness.wait_running(lambda e: e["title"] == "head -n1")
             assert first["command"] is None
             assert first["started_at"] > 0
+            await harness.type(session.id, "\r")
             second = await harness.wait_running(lambda e: e["title"] == "sleep 30")
             # The first group ended; without the integration its status is
             # unknown, never assumed to be success.

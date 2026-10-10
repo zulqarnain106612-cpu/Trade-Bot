@@ -4212,6 +4212,27 @@
       "notes": "Each half had a test, and the two tests encoded the two incompatible forms: the prepare test asserted display names and the run test planted alias keys. Nothing exercised prepare followed by run. layer: test-suite"
     },
     {
+      "id": "REG-0025",
+      "kind": "regression",
+      "title": "tradebot-term attach closes only after the daemon has applied what it sent",
+      "statement": "When `tradebot-term attach` ends, it sends session.detach as a request and waits for the answer before closing its socket, so every resize and keystroke it sent before the detach has been applied by the daemon by the time it returns.",
+      "criticality": "high",
+      "subsystem": "terminal",
+      "status": "verified",
+      "source": "OPS-2026-10-10",
+      "failure_mode": "attach sent resize, input and detach without waiting for any answer and closed its socket at once, with the daemon's frames still unread on its side. Closing a Unix stream socket with unread data makes Linux set ECONNRESET on the peer, and asyncio's StreamReader raises that stored error before returning lines it has already buffered, so the daemon's read loop ended and the three requests were discarded. On PR 435, instrumented runs showed the client sending all four frames and the daemon receiving only hello and session.attach; the shell sat idle at its prompt with the typed line never echoed or run.",
+      "owning_modules": [
+        "src/terminal/cli.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/terminal/test_terminal_cli.py",
+          "test_type": "unit"
+        }
+      ],
+      "notes": "Visible only when the daemon is slower to read than the CLI is to close, so it failed on a loaded runner and passed on an idle one. The test records the calls attach makes instead of racing a real socket. layer: test-suite"
+    },
+    {
       "id": "SECR-019",
       "kind": "requirement",
       "title": "A read-only websocket key never receives the approval queue",

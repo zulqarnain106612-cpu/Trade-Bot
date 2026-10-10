@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 208 |
+| VERIFIED | 209 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **208** |
+| **Total** | **209** |
 
 ## Summary by subsystem
 
@@ -69,7 +69,7 @@ deletion of the thing it points at.
 | Resilience and recovery | 20 | 20 |
 | Release and production | 14 | 14 |
 | Governance | 59 | 59 |
-| Terminal and process center | 10 | 10 |
+| Terminal and process center | 11 | 11 |
 
 ## Outstanding work by phase
 
@@ -2657,6 +2657,19 @@ Panels can be dragged by the title area only, resized, minimized, maximized to t
   - `frontend/src/workspace/layoutStore.test.js` (component)
   - `frontend/src/components/workspace/Workspace.test.jsx` (component)
 
+#### `REG-0025` — tradebot-term attach closes only after the daemon has applied what it sent
+
+**VERIFIED** · high · regression · source: OPS-2026-10-10
+
+When `tradebot-term attach` ends, it sends session.detach as a request and waits for the answer before closing its socket, so every resize and keystroke it sent before the detach has been applied by the daemon by the time it returns.
+
+- **If violated:** attach sent resize, input and detach without waiting for any answer and closed its socket at once, with the daemon's frames still unread on its side. Closing a Unix stream socket with unread data makes Linux set ECONNRESET on the peer, and asyncio's StreamReader raises that stored error before returning lines it has already buffered, so the daemon's read loop ended and the three requests were discarded. On PR 435, instrumented runs showed the client sending all four frames and the daemon receiving only hello and session.attach; the shell sat idle at its prompt with the typed line never echoed or run.
+- **Owned by:** `src/terminal/cli.py`
+- **Verification:**
+  - `tests/terminal/test_terminal_cli.py` (unit)
+
+> Visible only when the daemon is slower to read than the CLI is to close, so it failed on a loaded runner and passed on an idle one. The test records the calls attach makes instead of racing a real socket. layer: test-suite
+
 
 ---
 
@@ -2685,4 +2698,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 208 entries.
+Registry version: 1.0.0 — 209 entries.
