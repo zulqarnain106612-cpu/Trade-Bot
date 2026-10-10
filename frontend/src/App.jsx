@@ -249,6 +249,23 @@ function Dashboard() {
 
       <div className="app-main">
         <main ref={viewportRef} className="workspace-viewport" aria-label="Dashboard workspace">
+          {!status && (
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                margin: '0 0 12px',
+                padding: '10px 14px',
+                border: '1px solid rgba(234, 179, 8, 0.35)',
+                borderRadius: 6,
+                background: 'rgba(234, 179, 8, 0.08)',
+                color: 'var(--c-yellow)',
+                fontSize: 12,
+              }}
+            >
+              Backend API is not ready yet. The dashboard is running, but data panels will populate only after API startup finishes. This page will retry automatically; keep trading in paper/manual mode.
+            </div>
+          )}
           {showPanelManager && (
             <PanelManager
               layout={layout}
