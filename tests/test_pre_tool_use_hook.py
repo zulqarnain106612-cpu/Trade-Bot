@@ -195,6 +195,18 @@ class TestCIBoundary:
     def test_generic_github_fetch_cannot_read_ci_data(self, url: str) -> None:
         assert_denied("mcp__github__fetch", {"url": url}, contains="CI logs")
 
+    def test_generic_fetch_rejects_encoded_path_traversal(self) -> None:
+        assert_denied(
+            "mcp__GitHub__fetch",
+            {
+                "url": (
+                    "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/"
+                    "contents/%2e%2e%2factions%2fruns"
+                )
+            },
+            contains="endpoint is not allowlisted",
+        )
+
     def test_pull_request_notice_comment_remains_the_ci_diagnostic_channel(self) -> None:
         assert (
             decide(

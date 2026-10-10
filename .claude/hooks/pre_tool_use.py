@@ -9,6 +9,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 PROJECT_DIR = Path(
     os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2])
@@ -204,13 +205,29 @@ def _github_boundary_write_violation(tool: str, data: dict[str, Any]) -> str:
 
 
 def _github_fetch_endpoint_allowed(url: str) -> bool:
-    clean = url.split("?", 1)[0].rstrip("/")
-    api_prefix = "https://api.github.com/"
-    web_prefix = "https://github.com/"
-    raw_prefix = "https://raw.githubusercontent.com/"
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return False
 
-    if clean.startswith(api_prefix):
-        parts = clean[len(api_prefix):].split("/")
+    if (
+        parsed.scheme.lower() != "https"
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.fragment
+        or "%" in parsed.path
+        or "\\" in parsed.path
+    ):
+        return False
+
+    host = (parsed.hostname or "").lower()
+    parts = parsed.path.strip("/").split("/") if parsed.path.strip("/") else []
+    if any(part in {".", ".."} for part in parts):
+        return False
+
+    if host == "api.github.com":
         if len(parts) < 3 or parts[0].lower() != "repos":
             return False
         suffix = [part.lower() for part in parts[3:]]
@@ -226,14 +243,12 @@ def _github_fetch_endpoint_allowed(url: str) -> bool:
             return True
         return suffix[0] == "compare"
 
-    if clean.startswith(web_prefix):
-        parts = clean[len(web_prefix):].split("/")
+    if host == "github.com":
         return len(parts) >= 4 and parts[2].lower() in {
             "blob", "tree", "pull", "issues", "commit"
         }
 
-    if clean.startswith(raw_prefix):
-        parts = clean[len(raw_prefix):].split("/")
+    if host == "raw.githubusercontent.com":
         return len(parts) >= 4 and all(parts[:3])
 
     return False
