@@ -115,13 +115,16 @@ class TestInteractiveShell:
         # carries between fork and exec, which a poll landing in that window
         # used to adopt as the job's title.
         session = await harness.shell()
-        command = "(sleep 30; true)"
+        # Keep the subshell alive long enough to observe its forked-shell
+        # process group, but let it finish naturally. Sending Ctrl+C while the
+        # group leader is still a bash fork can be handled by that shell and
+        # makes this identity test flaky; signal delivery is tested separately.
+        command = "(sleep 0.5; true)"
         await harness.type(session.id, command + "\r")
         running = await harness.wait_running(lambda e: e["command"] == command and bool(e["pgid"]))
         assert running["title"] == command
         assert harness.manager.describe(session.id)["foreground"]["title"] is None
 
-        harness.manager.write(session.id, b"\x03")
         done = await harness.wait_finished(by_id(running["id"]))
         assert done["title"] == command
 
