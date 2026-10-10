@@ -65,7 +65,7 @@ class TestGeneratedFiles:
         assert "KillMode=mixed" in text
         assert "WorkingDirectory=/srv/trade bot%%1" in text
         assert 'Environment="PYTHONPATH=/srv/trade bot%%1"' in text
-        assert "exec \"$$1\" -P -m src.terminal daemon" in text
+        assert 'exec "$$1" -P -m src.terminal daemon' in text
         assert '"/opt/venv with space/bin/python"' in text
 
     def test_command_quoting_doubles_dollar_signs_only_on_command_lines(self):

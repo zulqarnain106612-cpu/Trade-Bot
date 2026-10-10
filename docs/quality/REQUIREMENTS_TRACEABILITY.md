@@ -1815,9 +1815,9 @@ When a test worker dies, the CI notice reports the line that names the node id i
 
 **VERIFIED** · medium · regression · source: OPS-2026-10-10
 
-local_checks.py prepare records each non-green check under the key that `run` accepts (lint, tests, ci-gate, ...), never the CI display name, and the script imports the repository package when it is run as a script, so the documented prepare-then-run sequence reproduces a recorded failure instead of refusing it.
+local_checks.py prepare records each non-green check under the key that `run` accepts (lint, tests, ci-gate, ...), never the CI display name; the script imports the repository package when it is run as a script; and `run lint` checks every Python file the branch changes relative to main with the ruff exclusions CI applies, so the documented prepare-then-run sequence reproduces a recorded failure instead of refusing it or passing over it.
 
-- **If violated:** prepare stored 'Python tests (shard 2/6)' while `run` only accepts 'tests', so every recorded failure was refused as 'not non-green in the recorded PR run'; and run as a script, sys.path[0] is scripts/, so prepare's deferred `from src.agent_control ...` import raised ModuleNotFoundError before writing any plan. On PR 435 both held at once. The directives make this wrapper the only sanctioned local check, and direct pytest and ruff are refused, so a fix could only be validated by another full CI round trip.
+- **If violated:** prepare stored 'Python tests (shard 2/6)' while `run` only accepts 'tests', so every recorded failure was refused as 'not non-green in the recorded PR run'; and run as a script, sys.path[0] is scripts/, so prepare's deferred `from src.agent_control ...` import raised ModuleNotFoundError before writing any plan. On PR 435 both held at once. Once those were fixed, `run lint` still formatted only the files changed since the failed commit, while CI runs `ruff format --check .`: three files the branch had committed earlier, never checked because CI's format step runs only after a passing lint step, passed locally and failed the next CI run. The directives make this wrapper the only sanctioned local check, and direct pytest and ruff are refused, so a fix could only be validated by another full CI round trip.
 - **Owned by:** `scripts/local_checks.py`
 - **Verification:**
   - `tests/test_local_checks.py` (unit)

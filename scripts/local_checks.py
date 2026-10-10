@@ -183,6 +183,20 @@ def changed_paths(source: str) -> list[str]:
     return sorted({line for value in values for line in value.splitlines() if line})
 
 
+def lint_paths(source: str) -> list[str]:
+    """Python files this branch changes relative to main, plus any fix on top.
+
+    REG-0024: CI lints and formats the whole tree, and main is held clean by
+    the merge gate, so a PR can only fail on files it changes -- including
+    ones committed before the failed run, which a scope of "changed since the
+    failed commit" never looks at.
+    """
+    base = git("merge-base", "origin/main", "HEAD")
+    names = set(changed_paths(source))
+    names.update(git("diff", "--name-only", base, "HEAD").splitlines())
+    return sorted(p for p in names if p.endswith(".py") and (ROOT / p).exists())
+
+
 def ensure_fix(plan: dict[str, Any]) -> None:
     source = str(plan["source_sha"])
     if git("rev-parse", "HEAD") != source:
@@ -240,7 +254,7 @@ def run_check(name: str) -> int:
         )
 
     if name == "lint":
-        paths = [p for p in changed_paths(str(plan["source_sha"])) if p.endswith(".py")]
+        paths = lint_paths(str(plan["source_sha"]))
         commands = [
             [PYTHON, "scripts/generate_math_docs.py", "--check"],
             [PYTHON, "scripts/generate_quality_docs.py", "--check"],
@@ -248,8 +262,10 @@ def run_check(name: str) -> int:
         ]
         if paths:
             commands += [
-                [PYTHON, "-m", "ruff", "check", *paths],
-                [PYTHON, "-m", "ruff", "format", "--check", *paths],
+                # --force-exclude: named explicitly, an excluded file would
+                # otherwise be checked although `ruff ... .` in CI skips it.
+                [PYTHON, "-m", "ruff", "check", "--force-exclude", *paths],
+                [PYTHON, "-m", "ruff", "format", "--check", "--force-exclude", *paths],
             ]
         for i, command in enumerate(commands, 1):
             code = command_run(f"lint-{i}", command)

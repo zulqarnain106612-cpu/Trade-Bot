@@ -180,8 +180,7 @@ def install(
             report.notes.append(f"could not enable {UNIT_NAME}; see `systemctl --user status`")
         elif changed:
             report.notes.append(
-                "unit updated; the running daemon keeps its sessions until "
-                "`tradebot-term restart`"
+                "unit updated; the running daemon keeps its sessions until `tradebot-term restart`"
             )
     return report
 

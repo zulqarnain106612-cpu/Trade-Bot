@@ -1,3 +1,11 @@
+"""
+The failed-PR-only local check wrapper: what prepare records, and what run
+then agrees to execute.
+
+Decides:
+  - REG-0024 — A failure recorded by local_checks prepare is reproducible by local_checks run
+"""
+
 from __future__ import annotations
 
 import importlib.util
@@ -101,6 +109,24 @@ def test_a_recorded_failure_is_runnable_by_the_key_run_accepts(tmp_path, monkeyp
     monkeypatch.setattr(module, "command_run", lambda name, command, *a: ran.append(command) or 0)
     assert module.run_check("tests") == 0
     assert ran[0][-1] == "tests/test_event_loop_acquisition.py"
+
+
+def test_lint_covers_every_file_the_branch_changes(tmp_path, monkeypatch):
+    # REG-0024: CI formats the whole tree. A file the branch committed before
+    # the failed run is as much a candidate as the fix on top of it; only a
+    # file that no longer exists is left out.
+    module = load_module()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    for name in ("early.py", "fix.py", "notes.md"):
+        (tmp_path / name).write_text("", encoding="utf-8")
+    outputs = {
+        ("merge-base", "origin/main", "HEAD"): "base",
+        ("diff", "--name-only", "base", "HEAD"): "early.py\nnotes.md\ngone.py",
+        ("diff", "--name-only", "failed"): "fix.py",
+        ("diff", "--name-only", "--cached"): "",
+    }
+    monkeypatch.setattr(module, "git", lambda *args: outputs[args])
+    assert module.lint_paths("failed") == ["early.py", "fix.py"]
 
 
 def test_the_script_can_import_the_repository_package(monkeypatch):

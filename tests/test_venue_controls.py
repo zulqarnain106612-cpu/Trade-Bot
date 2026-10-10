@@ -25,7 +25,7 @@ from src.config import EXCHANGE_BINANCE, EXCHANGE_OKX
 from src.data import fetcher as fetcher_module
 from src.data.fetcher import MarketDataFetcher, VenueDisconnectRefused, _describe_error
 
-SIGNED = "AuthenticationError: binance {\"code\":-2015} apiKey=" + "a" * 64
+SIGNED = 'AuthenticationError: binance {"code":-2015} apiKey=' + "a" * 64
 
 
 class FakeExchange:
