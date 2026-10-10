@@ -4191,6 +4191,27 @@
       "notes": "The crash lines rank above the summary line deliberately. When a run produces both, the crash is the one that explains the rest, and the summary is still reachable from the run itself. layer: test-suite"
     },
     {
+      "id": "REG-0024",
+      "kind": "regression",
+      "title": "a failed check recorded by local_checks prepare can be run by local_checks run",
+      "statement": "local_checks.py prepare records each non-green check under the key that `run` accepts (lint, tests, ci-gate, ...), never the CI display name, and the script imports the repository package when it is run as a script, so the documented prepare-then-run sequence reproduces a recorded failure instead of refusing it.",
+      "criticality": "medium",
+      "subsystem": "release",
+      "status": "verified",
+      "source": "OPS-2026-10-10",
+      "failure_mode": "prepare stored 'Python tests (shard 2/6)' while `run` only accepts 'tests', so every recorded failure was refused as 'not non-green in the recorded PR run'; and run as a script, sys.path[0] is scripts/, so prepare's deferred `from src.agent_control ...` import raised ModuleNotFoundError before writing any plan. On PR 435 both held at once. The directives make this wrapper the only sanctioned local check, and direct pytest and ruff are refused, so a fix could only be validated by another full CI round trip.",
+      "owning_modules": [
+        "scripts/local_checks.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_local_checks.py",
+          "test_type": "unit"
+        }
+      ],
+      "notes": "Each half had a test, and the two tests encoded the two incompatible forms: the prepare test asserted display names and the run test planted alias keys. Nothing exercised prepare followed by run. layer: test-suite"
+    },
+    {
       "id": "SECR-019",
       "kind": "requirement",
       "title": "A read-only websocket key never receives the approval queue",

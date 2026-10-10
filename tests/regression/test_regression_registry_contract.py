@@ -182,6 +182,10 @@ class TestTheRegistryHasAPlaceForDefects:
         # stdout line instead -- "Event loop is closed", naming no test. The
         # notice is the only CI channel a session may read, and no test
         # asserted it stays legible when the summary is missing -- test-suite.
+        # REG-0024: local_checks prepare recorded CI display names while run
+        # accepts only alias keys, and as a script it could not import src/,
+        # so the one sanctioned local check could never reproduce a failure.
+        # Each half had a test; none ran prepare and then run -- test-suite.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -201,6 +205,7 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0021",
             "REG-0022",
             "REG-0023",
+            "REG-0024",
         }
         # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
         # name and nothing else -- so `.env.bak.<timestamp>` from a
@@ -483,7 +488,10 @@ class TestTheMetricsCollector:
         # about the workflow's own YAML or a review of it says which shape of
         # triggering run leaves workflow_run.pull_requests empty; only a test
         # asserting the resolution path does -- test-suite, 19 to 20.
-        assert metric["value"] == {"test-suite": 21, "review": 1, "supply-chain": 2}
+        # REG-0024: prepare and run were each tested against a different form
+        # of the check name; only a test running one after the other sees
+        # they disagree -- test-suite, 21 to 22.
+        assert metric["value"] == {"test-suite": 22, "review": 1, "supply-chain": 2}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

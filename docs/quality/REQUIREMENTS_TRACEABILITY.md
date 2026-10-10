@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 207 |
+| VERIFIED | 208 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **207** |
+| **Total** | **208** |
 
 ## Summary by subsystem
 
@@ -67,7 +67,7 @@ deletion of the thing it points at.
 | Cryptography and secrets | 30 | 30 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 20 | 20 |
-| Release and production | 13 | 13 |
+| Release and production | 14 | 14 |
 | Governance | 59 | 59 |
 | Terminal and process center | 10 | 10 |
 
@@ -1811,6 +1811,19 @@ When a test worker dies, the CI notice reports the line that names the node id i
 
 > The crash lines rank above the summary line deliberately. When a run produces both, the crash is the one that explains the rest, and the summary is still reachable from the run itself. layer: test-suite
 
+#### `REG-0024` — a failed check recorded by local_checks prepare can be run by local_checks run
+
+**VERIFIED** · medium · regression · source: OPS-2026-10-10
+
+local_checks.py prepare records each non-green check under the key that `run` accepts (lint, tests, ci-gate, ...), never the CI display name, and the script imports the repository package when it is run as a script, so the documented prepare-then-run sequence reproduces a recorded failure instead of refusing it.
+
+- **If violated:** prepare stored 'Python tests (shard 2/6)' while `run` only accepts 'tests', so every recorded failure was refused as 'not non-green in the recorded PR run'; and run as a script, sys.path[0] is scripts/, so prepare's deferred `from src.agent_control ...` import raised ModuleNotFoundError before writing any plan. On PR 435 both held at once. The directives make this wrapper the only sanctioned local check, and direct pytest and ruff are refused, so a fix could only be validated by another full CI round trip.
+- **Owned by:** `scripts/local_checks.py`
+- **Verification:**
+  - `tests/test_local_checks.py` (unit)
+
+> Each half had a test, and the two tests encoded the two incompatible forms: the prepare test asserted display names and the run test planted alias keys. Nothing exercised prepare followed by run. layer: test-suite
+
 ## Governance
 
 #### `GOV-001` — Every production defect yields a permanent regression test
@@ -2672,4 +2685,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 207 entries.
+Registry version: 1.0.0 — 208 entries.

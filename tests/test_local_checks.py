@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -66,8 +67,47 @@ def test_prepare_records_only_failed_checks_from_notice(tmp_path, monkeypatch):
     monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
     assert module.prepare() == 0
     plan = json.loads(module.PLAN.read_text(encoding="utf-8"))
-    assert plan["failed_checks"] == ["CI gate (all jobs green)", "Python tests (shard 1/6)"]
+    assert plan["failed_checks"] == ["ci-gate", "tests"]
     assert plan["test_paths"] == ["tests/test_event_loop_acquisition.py"]
+
+
+def test_a_recorded_failure_is_runnable_by_the_key_run_accepts(tmp_path, monkeypatch):
+    # REG-0024: prepare stored the CI display name while `run` only accepts
+    # alias keys, so no recorded failure could ever be reproduced locally.
+    module = load_module()
+    module.PLAN = tmp_path / "plan.json"
+    monkeypatch.setattr(module, "git", lambda *args: "abc123")
+    monkeypatch.setattr(module, "current_pr", lambda sha: {"number": 123})
+    monkeypatch.setattr(
+        module,
+        "latest_notice",
+        lambda pr, sha: (
+            "CI abc1234 — 2 not green\n"
+            "**CI / Python (lint + governance docs)** — failure · `Lint`\n"
+            "**CI / Python tests (shard 2/6)** — failure · `Run tests (sharded)`\n"
+            "FAILED tests/test_event_loop_acquisition.py::test_no_source"
+        ),
+    )
+    monkeypatch.setattr(module, "STATE_DIR", tmp_path / "state")
+    from src.agent_control import reliability
+
+    monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
+    assert module.prepare() == 0
+    recorded = json.loads(module.PLAN.read_text(encoding="utf-8"))["failed_checks"]
+    assert recorded == ["lint", "tests"]
+    assert set(recorded) <= set(module.ALIASES.values())
+
+    ran = []
+    monkeypatch.setattr(module, "command_run", lambda name, command, *a: ran.append(command) or 0)
+    assert module.run_check("tests") == 0
+    assert ran[0][-1] == "tests/test_event_loop_acquisition.py"
+
+
+def test_the_script_can_import_the_repository_package(monkeypatch):
+    # REG-0024: as a script, sys.path[0] is scripts/, never the repository root.
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if Path(p or ".").resolve() != ROOT])
+    load_module()
+    assert str(ROOT) in sys.path
 
 
 def test_run_refuses_a_check_that_was_not_failed(tmp_path, monkeypatch):

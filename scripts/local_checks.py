@@ -16,6 +16,10 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+# REG-0024: run as a script, sys.path[0] is scripts/, so prepare()'s
+# `from src.agent_control ...` import needs the repository root added.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 STATE_DIR = ROOT / ".claude" / ".hook-state"
 PLAN = STATE_DIR / "local_check_plan.json"
 PYTHON = (
@@ -137,12 +141,17 @@ def prepare() -> int:
         PLAN.unlink(missing_ok=True)
         print(f"GREEN PR#{pr['number']} {sha[:12]}: local execution locked")
         return 0
+    # REG-0024: record the key `run` accepts, not the CI display name; a
+    # display name ("Python tests (shard 2/6)") could never satisfy `run`.
     failed = [
-        match.group(2).strip()
-        for match in re.finditer(
-            r"^\*\*(.+?) / (.+?)\*\* — (?:failure|cancelled|timed_out|neutral|action_required|stale|no verdict)",
-            notice,
-            re.MULTILINE,
+        key_for(name) or name
+        for name in (
+            match.group(2).strip()
+            for match in re.finditer(
+                r"^\*\*(.+?) / (.+?)\*\* — (?:failure|cancelled|timed_out|neutral|action_required|stale|no verdict)",
+                notice,
+                re.MULTILINE,
+            )
         )
     ]
     failed = sorted(set(failed))
