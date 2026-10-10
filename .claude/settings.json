@@ -1,9 +1,32 @@
 {
   "permissions": {
     "deny": [
-      "ScheduleWakeup",
+      "Agent",
+      "Bash",
       "CronCreate",
+      "Edit",
+      "Glob",
+      "Grep",
+      "LS",
+      "ListMcpResources",
+      "Monitor",
+      "MultiEdit",
+      "NotebookEdit",
+      "NotebookRead",
+      "PowerShell",
+      "Read",
+      "ReadMcpResource",
       "RemoteTrigger",
+      "ScheduleWakeup",
+      "SendMessage",
+      "Task",
+      "TaskOutput",
+      "TaskStop",
+      "TeamCreate",
+      "TodoWrite",
+      "WebFetch",
+      "WebSearch",
+      "Write",
       "mcp__github__subscribe_pr_activity"
     ]
   },

@@ -155,8 +155,51 @@ def test_boundary_error_withholds_raw_output(monkeypatch):
     assert "observation withheld" in replacement
 
 
+def test_default_deny_route_gate_is_code_owned_and_independent_of_policy_mode():
+    pre = load_module(PRE, "pre_boundary_default_deny")
+    for tool in (
+        "Bash",
+        "Read",
+        "mcp__Desktop_Commander__start_process",
+        "mcp__unknown__read_file",
+        "mcp__github__new_future_tool",
+    ):
+        reason = pre._github_route_violation({"tool_name": tool, "tool_input": {}})
+        assert reason and "denied" in reason.lower()
+
+
+def test_route_gate_allows_only_scoped_github_operations():
+    pre = load_module(PRE, "pre_boundary_github_only")
+    assert pre._github_route_violation({
+        "tool_name": "mcp__github__get_file_contents",
+        "tool_input": {
+            "owner": "zulqarnain106612-cpu",
+            "repo": "Trade-Bot",
+            "path": "CLAUDE.md",
+        },
+    }) == ""
+    assert pre._github_route_violation({
+        "tool_name": "mcp__github__get_file_contents",
+        "tool_input": {"owner": "other", "repo": "repo", "path": "README.md"},
+    })
+
+
+def test_route_gate_denies_generic_github_fetch_of_ci_data():
+    pre = load_module(PRE, "pre_boundary_github_ci")
+    reason = pre._github_route_violation({
+        "tool_name": "mcp__github__fetch",
+        "tool_input": {
+            "url": "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/actions/runs/1",
+        },
+    })
+    assert reason and "CI" in reason
+
+
 def test_config_carries_single_universal_policy():
     config = json.loads(CONFIG.read_text())
     assert config["enabled"] is True
     assert config["max_read_lines"] == 80
     assert config["policy"]["changed_local_source"] == "diff_first"
+    assert config["github_only_route"]["enabled"] is True
+    assert config["github_only_route"]["unknown_tool_policy"] == "deny"
+    assert config["github_only_route"]["repository"] == "zulqarnain106612-cpu/Trade-Bot"

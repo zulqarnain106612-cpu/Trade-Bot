@@ -31,6 +31,8 @@ PROTECTED_BOUNDARY_PATHS = frozenset(
         "src/agent_control/reliability.py",
         "src/agent_control/completion.py",
         "tests/test_observation_boundary_contract.py",
+        "tests/test_pre_tool_use_hook.py",
+        "CLAUDE.md",
     }
 )
 PROTECTED_MUTATION_TOOLS = {
@@ -48,6 +50,269 @@ BASH_MUTATOR_RE = re.compile(
     r"python(?:3)?\s+(?:-c\b|\S+)|ruby\s+-e\b|"
     r"\b(?:cp|mv|rm|dd|git\s+(?:apply|checkout|restore|reset|clean))\b)"
 )
+
+
+# Hard, code-owned allowlist: configuration and policy mode cannot add routes.
+GITHUB_REPOSITORY = "zulqarnain106612-cpu/Trade-Bot"
+GITHUB_TOOL_PREFIX = "mcp__github__"
+ALLOWED_GITHUB_TOOL_NAMES = frozenset({
+    "search", "search_code", "search_issues", "search_pull_requests", "search_prs",
+    "search_commits", "search_branches", "fetch", "fetch_file", "get_file_contents",
+    "fetch_blob", "fetch_commit", "get_commit", "compare_commits", "fetch_pr",
+    "get_pull_request", "get_pr_info", "list_pr_changed_filenames",
+    "fetch_pr_file_patch", "get_pr_diff", "get_pull_request_files",
+    "get_pull_request_comments", "get_pull_request_reviews", "get_issue",
+    "get_issue_comments", "list_pull_request_reviews", "list_pull_request_review_threads",
+    "create_branch", "create_blob", "create_tree", "create_commit", "update_ref",
+    "create_file", "update_file", "create_or_update_file", "push_files",
+    "create_pull_request", "update_pull_request", "add_comment_to_issue", "add_review_to_pr",
+})
+GITHUB_ALWAYS_DENIED_MARKERS = (
+    "workflow", "artifact", "check_run", "check_suite", "combined_status",
+    "status_check", "job_log", "run_log", "logs", "rerun", "cancel", "cache",
+    "status", "watch", "subscribe", "dispatch", "monitor", "download", "delete", "merge",
+)
+GITHUB_CI_URL_RE = re.compile(
+    r"(?i)(?:/actions(?:/|\?|$)|/check-runs?(?:/|\?|$)|"
+    r"/check-suites?(?:/|\?|$)|/statuses?(?:/|\?|$)|"
+    r"/commits/[^/?]+/(?:status|statuses)(?:/|\?|$)|/caches(?:/|\?|$))"
+)
+GITHUB_BRANCH_WRITE_TOOLS = frozenset(
+    {"create_branch", "create_file", "update_file", "create_or_update_file", "push_files", "update_ref"}
+)
+GITHUB_BOUNDARY_TREE_TOOLS = frozenset(
+    {"create_file", "update_file", "create_or_update_file", "push_files", "create_tree"}
+)
+
+
+def _hook_input(event: dict[str, Any]) -> dict[str, Any]:
+    value = event.get("tool_input") or {}
+    return value if isinstance(value, dict) else {}
+
+
+def _owner_name(value: object) -> str:
+    if isinstance(value, dict):
+        for key in ("login", "name", "slug"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _normalise_repo_path(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    parts: list[str] = []
+    for part in value.replace("\\", "/").split("/"):
+        if part in ("", "."):
+            continue
+        if part == "..":
+            if parts:
+                parts.pop()
+        else:
+            parts.append(part)
+    return "/".join(parts)
+
+
+def _github_repo_refs(data: dict[str, Any]) -> list[str]:
+    refs: list[str] = []
+    owner = _owner_name(data.get("owner") or data.get("org") or data.get("organization"))
+    for key in ("repository_full_name", "repository_name", "repository", "repo", "repo_name", "full_name"):
+        value = data.get(key)
+        if isinstance(value, dict):
+            nested_owner = _owner_name(value.get("owner") or value.get("org"))
+            nested_repo = _owner_name(value.get("name") or value.get("repo") or value.get("full_name"))
+            if nested_owner and nested_repo:
+                refs.append(f"{nested_owner}/{nested_repo}".lower())
+            continue
+        if not isinstance(value, str) or not value.strip():
+            continue
+        value = value.strip()
+        match = re.search(
+            r"(?i)(?:api\.github\.com/repos/|github\.com/|raw\.githubusercontent\.com/)"
+            r"([^/\s?#]+)/([^/\s?#]+)",
+            value,
+        )
+        if match:
+            refs.append(f"{match.group(1)}/{match.group(2)}".lower())
+        elif "/" in value:
+            pieces = value.strip("/").split("/")
+            if len(pieces) >= 2:
+                refs.append(f"{pieces[0]}/{pieces[1]}".lower())
+        elif owner:
+            refs.append(f"{owner}/{value}".lower())
+
+    for key in ("url", "raw_url", "html_url", "repository_url"):
+        value = data.get(key)
+        if isinstance(value, str):
+            match = re.search(
+                r"(?i)(?:api\.github\.com/repos/|github\.com/|raw\.githubusercontent\.com/)"
+                r"([^/\s?#]+)/([^/\s?#]+)",
+                value,
+            )
+            if match:
+                refs.append(f"{match.group(1)}/{match.group(2)}".lower())
+
+    if isinstance(data.get("query"), str):
+        for match in re.finditer(r"(?i)\brepo:([^\s]+)", data["query"]):
+            refs.append(match.group(1).strip().rstrip(")").lower())
+    return list(dict.fromkeys(refs))
+
+
+def _github_boundary_write_violation(tool: str, data: dict[str, Any]) -> str:
+    paths: list[str] = []
+    for key in ("path", "file_path", "filename", "notebook_path"):
+        if isinstance(data.get(key), str):
+            paths.append(_normalise_repo_path(data[key]))
+    if tool.endswith("__push_files") and isinstance(data.get("files"), list):
+        paths.extend(
+            _normalise_repo_path(item.get("path"))
+            for item in data["files"]
+            if isinstance(item, dict) and isinstance(item.get("path"), str)
+        )
+    if tool.endswith("__create_tree") and isinstance(data.get("tree_elements"), list):
+        for item in data["tree_elements"]:
+            if not isinstance(item, dict):
+                continue
+            path = _normalise_repo_path(item.get("path"))
+            if path:
+                paths.append(path)
+            if item.get("sha") is None:
+                return "Universal boundary: Git tree deletions are denied."
+    protected = set(PROTECTED_BOUNDARY_PATHS)
+    cfg = _load_observation_config()
+    configured = cfg.get("protected_boundary_paths")
+    if isinstance(configured, list):
+        protected.update(str(item).replace("\\", "/").lstrip("/") for item in configured)
+    matched = next(
+        (
+            path for path in paths
+            if path in protected
+            or path == ".claude"
+            or path.startswith(".claude/")
+            or path == "src/agent_control"
+            or path.startswith("src/agent_control/")
+            or path == ".github/workflows"
+            or path.startswith(".github/workflows/")
+            or path == ".mcp.json"
+        ),
+        None,
+    )
+    if matched and any(tool.endswith(f"__{name}") for name in GITHUB_BOUNDARY_TREE_TOOLS):
+        return f"Protected observation-boundary file mutation denied: {matched}."
+    return ""
+
+
+def _github_fetch_endpoint_allowed(url: str) -> bool:
+    clean = url.split("?", 1)[0].rstrip("/")
+    api_prefix = "https://api.github.com/"
+    web_prefix = "https://github.com/"
+    raw_prefix = "https://raw.githubusercontent.com/"
+
+    if clean.startswith(api_prefix):
+        parts = clean[len(api_prefix):].split("/")
+        if len(parts) < 3 or parts[0].lower() != "repos":
+            return False
+        suffix = [part.lower() for part in parts[3:]]
+        if not suffix:
+            return True
+        if suffix[0] in {"contents", "pulls", "issues", "commits", "branches"}:
+            return True
+        if suffix == ["readme"]:
+            return True
+        if len(suffix) >= 2 and suffix[0] == "git" and suffix[1] in {
+            "refs", "commits", "trees", "blobs"
+        }:
+            return True
+        return suffix[0] == "compare"
+
+    if clean.startswith(web_prefix):
+        parts = clean[len(web_prefix):].split("/")
+        return len(parts) >= 4 and parts[2].lower() in {
+            "blob", "tree", "pull", "issues", "commit"
+        }
+
+    if clean.startswith(raw_prefix):
+        parts = clean[len(raw_prefix):].split("/")
+        return len(parts) >= 4 and all(parts[:3])
+
+    return False
+
+
+def _github_route_violation(event: dict[str, Any]) -> str:
+    tool = tool_name(event).strip().lower()
+    if not tool:
+        return "Universal boundary: missing tool identity; access denied."
+    if not tool.startswith(GITHUB_TOOL_PREFIX):
+        return (
+            "Universal GitHub-only boundary: all non-GitHub tools and all unrecognized "
+            "execution, terminal, filesystem, browser, agent, and MCP routes are denied."
+        )
+    tail = tool[len(GITHUB_TOOL_PREFIX):]
+    if tail not in ALLOWED_GITHUB_TOOL_NAMES:
+        return f"Universal GitHub-only boundary: GitHub tool '{tail}' is not allowlisted and is denied."
+    if any(marker in tail for marker in GITHUB_ALWAYS_DENIED_MARKERS):
+        return f"Universal boundary: CI run data and destructive GitHub operations are denied ({tail})."
+
+    data = _hook_input(event)
+    for key in ("url", "raw_url", "html_url", "repository_url"):
+        url = data.get(key)
+        if isinstance(url, str) and GITHUB_CI_URL_RE.search(url):
+            return "CI logs, jobs, artifacts, checks, caches and statuses are denied on every GitHub route."
+    if tail == "fetch":
+        url = data.get("url")
+        if not isinstance(url, str):
+            return "Universal boundary: GitHub fetch requires an explicit repository URL."
+        if not _github_fetch_endpoint_allowed(url):
+            return "Universal boundary: this generic GitHub endpoint is not allowlisted."
+
+    refs = _github_repo_refs(data)
+    expected = GITHUB_REPOSITORY.lower()
+    if not refs:
+        return (
+            "Universal boundary: GitHub requests must explicitly identify "
+            f"{GITHUB_REPOSITORY}; unscoped or ambiguous repository access is denied."
+        )
+    if any(ref != expected for ref in refs):
+        return f"Universal boundary: GitHub access is restricted to {GITHUB_REPOSITORY}."
+
+    if tail in GITHUB_BRANCH_WRITE_TOOLS:
+        if tail == "create_branch":
+            branch_name = _owner_name(data.get("branch_name")).removeprefix("refs/heads/").lower()
+            base_ref = _owner_name(data.get("base_ref")).removeprefix("refs/heads/").lower()
+            if not branch_name or branch_name in {"main", "master"}:
+                return "Universal boundary: branch creation requires a non-main feature-branch name."
+            if base_ref != "main" or data.get("sha"):
+                return "Universal boundary: new Claude work branches must be based directly on main."
+        else:
+            branch = data.get("branch") or data.get("branch_name") or data.get("target_branch")
+            branch_name = _owner_name(branch).removeprefix("refs/heads/").lower()
+            if not branch_name or branch_name in {"main", "master"}:
+                return "Universal boundary: GitHub file/ref writes require an explicit non-main feature branch."
+            if tail == "update_ref":
+                if data.get("force") is True:
+                    return "Universal boundary: force-updating Git refs is denied."
+                if not _owner_name(data.get("expected_sha")):
+                    return "Universal boundary: ref updates require an expected_sha lease."
+
+    if tail == "create_pull_request":
+        head = _owner_name(data.get("head") or data.get("head_branch"))
+        head = head.rsplit(":", 1)[-1].removeprefix("refs/heads/").lower()
+        base = _owner_name(data.get("base") or data.get("base_branch")).removeprefix("refs/heads/").lower()
+        if not head or head in {"main", "master"}:
+            return "Universal boundary: pull requests must use a feature branch as their head."
+        if base != "main":
+            return "Universal boundary: feature pull requests must target main."
+
+    return _github_boundary_write_violation(tool, data)
+
+
+def _fail_closed(note: str) -> None:
+    print(f"[pre_tool_use] fail-closed: {note}", file=sys.stderr)
+    _emit(
+        "deny",
+        "Universal GitHub-only observation boundary could not verify this request; access denied.",
+    )
 
 sys.path.insert(0, str(PROJECT_DIR))
 
@@ -222,7 +487,7 @@ def _protected_boundary_violation(event: dict[str, Any]) -> str:
     if not protected:
         return ""
 
-    if tool in PROTECTED_MUTATION_TOOLS:
+    if tool.lower() in {name.lower() for name in PROTECTED_MUTATION_TOOLS}:
         return f"Protected observation-boundary file mutation denied: {protected[0]}."
 
     if (
@@ -296,18 +561,25 @@ def main() -> None:
     try:
         raw = sys.stdin.read()
         if not raw.strip():
-            _fail_open("empty hook payload")
+            _fail_closed("empty hook payload")
             return
         event = json.loads(raw)
-    except Exception as exc:
-        _fail_open(f"malformed hook payload: {exc}")
+        if not isinstance(event, dict):
+            _fail_closed("hook payload is not an object")
+            return
+    except Exception:
+        _fail_closed("malformed hook payload")
         return
 
     try:
+        route_problem = _github_route_violation(event)
+        if route_problem:
+            # Hard route denial ignores TB_COMMAND_POLICY, warning mode, and config flags.
+            _emit("deny", route_problem)
         policy = _load_policy()
         problems = _violations(event, policy)
-    except (re.error, TypeError, ValueError) as exc:
-        _fail_open(f"invalid policy/configuration: {exc}")
+    except Exception as exc:
+        _fail_closed(f"policy evaluation failed ({type(exc).__name__})")
         return
 
     if not problems:
