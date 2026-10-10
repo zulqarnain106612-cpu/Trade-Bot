@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shlex
 import signal
 
 import pytest
@@ -109,22 +110,23 @@ class TestInteractiveShell:
         assert session.state == "running"
         await harness.changes.until(lambda: session.foreground is None)
 
-    async def test_a_fork_of_the_shell_is_not_named_after_the_shell(self, harness):
+    async def test_a_fork_of_the_shell_is_not_named_after_the_shell(self, harness, tmp_path):
         # A subshell's group leader is a fork of the shell that never execs, so
         # /proc holds the shell's own argv for it -- the same argv every job
         # carries between fork and exec, which a poll landing in that window
         # used to adopt as the job's title.
         session = await harness.shell()
-        # Keep the subshell alive long enough to observe its forked-shell
-        # process group, but let it finish naturally. Sending Ctrl+C while the
-        # group leader is still a bash fork can be handled by that shell and
-        # makes this identity test flaky; signal delivery is tested separately.
-        command = "(sleep 0.5; true)"
+        release = tmp_path / "release"
+        # Keep the forked shell in the foreground until this test releases it.
+        # A timed sleep is not deterministic under CI load, and Ctrl+C can be
+        # handled by the shell fork rather than ending the foreground command.
+        command = f"(while [ ! -e {shlex.quote(str(release))} ]; do sleep 0.02; done; true)"
         await harness.type(session.id, command + "\r")
         running = await harness.wait_running(lambda e: e["command"] == command and bool(e["pgid"]))
         assert running["title"] == command
         assert harness.manager.describe(session.id)["foreground"]["title"] is None
 
+        release.touch()
         done = await harness.wait_finished(by_id(running["id"]))
         assert done["title"] == command
 
