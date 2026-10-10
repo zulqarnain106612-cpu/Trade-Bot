@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 195 |
+| VERIFIED | 208 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **195** |
+| **Total** | **208** |
 
 ## Summary by subsystem
 
@@ -62,13 +62,14 @@ deletion of the thing it points at.
 | Portfolio | 1 | 1 |
 | Signal and features | 6 | 6 |
 | Models and leakage | 10 | 10 |
-| Data, money and time | 8 | 8 |
+| Data, money and time | 9 | 9 |
 | API and WebSocket | 20 | 20 |
-| Cryptography and secrets | 29 | 29 |
+| Cryptography and secrets | 30 | 30 |
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 20 | 20 |
-| Release and production | 13 | 13 |
+| Release and production | 14 | 14 |
 | Governance | 59 | 59 |
+| Terminal and process center | 10 | 10 |
 
 ## Outstanding work by phase
 
@@ -659,6 +660,19 @@ Every submitted order conforms to the venue's tick, lot and minimum-notional rul
 - **Verification:**
   - `tests/execution/test_venue_precision.py` (unit) — Quantisation never increases a quantity, and every minimum is compared against the quantised value -- the number the venue actually sees.
   - `tests/test_fetcher_symbol_precision.py` (unit)
+
+#### `VEN-001` — Exchange venues are connected and disconnected per venue, with honest state
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-10
+
+Binance and OKX each report market data (unavailable, connecting, connected, reconnecting, disconnected, failed) separately from account access (unconfigured, unverified, verifying, authenticated, rejected, failed); connect, reconnect, verify and disconnect act on one venue only, behind the API key, the operator secret, the MANAGE_VENUES permission, the rate limit and the audit trail; disconnect closes the client and refuses to leave no venue; no credential value is ever returned or logged, and no control places an order.
+
+- **If violated:** An operator cannot tell a dead market-data feed from rejected keys, a reconnect leaks a client or loops, disconnecting one venue drops the other, or the endpoints let an unauthenticated caller cut the bot off from its exchange.
+- **Owned by:** `src/data/fetcher.py`, `src/api/main.py`
+- **Verification:**
+  - `tests/test_venue_controls.py` (api)
+  - `tests/test_venue_controls_api.py` (api)
+  - `frontend/src/components/panels/VenuesPanel.test.jsx` (api)
 
 #### `REG-0009` — Each pytest process owns its own DuckDB file
 
@@ -1287,6 +1301,22 @@ scripts/npm_audit_verdict.py fails the npm-audit job for any high or critical ad
 
 > The exemption is not standing and cannot become one. npm defaults fixAvailable to true and sets it false only when it has proved no published version escapes the advisory, so the moment a fix is published this gate fails again and names the package. layer: test-suite
 
+#### `SEC-0010` — No path hands a shell to anyone but the local user who owns it
+
+**VERIFIED** · critical · security_regression · source: OPS-2026-10-10
+
+The integrated terminal adds a command-execution surface; nothing reaches it except the local user: a connection from another uid, a non-loopback host, a foreign Origin or Host header, a WebSocket client without the current token, and page content through the Electron bridge asking for job registration are all refused before a session can be created or written to; the terminal token is a credential of its own, separate from the trading API's keys and operator secret.
+
+- **If violated:** A website the operator visits, another account on the machine, or a holder of a read-only API key gets an interactive shell as the trading user, with the exchange credentials and operator secrets in reach.
+- **Owned by:** `src/terminal/server.py`, `src/terminal/auth.py`, `frontend/electron/terminalBridge.cjs`
+- **Depends on:** `TERM-004`
+- **Verification:**
+  - `tests/terminal/test_terminal_server.py` (security)
+  - `tests/terminal/test_terminal_host.py` (security)
+  - `frontend/src/desktop/terminalBridge.test.js` (security)
+
+> layer: test-suite
+
 ## Supply chain and artifacts
 
 #### `SUP-001` — Every workflow declares least-privilege permissions
@@ -1780,6 +1810,19 @@ When a test worker dies, the CI notice reports the line that names the node id i
   - `tests/test_ci_failure_notify_workflow.py` (unit)
 
 > The crash lines rank above the summary line deliberately. When a run produces both, the crash is the one that explains the rest, and the summary is still reachable from the run itself. layer: test-suite
+
+#### `REG-0024` — a failed check recorded by local_checks prepare can be run by local_checks run
+
+**VERIFIED** · medium · regression · source: OPS-2026-10-10
+
+local_checks.py prepare records each non-green check under the key that `run` accepts (lint, tests, ci-gate, ...), never the CI display name; the script imports the repository package when it is run as a script; and `run lint` checks every Python file the branch changes relative to main with the ruff exclusions CI applies, so the documented prepare-then-run sequence reproduces a recorded failure instead of refusing it or passing over it.
+
+- **If violated:** prepare stored 'Python tests (shard 2/6)' while `run` only accepts 'tests', so every recorded failure was refused as 'not non-green in the recorded PR run'; and run as a script, sys.path[0] is scripts/, so prepare's deferred `from src.agent_control ...` import raised ModuleNotFoundError before writing any plan. On PR 435 both held at once. Once those were fixed, `run lint` still formatted only the files changed since the failed commit, while CI runs `ruff format --check .`: three files the branch had committed earlier, never checked because CI's format step runs only after a passing lint step, passed locally and failed the next CI run. The directives make this wrapper the only sanctioned local check, and direct pytest and ruff are refused, so a fix could only be validated by another full CI round trip.
+- **Owned by:** `scripts/local_checks.py`
+- **Verification:**
+  - `tests/test_local_checks.py` (unit)
+
+> Each half had a test, and the two tests encoded the two incompatible forms: the prepare test asserted display names and the run test planted alias keys. Nothing exercised prepare followed by run. layer: test-suite
 
 ## Governance
 
@@ -2488,6 +2531,132 @@ Every scripts/ path named in the README, in src/ comments or in a test's skip me
 
 > scripts/timescaledb.sh was referenced from six call sites -- README.md three times, src/config.py, src/data/storage.py and the skip message in tests/test_timescale_storage.py -- and did not exist; removed by the config purge (#144) without the references going with it. The test guards the general form (a named scripts/ path that is absent) as well as this one file, and pins the script to ci.yml's service block so the local and CI databases cannot drift apart silently. layer: test-suite
 
+## Terminal and process center
+
+#### `TERM-001` — Terminal sessions are real PTYs that every client shares
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-10
+
+A terminal session is a process on a pseudo-terminal owned by the terminal service: input reaches it byte for byte (Ctrl+C becomes SIGINT and Ctrl+D EOF through the line discipline), a resize changes what programs see, and the dashboard and the host CLI list, attach to and control the same sessions -- a session created in one is visible and usable in the other, and survives every client disconnecting.
+
+- **If violated:** The terminal is a pipe pretending to be a terminal: interactive prompts hang, Ctrl+C kills the dashboard's connection instead of the command, REPLs and editors misbehave, or the CLI and the GUI show different sessions so an operator cannot find the build they started.
+- **Owned by:** `src/terminal/sessions.py`, `src/terminal/server.py`
+- **Verification:**
+  - `tests/terminal/test_terminal_sessions.py` (integration)
+  - `tests/terminal/test_terminal_server.py` (integration)
+
+#### `TERM-002` — Process identity and exit status are observed, never invented
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-10
+
+Every process-center entry carries what the host reported: the argv from /proc, the real pid and process group, the session, the working directory, the start time, and the exit code or signal from the shell integration or waitpid; when no status was observed the entry says unknown and is never shown as success.
+
+- **If violated:** A failed build is shown green, a killed job is shown as exiting 0, or a process is listed under a title and pid it never had, so the operator trusts a result that did not happen.
+- **Owned by:** `src/terminal/registry.py`, `src/terminal/procfs.py`, `src/terminal/markers.py`
+- **Verification:**
+  - `tests/terminal/test_terminal_registry.py` (verification)
+  - `tests/terminal/test_terminal_host.py` (verification)
+  - `tests/terminal/test_terminal_markers_buffer.py` (verification)
+  - `tests/terminal/test_terminal_sessions.py` (verification)
+
+#### `TERM-003` — Terminal requests are validated at every boundary
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-10
+
+Every frame is decoded and bounded before it reaches a PTY: unknown request types, malformed ids, out-of-range sizes, oversized frames or input, non-list argv and relative working directories are refused with an error frame; the Electron bridge relays only plain objects of the allowed request types and never job registration.
+
+- **If violated:** A malformed or hostile frame crashes the daemon, writes unbounded data into a shell, or lets page content register fake jobs or reach a request type the dashboard never needs.
+- **Owned by:** `src/terminal/protocol.py`, `frontend/electron/terminalBridge.cjs`
+- **Verification:**
+  - `tests/terminal/test_terminal_protocol.py` (contract)
+  - `tests/terminal/test_terminal_server.py` (contract)
+  - `frontend/src/desktop/terminalBridge.test.js` (contract)
+
+#### `TERM-004` — The terminal is local-only and authenticated
+
+**VERIFIED** · critical · requirement · source: OPS-2026-10-10
+
+The terminal service listens on a 0600 Unix socket in a 0700 directory and accepts only peers with its own uid; its optional WebSocket binds to a loopback address only, refuses foreign Host and Origin headers, and serves nothing before a hello carrying the 256-bit token; the service refuses to run as root unless explicitly allowed; the dashboard refuses a non-loopback terminal URL.
+
+- **If violated:** Anyone who can reach the dashboard's host or trick a browser into opening a WebSocket gets a shell as the trading user, with the exchange credentials in its environment.
+- **Owned by:** `src/terminal/server.py`, `src/terminal/auth.py`, `src/terminal/config.py`
+- **Verification:**
+  - `tests/terminal/test_terminal_server.py` (security)
+  - `tests/terminal/test_terminal_host.py` (security)
+  - `frontend/src/terminal/client.test.js` (security)
+
+#### `TERM-005` — Terminal output survives a reconnect and gaps are reported
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-10
+
+Output is kept in a bounded, offset-addressed buffer per session; a client that reconnects resumes from the byte it had rendered and never renders a byte twice, a reconnect replaces the client's whole view with the service's snapshot so nothing stale stays running, and output the buffer no longer holds is reported as a gap rather than silently skipped.
+
+- **If violated:** After a dropped connection the dashboard shows duplicated or missing output, or keeps showing a process as running that finished while it was offline.
+- **Owned by:** `src/terminal/buffer.py`, `frontend/src/terminal/client.js`
+- **Verification:**
+  - `tests/terminal/test_terminal_markers_buffer.py` (component)
+  - `frontend/src/terminal/client.test.js` (component)
+
+#### `TERM-006` — Closing a session or stopping the service leaves no orphan
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-10
+
+Closing a session terminates every process in its kernel session, including background and nohup children, and stopping the terminal service closes every session; a kill request reaches only the recorded process group and only while that group still belongs to the session that started it.
+
+- **If violated:** A closed terminal leaves a backfill or training run consuming the machine, or a stale process-group id is reused and a kill request terminates an unrelated process.
+- **Owned by:** `src/terminal/sessions.py`
+- **Verification:**
+  - `tests/terminal/test_terminal_sessions.py` (resilience)
+  - `tests/terminal/test_terminal_server.py` (resilience)
+
+#### `TERM-007` — The host CLI and application jobs share the process registry
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-10
+
+tradebot-term lists, creates, attaches to, inspects, signals, renames and closes the same sessions the dashboard shows, with exit codes that reflect the job; the trading API reports backfills and retraining as jobs over the local socket without ever blocking the request that started them, and a missing service costs nothing but the entry.
+
+- **If violated:** Long operations are invisible to the operator, the CLI disagrees with the dashboard, or a slow or absent terminal service stalls a backfill or retrain request.
+- **Owned by:** `src/terminal/cli.py`, `src/terminal/jobs.py`, `src/terminal/client.py`
+- **Verification:**
+  - `tests/terminal/test_terminal_cli.py` (integration)
+  - `tests/terminal/test_terminal_install_jobs.py` (integration)
+  - `tests/test_api_terminal_jobs.py` (integration)
+
+#### `TERM-008` — Install, upgrade and service lifecycle never clobber and never orphan
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-10
+
+Installing writes only files that carry the installer's marker, leaves any file it did not write in place and reports it, is idempotent on re-run and rewrites its own files on upgrade; uninstall removes only marked files; start uses the systemd user unit when installed, stop terminates the recorded daemon only after checking it is the terminal service, and no user configuration or secret is read, written or logged.
+
+- **If violated:** An upgrade overwrites the operator's own wrapper or unit, deletes a file it did not create, or stop kills an unrelated process whose pid was reused.
+- **Owned by:** `src/terminal/install.py`, `src/terminal/cli.py`
+- **Verification:**
+  - `tests/terminal/test_terminal_install_jobs.py` (component)
+  - `tests/terminal/test_terminal_cli.py` (component)
+
+#### `TERM-009` — The status bar and process center show live state honestly
+
+**VERIFIED** · medium · requirement · source: OPS-2026-10-10
+
+The persistent status bar shows Terminal and Processes side by side with live counts; only failures the operator has not seen are announced, and that survives a reload; hiding the dock never closes a session; a running command opens its own session, a finished or application job opens its retained output with the reason it failed; KILL needs a confirmation and every signal names a process group.
+
+- **If violated:** Failures go unnoticed or are announced forever, collapsing the terminal kills work in progress, or a stray click sends SIGKILL.
+- **Owned by:** `frontend/src/terminal/TerminalContext.jsx`, `frontend/src/components/terminal/ProcessCenter.jsx`
+- **Verification:**
+  - `frontend/src/components/terminal/terminalUi.test.jsx` (component)
+
+#### `TERM-010` — The workspace layout is versioned, repairable and keyboard operable
+
+**VERIFIED** · low · requirement · source: OPS-2026-10-10
+
+Panels can be dragged by the title area only, resized, minimized, maximized to the measured viewport and restored to their previous geometry, hidden and recovered, moved and resized from the keyboard; the layout is persisted with a version, and a corrupt, older or out-of-range stored layout is repaired panel by panel without losing the valid parts.
+
+- **If violated:** A corrupt stored layout leaves panels unreachable or crashes the dashboard, a click on a panel control starts a drag, or maximize loses the geometry the operator arranged.
+- **Owned by:** `frontend/src/workspace/layoutStore.js`, `frontend/src/components/workspace/Workspace.jsx`
+- **Verification:**
+  - `frontend/src/workspace/layoutStore.test.js` (component)
+  - `frontend/src/components/workspace/Workspace.test.jsx` (component)
+
 
 ---
 
@@ -2516,4 +2685,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 195 entries.
+Registry version: 1.0.0 — 208 entries.

@@ -12,7 +12,9 @@ requests>=2.34.2,<3.0
 # CVE-2026-97687/97688/97689 are fixed in 2.8.0 (SEC-0006). Declared directly
 # so the floor holds whatever pulls urllib3 in transitively.
 urllib3>=2.8.0,<3.0
-websockets>=12.0,<16.0
+# 13.0 is the first release with websockets.asyncio.server, which the terminal
+# service's loopback listener uses (src/terminal/server.py); 12.x lacks it.
+websockets>=13.0,<16.0
 
 # --- API surface ------------------------------------------------------------
 fastapi>=0.142.2,<1.0

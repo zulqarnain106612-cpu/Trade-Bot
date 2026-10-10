@@ -48,6 +48,7 @@ SUBSYSTEM_TITLES = {
     "resilience": "Resilience and recovery",
     "release": "Release and production",
     "governance": "Governance",
+    "terminal": "Terminal and process center",
 }
 
 KIND_ORDER = ["invariant", "requirement", "regression", "security_regression"]

@@ -3,8 +3,13 @@
 // and native OS integration (dock/taskbar icon, single-instance lock).
 const { app, BrowserWindow, Tray, Menu, nativeImage, shell, ipcMain } = require("electron");
 const path = require("path");
+const { TerminalBridge } = require("./terminalBridge.cjs");
 
 const isDev = !app.isPackaged;
+// frontend/electron -> repository root: where the terminal service's Python
+// package (src/terminal) and its virtualenv live.
+const REPO_ROOT = path.join(__dirname, "..", "..");
+let terminalBridge = null;
 const DEV_URL = process.env.VITE_DEV_URL || "http://127.0.0.1:5173";
 
 const BUILD_DIR = path.join(__dirname, "..", "build");
@@ -131,6 +136,12 @@ ipcMain.on("badge:pending-approvals", (_event, count) => {
 });
 
 app.whenReady().then(() => {
+  // Start the terminal service alongside the window (not before it): the
+  // dashboard shows "connecting" until it answers, and a missing Python
+  // environment degrades the terminal, never the rest of the app.
+  terminalBridge = new TerminalBridge({ ipcMain, repoRoot: REPO_ROOT, env: process.env });
+  terminalBridge.register();
+  terminalBridge.startService();
   createWindow();
   createTray();
 
@@ -142,6 +153,10 @@ app.whenReady().then(() => {
 
 app.on("before-quit", () => {
   isQuitting = true;
+  // Drops the app's connections only. Terminal sessions belong to the
+  // service and keep running for `tradebot-term attach`; stop them with
+  // `tradebot-term stop`.
+  terminalBridge?.closeAll();
 });
 
 // Keep running in the tray on all platforms except macOS default quit-on-close
