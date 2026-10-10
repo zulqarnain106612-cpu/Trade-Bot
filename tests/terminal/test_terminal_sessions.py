@@ -96,6 +96,22 @@ class TestInteractiveShell:
         assert session.state == "running"
         await harness.changes.until(lambda: session.foreground is None)
 
+    async def test_a_fork_of_the_shell_is_not_named_after_the_shell(self, harness):
+        # A subshell's group leader is a fork of the shell that never execs, so
+        # /proc holds the shell's own argv for it -- the same argv every job
+        # carries between fork and exec, which a poll landing in that window
+        # used to adopt as the job's title.
+        session = await harness.shell()
+        command = "(sleep 30; true)"
+        await harness.type(session.id, command + "\r")
+        running = await harness.wait_running(lambda e: e["command"] == command and bool(e["pgid"]))
+        assert running["title"] == command
+        assert harness.manager.describe(session.id)["foreground"]["title"] is None
+
+        harness.manager.write(session.id, b"\x03")
+        done = await harness.wait_finished(by_id(running["id"]))
+        assert done["title"] == command
+
     async def test_a_signal_reaches_only_the_foreground_group(self, harness):
         session = await harness.shell()
         await harness.type(session.id, "sleep 30\r")
@@ -244,6 +260,17 @@ class TestCleanup:
         assert not any(alive(p) for p in pids)
         assert ("session_removed", {"id": session.id}) in harness.events
         assert _code(harness.manager.get, session.id) == "not_found"
+
+    async def test_concurrent_closes_of_a_finished_session_both_succeed(self, harness):
+        # Nothing alive in the session leaves close() nothing to wait for. It
+        # then finished in one step, so the close requested alongside it found
+        # the session already gone -- what SIGHUP racing a just-forked child
+        # produced in the test above.
+        job = await harness.manager.create(argv=["true"])
+        await harness.changes.until(lambda: job.state == "exited")
+        await asyncio.gather(harness.manager.close(job.id), harness.manager.close(job.id))
+        assert ("session_removed", {"id": job.id}) in harness.events
+        assert _code(harness.manager.get, job.id) == "not_found"
 
     async def test_shutdown_closes_every_session(self, harness):
         job = await harness.manager.create(argv=["sleep", "30"])

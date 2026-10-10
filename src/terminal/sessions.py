@@ -381,6 +381,11 @@ class SessionManager:
         done: asyncio.Future[None] = asyncio.get_running_loop().create_future()
         self._closing[sid] = done
         try:
+            # Yield before any work. With nothing left alive in the session,
+            # nothing below awaits, so the close would finish in one step and
+            # a close requested alongside it would find the session already
+            # forgotten instead of this close in flight.
+            await asyncio.sleep(0)
             # Also when the leader has already exited: a background child can
             # outlive it in the same session and must not outlive the close.
             if session.state == "running" or procfs.session_members(
@@ -610,6 +615,11 @@ class SessionManager:
             return
 
         argv = procfs.read_cmdline(group, self._proc)
+        if argv is not None and argv == procfs.read_cmdline(session.pid, self._proc):
+            # A fork of the shell itself: a job between fork and exec, or a
+            # subshell. Its argv names the shell, not the command, so it is no
+            # identity; the next poll after exec supplies the real one.
+            argv = None
         title = " ".join(argv) if argv else None
         cwd = procfs.read_cwd(group, self._proc)
         if session.command_entry is not None:

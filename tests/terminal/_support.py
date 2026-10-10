@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import termios
 import threading
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -69,6 +70,18 @@ def alive(pid: int) -> bool:
     except OSError:
         return False
     return stat[stat.rfind(")") + 2] not in ("Z", "X")
+
+
+def line_editing(master_fd: int) -> bool:
+    """True once the shell's line editor has taken the PTY out of canonical mode.
+
+    Until then the line discipline handles control keys itself: a ^D becomes
+    an end-of-file marker that readline later reads as NUL, never as ^D.
+    """
+    try:
+        return not termios.tcgetattr(master_fd)[3] & termios.ICANON
+    except termios.error:
+        return False
 
 
 class Changes:
@@ -157,9 +170,13 @@ class Harness:
         return await self.changes.until(lambda: self.running(predicate))
 
     async def shell(self, **kwargs: Any) -> Any:
-        """A bash session whose integration has announced itself."""
+        """A bash session whose integration has announced itself, at its prompt.
+
+        readline switches the PTY to raw mode before it prints the prompt, so
+        the prompt's output is the event that makes line_editing() true.
+        """
         session = await self.manager.create(**kwargs)
-        await self.changes.until(lambda: session.integration)
+        await self.changes.until(lambda: session.integration and line_editing(session.master_fd))
         return session
 
     async def type(self, sid: str, text: str) -> None:
