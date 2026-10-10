@@ -54,6 +54,8 @@ EXPECTED: dict[Role, frozenset[Permission]] = {
             Permission.CHANGE_EXECUTION_MODE,
             # RES-017: runtime-platform changes are operator authority.
             Permission.CHANGE_RUNTIME,
+            # VEN-001: connecting/disconnecting an exchange venue is too.
+            Permission.MANAGE_VENUES,
         }
     ),
 }

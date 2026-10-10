@@ -16,6 +16,10 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+# REG-0024: run as a script, sys.path[0] is scripts/, so prepare()'s
+# `from src.agent_control ...` import needs the repository root added.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 STATE_DIR = ROOT / ".claude" / ".hook-state"
 PLAN = STATE_DIR / "local_check_plan.json"
 PYTHON = (
@@ -137,12 +141,17 @@ def prepare() -> int:
         PLAN.unlink(missing_ok=True)
         print(f"GREEN PR#{pr['number']} {sha[:12]}: local execution locked")
         return 0
+    # REG-0024: record the key `run` accepts, not the CI display name; a
+    # display name ("Python tests (shard 2/6)") could never satisfy `run`.
     failed = [
-        match.group(2).strip()
-        for match in re.finditer(
-            r"^\*\*(.+?) / (.+?)\*\* — (?:failure|cancelled|timed_out|neutral|action_required|stale|no verdict)",
-            notice,
-            re.MULTILINE,
+        key_for(name) or name
+        for name in (
+            match.group(2).strip()
+            for match in re.finditer(
+                r"^\*\*(.+?) / (.+?)\*\* — (?:failure|cancelled|timed_out|neutral|action_required|stale|no verdict)",
+                notice,
+                re.MULTILINE,
+            )
         )
     ]
     failed = sorted(set(failed))
@@ -172,6 +181,20 @@ def changed_paths(source: str) -> list[str]:
         git("diff", "--name-only", "--cached"),
     ]
     return sorted({line for value in values for line in value.splitlines() if line})
+
+
+def lint_paths(source: str) -> list[str]:
+    """Python files this branch changes relative to main, plus any fix on top.
+
+    REG-0024: CI lints and formats the whole tree, and main is held clean by
+    the merge gate, so a PR can only fail on files it changes -- including
+    ones committed before the failed run, which a scope of "changed since the
+    failed commit" never looks at.
+    """
+    base = git("merge-base", "origin/main", "HEAD")
+    names = set(changed_paths(source))
+    names.update(git("diff", "--name-only", base, "HEAD").splitlines())
+    return sorted(p for p in names if p.endswith(".py") and (ROOT / p).exists())
 
 
 def ensure_fix(plan: dict[str, Any]) -> None:
@@ -231,7 +254,7 @@ def run_check(name: str) -> int:
         )
 
     if name == "lint":
-        paths = [p for p in changed_paths(str(plan["source_sha"])) if p.endswith(".py")]
+        paths = lint_paths(str(plan["source_sha"]))
         commands = [
             [PYTHON, "scripts/generate_math_docs.py", "--check"],
             [PYTHON, "scripts/generate_quality_docs.py", "--check"],
@@ -239,8 +262,10 @@ def run_check(name: str) -> int:
         ]
         if paths:
             commands += [
-                [PYTHON, "-m", "ruff", "check", *paths],
-                [PYTHON, "-m", "ruff", "format", "--check", *paths],
+                # --force-exclude: named explicitly, an excluded file would
+                # otherwise be checked although `ruff ... .` in CI skips it.
+                [PYTHON, "-m", "ruff", "check", "--force-exclude", *paths],
+                [PYTHON, "-m", "ruff", "format", "--check", "--force-exclude", *paths],
             ]
         for i, command in enumerate(commands, 1):
             code = command_run(f"lint-{i}", command)

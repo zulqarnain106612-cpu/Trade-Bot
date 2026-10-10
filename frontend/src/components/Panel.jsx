@@ -1,144 +1,111 @@
-import { useState, useRef } from 'react';
-import { useResizable } from '../hooks/useResizable';
+// Panel chrome for one workspace item: a header that is the drag handle and
+// carries the workspace controls, and a body that fills the rest.
+//
+// Size and position belong to the workspace grid, not to the panel. Minimize
+// hides the body but keeps it mounted, so a panel's own state (form inputs,
+// selected tabs, subscriptions) is exactly where the operator left it.
+//
+// Keyboard: focus the grip (⠿) and use the arrow keys to move the panel,
+// Shift+arrows to resize it; the buttons beside it minimize, maximize and
+// hide. Escape leaves a maximized panel.
+const MOVE_KEYS = {
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+};
 
 export function Panel({
   title,
   icon,
   children,
-  defaultWidth,
-  defaultHeight,
-  visible = true,
-  onToggleVisible,
   accentColor,
   badge,
   headerExtra,
   className = '',
+  minimized = false,
+  maximized = false,
+  onMinimize,
+  onMaximize,
+  onHide,
+  onMove,
+  onResize,
 }) {
-  const { size, onMouseDown, setSizeManual } = useResizable(
-    defaultWidth || 400,
-    defaultHeight || 300
-  );
-  const [editingSize, setEditingSize] = useState(false);
-  const [wInput, setWInput] = useState('');
-  const [hInput, setHInput] = useState('');
-
-  if (!visible) return null;
-
-  const borderColor = accentColor ? `1px solid ${accentColor}20` : undefined;
+  const onGripKey = (e) => {
+    const delta = MOVE_KEYS[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    if (e.shiftKey) onResize?.(delta[0], delta[1]);
+    else onMove?.(delta[0], delta[1]);
+  };
 
   return (
-    <div
-      className={`panel claude-fade-in ${className}`}
-      style={{
-        width: defaultWidth === 'auto' ? '100%' : size.w,
-        height: defaultHeight === 'auto' ? 'auto' : size.h,
-        borderColor: accentColor ? `${accentColor}30` : undefined,
-      }}
+    <section
+      className={`panel${minimized ? ' panel-minimized' : ''}${maximized ? ' panel-maximized' : ''} ${className}`}
+      style={{ borderColor: accentColor ? `${accentColor}30` : undefined }}
+      aria-label={title}
     >
       <div className="panel-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          {icon && <span style={{ color: accentColor || 'var(--c-cyan)', fontSize: 13 }}>{icon}</span>}
+        <div className="ws-drag-handle" title="Drag to move">
+          {(onMove || onResize) && (
+            <span
+              role="button"
+              tabIndex={0}
+              className="ws-grip"
+              aria-label={`Move or resize ${title}`}
+              aria-describedby="ws-keyboard-help"
+              onKeyDown={onGripKey}
+            >
+              ⠿
+            </span>
+          )}
+          {icon && <span style={{ color: accentColor || 'var(--c-cyan)', fontSize: 13 }} aria-hidden="true">{icon}</span>}
           <span className="panel-title" style={{ color: accentColor || undefined }}>{title}</span>
           {badge != null && badge > 0 && (
-            <span
-              className="badge"
-              style={{
-                background: 'rgba(0,212,255,0.12)',
-                color: 'var(--c-cyan)',
-                fontSize: 9,
-              }}
-            >
+            <span className="badge" style={{ background: 'rgba(0,212,255,0.12)', color: 'var(--c-cyan)', fontSize: 9 }}>
               {badge}
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div className="panel-actions">
           {headerExtra}
-          {editingSize ? (
-            <form
-              style={{ display: 'flex', gap: 3 }}
-              onSubmit={(e) => {
-                e.preventDefault();
-                const w = parseInt(wInput) || null;
-                const h = parseInt(hInput) || null;
-                setSizeManual(w, h);
-                setEditingSize(false);
-              }}
-            >
-              <input
-                className="input-sm"
-                style={{ width: 48, textAlign: 'right' }}
-                value={wInput}
-                onChange={(e) => setWInput(e.target.value)}
-                placeholder="W"
-                autoFocus
-              />
-              <span style={{ color: 'var(--c-faint)', fontSize: 10 }}>x</span>
-              <input
-                className="input-sm"
-                style={{ width: 48, textAlign: 'right' }}
-                value={hInput}
-                onChange={(e) => setHInput(e.target.value)}
-                placeholder="H"
-              />
-              <button type="submit" className="btn btn-blue" style={{ padding: '2px 6px', fontSize: 9 }}>OK</button>
-            </form>
-          ) : (
+          {onMinimize && (
             <button
-              onClick={() => {
-                setWInput(String(Math.round(size.w)));
-                setHInput(String(Math.round(size.h)));
-                setEditingSize(true);
-              }}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--c-faint)',
-                cursor: 'pointer',
-                fontSize: 10,
-                padding: '2px 4px',
-              }}
-              title="Type size (W x H)"
+              type="button"
+              className="panel-ctl"
+              onClick={onMinimize}
+              aria-label={minimized ? `Restore ${title}` : `Minimize ${title}`}
+              title={minimized ? 'Restore' : 'Minimize'}
             >
-              {Math.round(size.w)}x{Math.round(size.h)}
+              {minimized ? '▢' : '–'}
             </button>
           )}
-          {onToggleVisible && (
+          {onMaximize && (
             <button
-              onClick={onToggleVisible}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--c-faint)',
-                cursor: 'pointer',
-                fontSize: 14,
-                padding: '0 2px',
-                lineHeight: 1,
-              }}
-              title="Hide panel"
+              type="button"
+              className="panel-ctl"
+              onClick={onMaximize}
+              aria-label={maximized ? `Restore ${title} size` : `Maximize ${title}`}
+              aria-pressed={maximized}
+              title={maximized ? 'Restore size (Esc)' : 'Maximize'}
+            >
+              {maximized ? '❐' : '□'}
+            </button>
+          )}
+          {onHide && (
+            <button
+              type="button"
+              className="panel-ctl"
+              onClick={onHide}
+              aria-label={`Hide ${title}`}
+              title="Hide (restore it from Panels)"
             >
               ×
             </button>
           )}
         </div>
       </div>
-      <div className="panel-body">{children}</div>
-      {defaultWidth !== 'auto' && (
-        <>
-          <div
-            className="resize-handle resize-handle-right"
-            onMouseDown={(e) => onMouseDown(e, 'x')}
-          />
-          <div
-            className="resize-handle resize-handle-bottom"
-            onMouseDown={(e) => onMouseDown(e, 'y')}
-          />
-          <div
-            className="resize-handle resize-handle-corner"
-            onMouseDown={(e) => onMouseDown(e, 'xy')}
-          />
-        </>
-      )}
-    </div>
+      <div className="panel-body" hidden={minimized}>{children}</div>
+    </section>
   );
 }

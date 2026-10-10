@@ -24,12 +24,14 @@ import contextlib
 import random
 import threading
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, TypeVar
 
 import ccxt.async_support as ccxt
 import structlog
 
+from common.command_schema import redact
 from src.config import (
     EXCHANGE_BINANCE,
     EXCHANGE_OKX,
@@ -233,6 +235,67 @@ def _jittered(delay: float) -> float:
 # error body in the message, and Binance's 451 alone runs to several lines.
 _VENUE_ERROR_MAX_CHARS = 300
 
+# ---------------------------------------------------------------------------
+# Venue connection state (VEN-001)
+#
+# Two separate questions, answered separately, because one does not imply the
+# other: is the venue's public market data reachable (load_markets succeeded),
+# and does the exchange accept this account's credentials (an authenticated,
+# read-only fetch_balance succeeded). A green market-data light used to be the
+# only light there was, and it said nothing about whether the keys worked.
+# ---------------------------------------------------------------------------
+
+VENUE_UNAVAILABLE = "unavailable"  # never attempted (initialize() not run)
+VENUE_CONNECTING = "connecting"
+VENUE_CONNECTED = "connected"
+VENUE_RECONNECTING = "reconnecting"
+VENUE_DISCONNECTED = "disconnected"  # closed on purpose by an operator
+VENUE_FAILED = "failed"  # the last attempt failed; `error` says why
+
+ACCOUNT_UNAVAILABLE = "unavailable"  # market connection is not up
+ACCOUNT_UNCONFIGURED = "unconfigured"  # credentials missing or incomplete
+ACCOUNT_UNVERIFIED = "unverified"  # credentials present, not yet checked
+ACCOUNT_VERIFYING = "verifying"
+ACCOUNT_AUTHENTICATED = "authenticated"
+ACCOUNT_REJECTED = "rejected"  # the exchange refused the credentials
+ACCOUNT_FAILED = "failed"  # the check could not complete (network, exchange)
+
+CREDENTIALS_CONFIGURED = "configured"
+CREDENTIALS_INCOMPLETE = "incomplete"
+CREDENTIALS_MISSING = "missing"
+
+# An operator is waiting on this answer; _with_retry's minute of backoff is
+# the wrong shape for it.
+_ACCOUNT_CHECK_TIMEOUT_S = 10.0
+
+
+class VenueDisconnectRefused(RuntimeError):
+    """Disconnecting would leave the fetcher with no venue at all."""
+
+
+@dataclass
+class _VenueState:
+    phase: str = VENUE_UNAVAILABLE
+    changed_at: datetime | None = None
+    operator_disconnected: bool = False
+    account: str = ACCOUNT_UNAVAILABLE
+    account_error: str | None = None
+    account_checked_at: datetime | None = None
+
+
+def _describe_error(exc: BaseException) -> str:
+    """
+    A bounded, secret-redacted account of *exc* for operators.
+
+    ccxt puts the failing request in the message, and a signed request's URL
+    carries its signature; the shared redactor handles keys, and the extra
+    pattern takes the signature out too.
+    """
+    text, _count = redact(
+        f"{type(exc).__name__}: {exc}", extra_patterns=[r"(?i)signature=[0-9a-f]{16,}"]
+    )
+    return text[:_VENUE_ERROR_MAX_CHARS]
+
 
 async def _with_retry(
     coro_factory: Callable[[], Awaitable[_T]],
@@ -335,6 +398,13 @@ class MarketDataFetcher:
         self._okx: ccxt.okx | None = None
         # Why each unavailable venue is unavailable, kept for venue_status().
         self._venue_errors: dict[str, str] = {}
+        self._venue_state: dict[str, _VenueState] = {
+            EXCHANGE_BINANCE: _VenueState(),
+            EXCHANGE_OKX: _VenueState(),
+        }
+        # One lock per venue: two concurrent reconnects used to build two
+        # clients, keep one, and leak the other's connection pool.
+        self._venue_locks: dict[str, asyncio.Lock] = {}
         self._log = log.bind(component="fetcher")
         # VF-012: asyncio.Semaphore() at __init__ time raises DeprecationWarning
         # on Python 3.10+ when no event loop is running (same pattern as VF-004/VF-011).
@@ -402,8 +472,9 @@ class MarketDataFetcher:
         """
         self._venue_errors.clear()
 
-        await self._open_venue(EXCHANGE_BINANCE)
-        await self._open_venue(EXCHANGE_OKX)
+        for venue in (EXCHANGE_BINANCE, EXCHANGE_OKX):
+            self._set_phase(venue, VENUE_CONNECTING)
+            await self._open_venue(venue)
 
         if self._binance is None and self._okx is None:
             reasons = "; ".join(f"{v}: {e}" for v, e in sorted(self._venue_errors.items()))
@@ -440,17 +511,57 @@ class MarketDataFetcher:
             # Deliberately broad: every ccxt failure mode is a venue that did
             # not come up, and the point of this method is that none of them
             # reaches the caller. The reason is kept for the operator.
-            self._venue_errors[venue] = f"{type(exc).__name__}: {exc}"[:_VENUE_ERROR_MAX_CHARS]
+            self._venue_errors[venue] = _describe_error(exc)
             with contextlib.suppress(Exception):
                 await exchange.close()
             self._set_venue(venue, None)
+            self._set_phase(venue, VENUE_FAILED)
             self._log.warning("fetcher.venue_unavailable", venue=venue, error=str(exc)[:200])
             return False
 
         self._set_venue(venue, exchange)
         self._venue_errors.pop(venue, None)
+        state = self._venue_state[venue]
+        state.operator_disconnected = False
+        # A new client has proven nothing about the account yet.
+        state.account = (
+            ACCOUNT_UNVERIFIED
+            if self.credential_state(venue) == CREDENTIALS_CONFIGURED
+            else ACCOUNT_UNCONFIGURED
+        )
+        state.account_error = None
+        self._set_phase(venue, VENUE_CONNECTED)
         self._log.info(f"fetcher.{venue}_ready", testnet=testnet)
         return True
+
+    def _set_phase(self, venue: str, phase: str) -> None:
+        state = self._venue_state[venue]
+        state.phase = phase
+        state.changed_at = datetime.now(tz=UTC)
+
+    def _lock(self, venue: str) -> asyncio.Lock:
+        lock = self._venue_locks.get(venue)
+        if lock is None:
+            lock = self._venue_locks[venue] = asyncio.Lock()
+        return lock
+
+    @staticmethod
+    def _check_venue(venue: str) -> None:
+        if venue not in (EXCHANGE_BINANCE, EXCHANGE_OKX):
+            raise ValueError(f"unknown venue: {venue}")
+
+    def credential_state(self, venue: str) -> str:
+        """Whether this venue's credentials are present -- never their values."""
+        cfg = self._settings
+        parts: tuple[str, ...]
+        if venue == EXCHANGE_BINANCE:
+            parts = (cfg.binance.api_key, cfg.binance.api_secret)
+        else:
+            parts = (cfg.okx.api_key, cfg.okx.api_secret, cfg.okx.passphrase)
+        present = [bool(str(part).strip()) for part in parts]
+        if all(present):
+            return CREDENTIALS_CONFIGURED
+        return CREDENTIALS_INCOMPLETE if any(present) else CREDENTIALS_MISSING
 
     def _set_venue(self, venue: str, exchange: Any) -> None:
         if venue == EXCHANGE_BINANCE:
@@ -476,13 +587,37 @@ class MarketDataFetcher:
         a 451 eligibility block, and "unavailable" does not distinguish them.
         """
         live = self.available_venues()
-        return {
-            venue: {
-                "available": venue in live,
+        status: dict[str, dict[str, Any]] = {}
+        for venue in (EXCHANGE_BINANCE, EXCHANGE_OKX):
+            state = self._venue_state[venue]
+            available = venue in live
+            # The client reference is the ground truth for availability; the
+            # recorded phase only refines it. A phase that disagrees with the
+            # client (stale "connected" after the client went away) is never
+            # reported as is.
+            phase = state.phase
+            if available and phase != VENUE_RECONNECTING:
+                phase = VENUE_CONNECTED
+            elif not available and phase == VENUE_CONNECTED:
+                phase = VENUE_FAILED if venue in self._venue_errors else VENUE_UNAVAILABLE
+            settings = self._settings.binance if venue == EXCHANGE_BINANCE else self._settings.okx
+            status[venue] = {
+                "available": available,
                 "error": self._venue_errors.get(venue),
+                "state": phase,
+                "changed_at": state.changed_at.isoformat() if state.changed_at else None,
+                "operator_disconnected": state.operator_disconnected,
+                "testnet": bool(settings.testnet),
+                "credentials": self.credential_state(venue),
+                "account": {
+                    "state": state.account if available else ACCOUNT_UNAVAILABLE,
+                    "error": state.account_error if available else None,
+                    "checked_at": (
+                        state.account_checked_at.isoformat() if state.account_checked_at else None
+                    ),
+                },
             }
-            for venue in (EXCHANGE_BINANCE, EXCHANGE_OKX)
-        }
+        return status
 
     async def reconnect(self, venue: str) -> bool:
         """
@@ -491,18 +626,95 @@ class MarketDataFetcher:
         This is what makes an outage recoverable while the bot runs: the venue
         that failed at startup, or dropped afterwards, is retried on demand and
         becomes usable the moment it answers. Reconnecting a live venue closes
-        the existing client first so the old one is not leaked.
+        the existing client first so the old one is not leaked. Serialized per
+        venue, so two concurrent requests cannot each build a client.
         """
-        if venue not in (EXCHANGE_BINANCE, EXCHANGE_OKX):
-            raise ValueError(f"unknown venue: {venue}")
+        self._check_venue(venue)
+        async with self._lock(venue):
+            existing = self._binance if venue == EXCHANGE_BINANCE else self._okx
+            was_up = existing is not None or self._venue_state[venue].phase == VENUE_FAILED
+            self._set_phase(venue, VENUE_RECONNECTING if was_up else VENUE_CONNECTING)
+            if existing is not None:
+                self._set_venue(venue, None)
+                await self._close_client(venue, existing)
+            return await self._open_venue(venue)
 
-        existing = self._binance if venue == EXCHANGE_BINANCE else self._okx
-        if existing is not None:
-            with contextlib.suppress(Exception):
-                await existing.close()
+    async def disconnect(self, venue: str) -> None:
+        """
+        Close one venue on purpose and keep it closed until reconnect().
+
+        The client reference is cleared before the client is closed, so no
+        caller can pick up a closing client; every accessor then raises the
+        "disconnected by operator" reason. The other venue is untouched.
+        Disconnecting the last connected venue is refused: a fetcher with no
+        venue at all is the state initialize() treats as fatal, and halting
+        trading is the kill switch's job, not this one's.
+        """
+        self._check_venue(venue)
+        async with self._lock(venue):
+            existing = self._binance if venue == EXCHANGE_BINANCE else self._okx
+            if existing is not None and self.available_venues() == {venue}:
+                raise VenueDisconnectRefused(
+                    f"{venue} is the only connected venue; disconnecting it would leave "
+                    "no market data at all"
+                )
             self._set_venue(venue, None)
+            self._venue_errors.pop(venue, None)
+            state = self._venue_state[venue]
+            state.operator_disconnected = True
+            state.account = ACCOUNT_UNAVAILABLE
+            state.account_error = None
+            self._set_phase(venue, VENUE_DISCONNECTED)
+            if existing is not None:
+                await self._close_client(venue, existing)
+            self._log.info("fetcher.venue_disconnected", venue=venue)
 
-        return await self._open_venue(venue)
+    async def verify_account(self, venue: str) -> str:
+        """
+        Prove (or disprove) authenticated access with one read-only call.
+
+        fetch_balance is the cheapest authenticated endpoint both venues
+        offer, and it moves nothing. A rejection (bad key, IP not allow-listed,
+        missing permission) is reported as ``rejected``; anything that stopped
+        the check from completing is ``failed`` -- the two need different
+        fixes and must not look alike.
+        """
+        self._check_venue(venue)
+        async with self._lock(venue):
+            state = self._venue_state[venue]
+            exchange = self._binance if venue == EXCHANGE_BINANCE else self._okx
+            if exchange is None:
+                state.account = ACCOUNT_UNAVAILABLE
+                return state.account
+            credentials = self.credential_state(venue)
+            if credentials != CREDENTIALS_CONFIGURED:
+                state.account = ACCOUNT_UNCONFIGURED
+                state.account_error = (
+                    "credentials are incomplete"
+                    if credentials == CREDENTIALS_INCOMPLETE
+                    else "no API credentials are configured"
+                )
+                return state.account
+            state.account = ACCOUNT_VERIFYING
+            try:
+                await asyncio.wait_for(exchange.fetch_balance(), timeout=_ACCOUNT_CHECK_TIMEOUT_S)
+            except ccxt.AuthenticationError as exc:
+                state.account, state.account_error = ACCOUNT_REJECTED, _describe_error(exc)
+            except (ccxt.BaseError, TimeoutError, OSError) as exc:
+                state.account, state.account_error = ACCOUNT_FAILED, _describe_error(exc)
+            else:
+                state.account, state.account_error = ACCOUNT_AUTHENTICATED, None
+            state.account_checked_at = datetime.now(tz=UTC)
+            self._log.info("fetcher.account_checked", venue=venue, account=state.account)
+            return state.account
+
+    async def _close_client(self, venue: str, exchange: Any) -> None:
+        try:
+            await exchange.close()
+        except Exception as exc:
+            # The reference is already gone; a client that fails to close is
+            # logged, not resurrected.
+            self._log.warning("fetcher.venue_close_failed", venue=venue, error=str(exc)[:200])
 
     async def close(self) -> None:
         """Close both exchange connections cleanly."""
@@ -521,6 +733,11 @@ class MarketDataFetcher:
         needs to know whether nobody called initialize() or whether the venue
         itself refused, and what it said.
         """
+        if self._venue_state[venue].operator_disconnected:
+            return (
+                f"{venue} unavailable: disconnected by an operator. "
+                f"Call await fetcher.reconnect('{venue}') to bring it back."
+            )
         reason = self._venue_errors.get(venue)
         if reason is None:
             return (

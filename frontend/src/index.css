@@ -50,7 +50,45 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   user-select: text;
+  /* The page itself never scrolls: the shell below gives the workspace its
+     own scroll container between the header and the terminal/status bar,
+     which is what keeps those two on screen. */
   overflow: hidden;
+}
+
+/* ── App shell ─────────────────────────────────────────────────────────── */
+.app-shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg);
+  color: var(--c-text);
+}
+.app-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.workspace-viewport {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 12px 16px 16px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+:where(button, [role='button'], [role='tab'], [role='separator'], input, select, textarea, tr[tabindex]):focus-visible {
+  outline: 2px solid var(--c-cyan);
+  outline-offset: 1px;
 }
 
 ::selection {
@@ -131,8 +169,10 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  min-width: 200px;
-  min-height: 120px;
+  /* Size comes from the workspace grid cell; minimums live in the grid
+     item specs (src/workspace/items.js). */
+  width: 100%;
+  height: 100%;
   position: relative;
   transition: border-color 0.2s;
 }
@@ -175,33 +215,526 @@ body {
   min-width: 0;
 }
 
-.resize-handle {
+/* ── Workspace grid ────────────────────────────────────────────────────── */
+.ws-drag-handle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  cursor: grab;
+  user-select: none;
+}
+.react-draggable-dragging .ws-drag-handle {
+  cursor: grabbing;
+}
+.ws-grip {
+  color: var(--c-faint);
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+  border-radius: 3px;
+  cursor: grab;
+}
+.ws-grip:hover,
+.ws-grip:focus-visible {
+  color: var(--c-cyan);
+}
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.panel-ctl {
+  background: none;
+  border: none;
+  color: var(--c-faint);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+.panel-ctl:hover {
+  color: var(--c-text);
+  background: var(--c-surface3);
+}
+.panel-minimized .panel-header {
+  border-bottom: none;
+}
+.react-grid-item.react-grid-placeholder {
+  background: rgba(0, 212, 255, 0.18);
+  border-radius: 8px;
+  opacity: 1;
+}
+.react-grid-item.react-draggable-dragging,
+.react-grid-item.resizing {
+  z-index: 30;
+}
+.react-grid-item > .react-resizable-handle {
+  z-index: 6;
+}
+.react-grid-item > .react-resizable-handle::after {
+  border-color: var(--c-faint);
+}
+/* Maximized: the same element, pinned over the measured workspace viewport.
+   !important because react-grid-layout positions items with inline styles. */
+.ws-item.ws-maximized {
+  position: fixed !important;
+  transform: none !important;
+  top: var(--ws-max-top, 0) !important;
+  left: var(--ws-max-left, 0) !important;
+  width: var(--ws-max-width, 100vw) !important;
+  height: var(--ws-max-height, 100vh) !important;
+  z-index: 40;
+  padding: 8px;
+  background: var(--c-bg);
+  transition: none !important;
+}
+.workspace.has-maximized .ws-item:not(.ws-maximized) {
+  visibility: hidden;
+}
+.ws-hidden-chip,
+.pm-toggle {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 10px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface2);
+  color: var(--c-faint);
+  cursor: pointer;
+}
+.ws-hidden-chip {
+  margin-bottom: 8px;
+}
+.pm-toggle.on {
+  background: rgba(0, 212, 255, 0.12);
+  color: var(--c-cyan);
+}
+.panel-manager {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+/* ── Status bar ───────────────────────────────────────────────────────── */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 28px;
+  padding: 0 10px;
+  border-top: 1px solid var(--c-border);
+  background: var(--c-surface);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.sb-group {
+  display: flex;
+  gap: 2px;
+}
+.sb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--c-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.sb-btn:hover {
+  color: var(--c-text);
+  background: var(--c-surface3);
+}
+.sb-btn.on {
+  color: var(--c-cyan);
+  border-color: rgba(0, 212, 255, 0.35);
+  background: rgba(0, 212, 255, 0.08);
+}
+.sb-count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--c-surface3);
+  color: var(--c-text);
+  font-size: 10px;
+  text-align: center;
+}
+.sb-failed {
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--c-red);
+  font-size: 10px;
+  font-weight: 600;
+}
+.sb-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--c-faint);
+}
+.sb-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c-faint);
+}
+.sb-conn-open .sb-dot { background: var(--c-green); }
+.sb-conn-connecting .sb-dot,
+.sb-conn-idle .sb-dot { background: var(--c-yellow); }
+.sb-conn-offline .sb-dot,
+.sb-conn-unauthorized .sb-dot,
+.sb-conn-incompatible .sb-dot,
+.sb-conn-misconfigured .sb-dot { background: var(--c-red); }
+.sb-venues {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.sb-venue {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--c-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.sb-venue:hover {
+  background: var(--c-surface3);
+}
+
+/* ── Terminal dock ────────────────────────────────────────────────────── */
+.dock-slot[hidden] {
+  display: none;
+}
+.terminal-dock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--c-border);
+  background: var(--c-bg);
+  flex-shrink: 0;
+}
+.dock-resizer {
   position: absolute;
-  z-index: 5;
-}
-.resize-handle-right {
-  right: -3px;
-  top: 0;
-  bottom: 0;
-  width: 6px;
-  cursor: col-resize;
-}
-.resize-handle-bottom {
-  bottom: -3px;
+  top: -3px;
   left: 0;
   right: 0;
   height: 6px;
   cursor: row-resize;
+  z-index: 5;
 }
-.resize-handle-corner {
-  right: -3px;
-  bottom: -3px;
-  width: 12px;
-  height: 12px;
-  cursor: nwse-resize;
+.dock-resizer:hover,
+.dock-resizer:focus-visible {
+  background: rgba(0, 212, 255, 0.25);
 }
-.resize-handle:hover {
-  background: rgba(0, 212, 255, 0.15);
+.dock-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  height: 30px;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+}
+.dock-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.dock-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 4px 0 9px;
+  border-radius: 4px 4px 0 0;
+  color: var(--c-muted);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dock-tab.active {
+  color: var(--c-text);
+  background: var(--c-bg);
+  box-shadow: inset 0 2px 0 var(--c-claude);
+}
+.dock-tab.failed .dock-tab-name {
+  color: var(--c-red);
+}
+.dock-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.dot-green { background: var(--c-green); }
+.dot-red { background: var(--c-red); }
+.dot-muted { background: var(--c-faint); }
+.dock-kind {
+  font-size: 9px;
+  color: var(--c-faint);
+  text-transform: uppercase;
+}
+.dock-rename {
+  width: 120px;
+  font-size: 11px;
+  background: var(--c-surface3);
+  color: var(--c-text);
+  border: 1px solid var(--c-cyan);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.dock-close,
+.dock-new,
+.dock-collapse {
+  background: none;
+  border: none;
+  color: var(--c-faint);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+.dock-close:hover,
+.dock-new:hover,
+.dock-collapse:hover {
+  color: var(--c-text);
+  background: var(--c-surface3);
+}
+.dock-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dock-error {
+  color: var(--c-red);
+  font-size: 11px;
+}
+.dock-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  padding: 4px 0 0 6px;
+}
+.xterm-host {
+  width: 100%;
+  height: 100%;
+}
+.dock-notice {
+  padding: 16px;
+  color: var(--c-muted);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.dock-notice code {
+  color: var(--c-cyan);
+}
+
+/* ── Process center ───────────────────────────────────────────────────── */
+.process-center {
+  width: min(640px, 48vw);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--c-border);
+  background: var(--c-surface);
+  min-height: 0;
+}
+.pc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--c-border);
+}
+.pc-counts {
+  color: var(--c-faint);
+  font-size: 11px;
+  margin-right: auto;
+}
+.pc-body {
+  overflow: auto;
+  padding: 0 8px 12px;
+}
+.pc-section {
+  margin: 12px 4px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+}
+.data-table.proc-table td {
+  white-space: nowrap;
+}
+.proc-row {
+  cursor: pointer;
+}
+.proc-row.proc-failed td {
+  background: rgba(239, 68, 68, 0.08);
+  color: #fca5a5;
+}
+.proc-title {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.proc-cwd {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.proc-kind {
+  margin-left: 6px;
+  font-size: 9px;
+  color: var(--c-faint);
+  text-transform: uppercase;
+}
+.proc-reason {
+  color: var(--c-red);
+  font-size: 10px;
+  white-space: normal;
+}
+.proc-state {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.proc-state-running { color: var(--c-cyan); background: rgba(0, 212, 255, 0.1); }
+.proc-state-succeeded { color: var(--c-green); background: rgba(34, 197, 94, 0.1); }
+.proc-state-failed { color: var(--c-red); background: rgba(239, 68, 68, 0.15); }
+.proc-state-unknown { color: var(--c-muted); background: var(--c-surface3); }
+.proc-actions {
+  display: flex;
+  gap: 3px;
+}
+.proc-actions .btn {
+  padding: 1px 6px;
+  font-size: 9px;
+}
+.proc-empty {
+  color: var(--c-faint);
+  font-size: 11px;
+  padding: 4px;
+}
+.proc-console {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  padding: 8px;
+  gap: 6px;
+}
+.proc-console-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.proc-output {
+  flex: 1;
+  min-height: 120px;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  background: var(--c-bg);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Exchange connections ─────────────────────────────────────────────── */
+.venues {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+.venue-card {
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--c-surface2);
+}
+.venue-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.venue-name {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 12px;
+}
+.venue-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin: 0 0 8px;
+  font-size: 11px;
+}
+.venue-grid dt {
+  color: var(--c-faint);
+}
+.venue-grid dd {
+  margin: 0;
+}
+.venue-light {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.venue-error {
+  color: var(--c-red);
+  font-size: 10px;
+  margin: 0 0 6px;
+}
+.venue-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+@media (max-width: 760px) {
+  .process-center {
+    position: fixed;
+    inset: 48px 0 28px 0;
+    width: auto;
+    z-index: 45;
+  }
+  .sb-conn {
+    display: none;
+  }
 }
 
 .stat-card {

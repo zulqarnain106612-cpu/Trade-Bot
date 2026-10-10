@@ -1,0 +1,30 @@
+// Every workspace unit, in default reading order. w/h are grid units
+// (24 columns; 20px rows + 12px gaps, so h px ≈ 32h − 12); the minimums keep
+// a panel's header and a usable body on screen whatever the operator drags.
+export const WORKSPACE_ITEMS = [
+  { id: 'overview', label: 'Overview', icon: '📊', w: 24, h: 6, minW: 6, minH: 4 },
+  { id: 'controlhub', label: 'Control Hub', icon: '🎚', w: 12, h: 13, minW: 6, minH: 6 },
+  { id: 'equity', label: 'Equity Curve', icon: '📈', w: 12, h: 8, minW: 6, minH: 5 },
+  { id: 'drawdown', label: 'Drawdown', icon: '📉', w: 12, h: 6, minW: 6, minH: 4 },
+  { id: 'venues', label: 'Exchange Connections', icon: '🔌', w: 12, h: 11, minW: 6, minH: 6 },
+  { id: 'positions', label: 'Positions', icon: '💼', w: 12, h: 8, minW: 6, minH: 4 },
+  { id: 'trades', label: 'Trade History', icon: '🔄', w: 12, h: 9, minW: 6, minH: 4 },
+  { id: 'missed', label: 'Missed Trades', icon: '⏭', w: 8, h: 8, minW: 5, minH: 4 },
+  { id: 'approvals', label: 'Approvals', icon: '✅', w: 8, h: 9, minW: 5, minH: 4 },
+  { id: 'risk', label: 'Risk Controls', icon: '🛡', w: 8, h: 10, minW: 5, minH: 5 },
+  { id: 'config', label: 'Configuration', icon: '⚙', w: 12, h: 12, minW: 6, minH: 5 },
+  { id: 'selftuning', label: 'Self-Tuning', icon: '🎛', w: 12, h: 9, minW: 6, minH: 5 },
+  { id: 'strategies', label: 'Strategies', icon: '🧠', w: 12, h: 11, minW: 6, minH: 5 },
+  { id: 'runtime', label: 'Runtime Platform', icon: '🧩', w: 12, h: 13, minW: 6, minH: 6 },
+  { id: 'health', label: 'Health', icon: '❤', w: 8, h: 8, minW: 5, minH: 4 },
+  { id: 'drift', label: 'Drift Monitor', icon: '🔬', w: 8, h: 9, minW: 5, minH: 4 },
+  { id: 'audit', label: 'Audit Trail', icon: '📋', w: 8, h: 9, minW: 5, minH: 4 },
+  { id: 'reconcile', label: 'Reconciliation', icon: '⚖', w: 8, h: 8, minW: 5, minH: 4 },
+  { id: 'model', label: 'Model Metrics', icon: '🤖', w: 8, h: 9, minW: 5, minH: 4 },
+  { id: 'ledger', label: 'Ledger', icon: '📒', w: 8, h: 9, minW: 5, minH: 4 },
+  { id: 'recovery', label: 'Recovery', icon: '🔧', w: 8, h: 8, minW: 5, minH: 4 },
+  { id: 'training', label: 'Model Training', icon: '🏋', w: 8, h: 10, minW: 5, minH: 5 },
+  { id: 'backfill', label: 'Backfill', icon: '📥', w: 8, h: 6, minW: 5, minH: 4 },
+  { id: 'capitalfloor', label: 'Capital Floor', icon: '🚨', w: 8, h: 9, minW: 5, minH: 5 },
+  { id: 'horizons', label: 'Horizons', icon: '🕰', w: 12, h: 11, minW: 6, minH: 5 },
+];

@@ -59,10 +59,11 @@
         "engine",
         "intel",
         "runtime",
+        "terminal",
         "upgrade",
         "workers"
       ],
-      "why": "Assembles the layers below into a running system. runtime is the platform that registers, supervises and changes those components, so it sits with the code that assembles them."
+      "why": "Assembles the layers below into a running system. runtime is the platform that registers, supervises and changes those components, so it sits with the code that assembles them. terminal is the host service that supervises interactive sessions and the processes and jobs started from them; it imports only foundation (logging_setup) and nothing domain-specific, and the API (edge) reads it to register its own jobs."
     },
     {
       "name": "edge",

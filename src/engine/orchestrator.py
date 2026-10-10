@@ -1458,6 +1458,17 @@ class Orchestrator:
         self._log.info("orchestrator.manual_retrain_started", timeframe=tf.value)
         return "started"
 
+    def retrain_task(self, tf: Timeframe) -> asyncio.Task[Any] | None:
+        """
+        The retrain in flight for *tf*, if any.
+
+        Read-only access for observers (the process center registers the
+        manual retrain as a job and follows it to completion); nothing outside
+        this class may start, cancel or replace a retrain task.
+        """
+        task = self._retrain_tasks.get(tf.value)
+        return None if task is None or task.done() else task
+
     def retrain_status(self) -> dict[str, dict[str, Any]]:
         """Per-timeframe retrain state for the dashboard."""
         out: dict[str, dict[str, Any]] = {}

@@ -53,6 +53,14 @@ class _FakeOrchestrator:
         self._fetcher = fetcher
 
 
+class _FakeStorage:
+    def __init__(self) -> None:
+        self.audit: list[dict[str, Any]] = []
+
+    async def insert_audit_event(self, **event: Any) -> None:
+        self.audit.append(event)
+
+
 @pytest.fixture()
 def api_client(monkeypatch):
     os.environ["API_SECRET_KEY"] = "test-key-" + "a" * 32  # pragma: allowlist secret
@@ -65,6 +73,9 @@ def api_client(monkeypatch):
     fetcher = _FakeFetcher()
     api_main._state.ready = True
     monkeypatch.setattr(api_main, "require_orchestrator", lambda: _FakeOrchestrator(fetcher))
+    # Reconnecting is audited (VEN-001); a store of this test's own keeps the
+    # result independent of whatever another module left on the shared state.
+    monkeypatch.setattr(api_main._state, "storage", _FakeStorage(), raising=False)
 
     client = TestClient(api_main.app)
     client.headers.update({"x-api-key": os.environ["API_SECRET_KEY"]})
