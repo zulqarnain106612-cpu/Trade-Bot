@@ -23,6 +23,7 @@ import json
 import os
 import pty
 import re
+import runpy
 import signal
 import socket
 import termios
@@ -515,6 +516,21 @@ class TestHelpers:
         monkeypatch.setenv("TB_TERMINAL_WS_HOST", "0.0.0.0")
         assert run_cli("paths")[0] == 1
         assert "non-loopback" in capsys.readouterr().err
+
+    def test_python_m_runs_the_cli_and_exits_with_its_code(self, monkeypatch):
+        # runpy re-executes __main__, which binds whatever src.terminal.cli
+        # exposes as main at that moment, so the patch is what it calls.
+        calls = []
+
+        def fake_main(*args, **kwargs):
+            calls.append((args, kwargs))
+            return 3
+
+        monkeypatch.setattr(cli, "main", fake_main)
+        with pytest.raises(SystemExit) as exc_info:
+            runpy.run_module("src.terminal", run_name="__main__")
+        assert exc_info.value.code == 3
+        assert calls == [((), {})]
 
 
 class TestClient:
