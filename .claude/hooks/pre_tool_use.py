@@ -79,7 +79,14 @@ GITHUB_CI_URL_RE = re.compile(
     r"/commits/[^/?]+/(?:status|statuses)(?:/|\?|$)|/caches(?:/|\?|$))"
 )
 GITHUB_BRANCH_WRITE_TOOLS = frozenset(
-    {"create_branch", "create_file", "update_file", "create_or_update_file", "push_files", "update_ref"}
+    {
+        "create_branch",
+        "create_file",
+        "update_file",
+        "create_or_update_file",
+        "push_files",
+        "update_ref",
+    }
 )
 GITHUB_BOUNDARY_TREE_TOOLS = frozenset(
     {"create_file", "update_file", "create_or_update_file", "push_files", "create_tree"}
@@ -118,11 +125,20 @@ def _normalise_repo_path(value: object) -> str:
 def _github_repo_refs(data: dict[str, Any]) -> list[str]:
     refs: list[str] = []
     owner = _owner_name(data.get("owner") or data.get("org") or data.get("organization"))
-    for key in ("repository_full_name", "repository_name", "repository", "repo", "repo_name", "full_name"):
+    for key in (
+        "repository_full_name",
+        "repository_name",
+        "repository",
+        "repo",
+        "repo_name",
+        "full_name",
+    ):
         value = data.get(key)
         if isinstance(value, dict):
             nested_owner = _owner_name(value.get("owner") or value.get("org"))
-            nested_repo = _owner_name(value.get("name") or value.get("repo") or value.get("full_name"))
+            nested_repo = _owner_name(
+                value.get("name") or value.get("repo") or value.get("full_name")
+            )
             if nested_owner and nested_repo:
                 refs.append(f"{nested_owner}/{nested_repo}".lower())
             continue
@@ -265,15 +281,24 @@ def _github_route_violation(event: dict[str, Any]) -> str:
         )
     tail = tool[len(GITHUB_TOOL_PREFIX):]
     if tail not in ALLOWED_GITHUB_TOOL_NAMES:
-        return f"Universal GitHub-only boundary: GitHub tool '{tail}' is not allowlisted and is denied."
+        return (
+            f"Universal GitHub-only boundary: GitHub tool '{tail}' is not "
+            "allowlisted and is denied."
+        )
     if any(marker in tail for marker in GITHUB_ALWAYS_DENIED_MARKERS):
-        return f"Universal boundary: CI run data and destructive GitHub operations are denied ({tail})."
+        return (
+            "Universal boundary: CI run data and destructive GitHub operations are denied "
+            f"({tail})."
+        )
 
     data = _hook_input(event)
     for key in ("url", "raw_url", "html_url", "repository_url"):
         url = data.get(key)
         if isinstance(url, str) and GITHUB_CI_URL_RE.search(url):
-            return "CI logs, jobs, artifacts, checks, caches and statuses are denied on every GitHub route."
+            return (
+                "CI logs, jobs, artifacts, checks, caches and statuses are denied "
+                "on every GitHub route."
+            )
     if tail == "fetch":
         url = data.get("url")
         if not isinstance(url, str):
@@ -296,14 +321,23 @@ def _github_route_violation(event: dict[str, Any]) -> str:
             branch_name = _owner_name(data.get("branch_name")).removeprefix("refs/heads/").lower()
             base_ref = _owner_name(data.get("base_ref")).removeprefix("refs/heads/").lower()
             if not branch_name or branch_name in {"main", "master"}:
-                return "Universal boundary: branch creation requires a non-main feature-branch name."
+                return (
+                    "Universal boundary: branch creation requires a non-main "
+                    "feature-branch name."
+                )
             if base_ref != "main" or data.get("sha"):
-                return "Universal boundary: new Claude work branches must be based directly on main."
+                return (
+                    "Universal boundary: new Claude work branches must be based "
+                    "directly on main."
+                )
         else:
             branch = data.get("branch") or data.get("branch_name") or data.get("target_branch")
             branch_name = _owner_name(branch).removeprefix("refs/heads/").lower()
             if not branch_name or branch_name in {"main", "master"}:
-                return "Universal boundary: GitHub file/ref writes require an explicit non-main feature branch."
+                return (
+                    "Universal boundary: GitHub file/ref writes require an explicit "
+                    "non-main feature branch."
+                )
             if tail == "update_ref":
                 if data.get("force") is True:
                     return "Universal boundary: force-updating Git refs is denied."
@@ -313,7 +347,11 @@ def _github_route_violation(event: dict[str, Any]) -> str:
     if tail == "create_pull_request":
         head = _owner_name(data.get("head") or data.get("head_branch"))
         head = head.rsplit(":", 1)[-1].removeprefix("refs/heads/").lower()
-        base = _owner_name(data.get("base") or data.get("base_branch")).removeprefix("refs/heads/").lower()
+        base = (
+            _owner_name(data.get("base") or data.get("base_branch"))
+            .removeprefix("refs/heads/")
+            .lower()
+        )
         if not head or head in {"main", "master"}:
             return "Universal boundary: pull requests must use a feature branch as their head."
         if base != "main":

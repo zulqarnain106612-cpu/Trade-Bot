@@ -122,7 +122,12 @@ class TestApprovedGithubRoute:
     def test_scoped_generic_contents_fetch_is_allowed(self) -> None:
         decision = decide(
             "mcp__GitHub__fetch",
-            {"url": "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/contents/CLAUDE.md"},
+            {
+                "url": (
+                    "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/"
+                    "contents/CLAUDE.md"
+                )
+            },
         )
         assert decision["permissionDecision"] == "allow"
 
@@ -342,7 +347,10 @@ class TestBranchAndBoundaryWrites:
     def test_tree_deletions_are_denied(self) -> None:
         assert_denied(
             "mcp__github__create_tree",
-            {"repository_full_name": REPO, "tree_elements": [{"path": ".claude/settings.json", "sha": None}]},
+            {
+                "repository_full_name": REPO,
+                "tree_elements": [{"path": ".claude/settings.json", "sha": None}],
+            },
             contains="tree deletions are denied",
         )
 
@@ -387,5 +395,15 @@ class TestSettingsWiring:
     def test_native_capability_tools_are_denied_in_settings_too(self) -> None:
         settings = json.loads((PROJECT_DIR / ".claude" / "settings.json").read_text())
         denied = set(settings["permissions"]["deny"])
-        for tool in ("Bash", "Read", "Write", "Edit", "Glob", "Grep", "LS", "WebFetch", "WebSearch"):
+        for tool in (
+            "Bash",
+            "Read",
+            "Write",
+            "Edit",
+            "Glob",
+            "Grep",
+            "LS",
+            "WebFetch",
+            "WebSearch",
+        ):
             assert tool in denied
