@@ -263,3 +263,10 @@ key, an API without `/readyz`).
   comes from adapters and controller probes.
 * A probe has no timeout of its own; a controller whose probe can hang must
   bound it.
+
+
+### Controlled startup preflight evidence (2026-10-11)
+
+On implementation commit `e8162a3377a6ed90b015c85e1a82eb1d754412b6`, the isolated PAPER-mode preflight passed with a clean tracked worktree: API bind 6.0 s, API and Runtime Platform ready 6.1 s, all three timeframe models ready 253.6 s, first 1m tick 256.0 s, peak process-tree RSS 543 MiB against the unchanged 1,024 MiB critical limit, and graceful shutdown in 3.7 s (exit 0, not forced). The XGBoost runtime resource profile was 300 estimators/depth 4/one worker; configured 500/depth 6 settings were preserved. All live credentials were blanked and the preflight used isolated SQLite and model-artifact copies with PAPER mode and live orders disabled.
+
+The short preflight explicitly requires the 1m first tick; the 15m and 4h loops were active but had not yet emitted a first tick at the 260.4-second snapshot. One public OKX instruments request exhausted retries without preventing readiness; OKX health itself remains unverified by this run. See `INTEGRATION_AUDIT.md` for the complete machine-generated summary and limits.
