@@ -637,7 +637,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         raise
 
     guard = _StartupGuard(_state.storage)
-    async with open_fetcher(_state.storage, initialize=False) as fetcher, guard:
+    async with guard, open_fetcher(_state.storage, initialize=False) as fetcher:
         # Venue discovery can take a minute of retries on a network outage.
         # Start it as a tracked task; the API can bind and report `starting`
         # while the orchestrator waits for the actual result. The context

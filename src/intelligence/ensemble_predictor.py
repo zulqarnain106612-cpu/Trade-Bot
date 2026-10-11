@@ -47,16 +47,43 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-# Torch is an optional, comparatively large native runtime. Importing this
-# module is part of API startup, so importing torch here made the API pay its
-# memory cost even while the core XGBoost model was still training. Detect its
-# availability without importing it; load it only when the optional LSTM is
-# actually fitted. The dynamically registered class remains module-level and
-# therefore picklable by joblib.
-_TORCH_AVAILABLE = importlib.util.find_spec("torch") is not None
-torch: Any = None
-nn: Any = None
-_LSTMNet: Any = None
+
+# Torch is an optional, comparatively large native runtime. Do not import it
+# during API startup; load it only for an optional LSTM fit or compatible
+# artifact load. Runtime dependencies are returned to callers rather than
+# stored in mutable module globals, avoiding shared-state races.
+@dataclass(frozen=True)
+class _TorchRuntime:
+    torch: Any
+    nn: Any
+    lstm_net: Any
+
+
+def _torch_installed() -> bool:
+    return importlib.util.find_spec("torch") is not None
+
+
+def _load_torch_runtime() -> _TorchRuntime | None:
+    """Load Torch lazily and return its dependencies without mutating globals."""
+    try:
+        torch_module = importlib.import_module("torch")
+        nn_module = importlib.import_module("torch.nn")
+        from src.intelligence.lstm_runtime import LSTMNet
+    except ImportError:
+        return None
+    return _TorchRuntime(torch=torch_module, nn=nn_module, lstm_net=LSTMNet)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve the legacy pickle class path without registering mutable globals."""
+    if name != "_LSTMNet":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    if not _torch_fits_memory_budget():
+        raise AttributeError("legacy LSTM artifact exceeds the available Torch memory budget")
+    runtime = _load_torch_runtime()
+    if runtime is None:
+        raise AttributeError("legacy LSTM artifact requires an unavailable Torch runtime")
+    return runtime.lstm_net
 
 
 def _current_rss_mb() -> float | None:
@@ -87,35 +114,6 @@ def _torch_fits_memory_budget() -> bool:
         return True
     reserve_mb = max(600.0, MEMORY_CRITICAL_MB * 0.60)
     return rss_mb + reserve_mb < MEMORY_CRITICAL_MB
-
-
-def _ensure_torch() -> bool:
-    global torch, nn, _LSTMNet, _TORCH_AVAILABLE
-    if not _TORCH_AVAILABLE:
-        return False
-    if torch is not None and nn is not None and _LSTMNet is not None:
-        return True
-    try:
-        import torch as torch_module
-        import torch.nn as nn_module
-    except ImportError:
-        # Keep the installation capability flag intact. An import can fail
-        # transiently (or be deliberately blocked in a test); a later fit may
-        # succeed, and no LSTM state was created by this attempt.
-        return False
-
-    from src.intelligence.lstm_runtime import LSTMNet
-
-    # Preserve the legacy pickle path while keeping the heavyweight network in
-    # a module that is imported only after the memory budget permits Torch.
-    LSTMNet.__module__ = __name__
-    LSTMNet.__name__ = "_LSTMNet"
-    LSTMNet.__qualname__ = "_LSTMNet"
-    torch = torch_module
-    nn = nn_module
-    _LSTMNet = LSTMNet
-    globals()["_LSTMNet"] = LSTMNet
-    return True
 
 
 _MODEL_FILENAME: Final[str] = "ensemble_{symbol}_{timeframe}.joblib"
@@ -331,7 +329,7 @@ class LSTMPredictor(PredictionModel):
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> None:
         """Fit LSTM (requires torch). X shape: (n_samples, lookback, 1)."""
-        if not _TORCH_AVAILABLE:
+        if not _torch_installed():
             log.warning("torch not installed, LSTM disabled")
             return
         if not _torch_fits_memory_budget():
@@ -344,24 +342,25 @@ class LSTMPredictor(PredictionModel):
                 reason="optional Torch runtime lacks the required memory headroom",
             )
             return
-        if not _ensure_torch():
+        runtime = _load_torch_runtime()
+        if runtime is None:
             log.warning("torch import unavailable, LSTM disabled")
             return
         try:
-            torch.manual_seed(42)
+            runtime.torch.manual_seed(42)
 
-            net = _LSTMNet(input_size=1, hidden_dim=self.hidden_dim)
-            X_t = torch.tensor(np.asarray(X), dtype=torch.float32)
-            y_t = torch.tensor(np.asarray(y), dtype=torch.float32).reshape(-1, 1)
+            net = runtime.lstm_net(input_size=1, hidden_dim=self.hidden_dim)
+            X_t = runtime.torch.tensor(np.asarray(X), dtype=runtime.torch.float32)
+            y_t = runtime.torch.tensor(np.asarray(y), dtype=runtime.torch.float32).reshape(-1, 1)
 
-            optimizer = torch.optim.Adam(net.parameters(), lr=1e-3)
-            loss_fn = nn.MSELoss()
+            optimizer = runtime.torch.optim.Adam(net.parameters(), lr=1e-3)
+            loss_fn = runtime.nn.MSELoss()
 
             net.train()
             batch_size = min(32, len(X_t))
             n = len(X_t)
             for _epoch in range(self.epochs):
-                perm = torch.randperm(n)
+                perm = runtime.torch.randperm(n)
                 for start in range(0, n, batch_size):
                     idx = perm[start : start + batch_size]
                     optimizer.zero_grad()
@@ -371,7 +370,7 @@ class LSTMPredictor(PredictionModel):
                     optimizer.step()
 
             net.eval()
-            with torch.no_grad():
+            with runtime.torch.no_grad():
                 fitted = net(X_t).numpy().flatten()
             self.rmse = float(np.sqrt(np.mean((fitted - np.asarray(y)) ** 2)))
             self.model = net
@@ -388,10 +387,13 @@ class LSTMPredictor(PredictionModel):
         a member starts answering 0.0 through a path the ensemble thinks it
         has excluded.
         """
-        return self.model is not None and _TORCH_AVAILABLE
+        return self.model is not None and _torch_installed()
 
     def predict(self, features: pd.DataFrame) -> float:
-        if self.model is None or not _TORCH_AVAILABLE:
+        if self.model is None or not _torch_installed():
+            return 0.0
+        runtime = _load_torch_runtime()
+        if runtime is None:
             return 0.0
         try:
             # Reshape for LSTM (assumes timeseries input — same contract
@@ -399,8 +401,8 @@ class LSTMPredictor(PredictionModel):
             # raw sequential values).
             X_reshaped = np.array(features, dtype=np.float32).reshape(-1, self.lookback, 1)
             self.model.eval()
-            with torch.no_grad():
-                out = self.model(torch.tensor(X_reshaped, dtype=torch.float32))
+            with runtime.torch.no_grad():
+                out = self.model(runtime.torch.tensor(X_reshaped, dtype=runtime.torch.float32))
             return float(out.numpy().flatten()[0])
         except Exception as e:
             log.error("lstm_prediction_failed", error=str(e), exc_info=True)
@@ -939,7 +941,7 @@ class EnsemblePredictor:
         # closed and the artifact needs Torch, joblib fails closed and the
         # orchestrator can retrain a degraded ensemble without the LSTM.
         if _torch_fits_memory_budget():
-            _ensure_torch()
+            _load_torch_runtime()
         payload: dict = joblib.load(path)
         instance = cls()
         instance.models = payload["models"]

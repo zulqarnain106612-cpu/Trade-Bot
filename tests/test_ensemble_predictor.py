@@ -1,4 +1,8 @@
-"""Tests for src/intelligence/ensemble_predictor.py (0% → target 75%+)."""
+"""Tests for src/intelligence/ensemble_predictor.py (0% → target 75%+).
+
+Decides:
+  - RES-025 — regression coverage for the recorded behavior.
+"""
 
 from __future__ import annotations
 
@@ -206,12 +210,12 @@ class TestLSTMPredictor:
             patch(
                 "src.intelligence.ensemble_predictor._torch_fits_memory_budget", return_value=False
             ),
-            patch("src.intelligence.ensemble_predictor._ensure_torch") as load_torch,
+            patch("src.intelligence.ensemble_predictor._load_torch_runtime") as load_torch,
         ):
             p.fit(X, y)
         load_torch.assert_not_called()
         assert p.model is None
-        assert ensemble_predictor._TORCH_AVAILABLE is True
+        assert ensemble_predictor._torch_installed() is True
 
     def test_fit_import_error_disables_model(self):
         p = LSTMPredictor(hidden_dim=4, lookback=5, epochs=1)
@@ -640,12 +644,10 @@ class TestEnsemblePersistence:
         assert "/" not in path.name
 
     def test_lstm_member_survives_pickling_after_fit(self, tmp_path):
-        """Regression: _LSTMNet used to be defined inside LSTMPredictor.fit(),
-        which pickle/joblib cannot serialize (PicklingError). It is now
-        module-level specifically so a fitted LSTM survives save()/load()."""
-        from src.intelligence.ensemble_predictor import _TORCH_AVAILABLE
+        """Fitted LSTM artifacts must remain serializable across save/load."""
+        from src.intelligence.ensemble_predictor import _torch_installed
 
-        if not _TORCH_AVAILABLE:
+        if not _torch_installed():
             pytest.skip("torch not installed")
         ep = EnsemblePredictor()
         X = _make_features(60)

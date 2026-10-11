@@ -536,6 +536,7 @@ def test_lifespan_full_startup_and_shutdown():
             return fake_fetcher
 
         async def __aexit__(self, *exc):
+            await fake_fetcher.close()
             return False
 
     async def _run():
@@ -586,6 +587,7 @@ def test_lifespan_starts_and_stops_tuning_scheduler_when_enabled():
             return fake_fetcher
 
         async def __aexit__(self, *exc):
+            await fake_fetcher.close()
             return False
 
     async def _run():
@@ -671,6 +673,7 @@ def test_lifespan_startup_failure_closes_fetcher():
             return fake_fetcher
 
         async def __aexit__(self, *exc):
+            await fake_fetcher.close()
             return False
 
     async def _run():
@@ -802,6 +805,7 @@ def test_lifespan_startup_failure_and_fetcher_close_also_fails():
     must be logged (not replace the original exception) and the original
     startup exception must still propagate."""
     import asyncio
+    from contextlib import suppress
 
     import src.api.main as main_mod
 
@@ -816,6 +820,10 @@ def test_lifespan_startup_failure_and_fetcher_close_also_fails():
             return fake_fetcher
 
         async def __aexit__(self, *exc):
+            # Match open_fetcher's contract: contain a secondary close error
+            # and let the original startup exception propagate.
+            with suppress(RuntimeError):
+                await fake_fetcher.close()
             return False
 
     async def _run():

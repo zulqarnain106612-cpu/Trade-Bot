@@ -17,7 +17,10 @@ layer (src/api/readiness.py). Decides:
   limit, and the memory release after training;
 * the API: /livez, /readyz, the deferred startup and the cleanup after a
   failed one.
-"""
+
+  - REG-0027 — regression coverage for the recorded behavior.
+  - REG-0028 — regression coverage for the recorded behavior.
+  - REG-0029 — regression coverage for the recorded behavior."""
 
 from __future__ import annotations
 
@@ -559,11 +562,13 @@ async def test_the_first_tick_is_awaited_from_registration_not_from_boot() -> No
 
 async def test_a_quarter_hour_loop_between_bars_is_not_a_stall() -> None:
     monitor = RuntimeMonitor()
-    monitor.register_tick_source("15m", lambda: time.monotonic() - 600)
+    last_tick = time.monotonic() - 600
+    monitor.register_tick_source("15m", lambda: last_tick)
     await monitor._run_all_probes()
     assert monitor._results["tick_stall_15m"].passed is True
 
-    monitor.register_tick_source("15m", lambda: time.monotonic() - 1000)
+    last_tick = time.monotonic() - 1000
+    monitor.register_tick_source("15m", lambda: last_tick)
     await monitor._run_all_probes()
     assert monitor._results["tick_stall_15m"].passed is False
 
@@ -740,7 +745,9 @@ async def test_failed_deferred_fetcher_initialization_marks_readiness_failed_and
 
         with pytest.raises(RuntimeError, match="no exchange venue"):
             await asyncio.wait_for(fetcher_task, 2)
-        await asyncio.sleep(0.05)
+        # Yield once so the orchestrator observes the completed prerequisite
+        # task without adding a wall-clock sleep to the test suite.
+        await asyncio.sleep(0)
         report = orch.readiness()
         assert "no exchange venue" in report["error"]
         assert report["loops_started"] is False

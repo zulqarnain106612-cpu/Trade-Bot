@@ -5367,7 +5367,8 @@
           "test": "tests/test_startup_readiness.py",
           "test_type": "regression"
         }
-      ]
+      ],
+      "notes": "layer: test-suite"
     },
     {
       "id": "REG-0027",
@@ -5387,7 +5388,8 @@
           "test": "tests/test_startup_readiness.py",
           "test_type": "regression"
         }
-      ]
+      ],
+      "notes": "layer: test-suite"
     },
     {
       "id": "REG-0028",
@@ -5416,7 +5418,8 @@
           "test": "tests/test_orchestrator_coverage.py",
           "test_type": "regression"
         }
-      ]
+      ],
+      "notes": "layer: test-suite"
     },
     {
       "id": "TERM-011",
@@ -5461,7 +5464,8 @@
           "test": "tests/test_startup_readiness.py",
           "test_type": "regression"
         }
-      ]
+      ],
+      "notes": "layer: test-suite"
     }
   ]
 }

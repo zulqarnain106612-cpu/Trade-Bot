@@ -2,7 +2,8 @@
 
 Decides:
   - REL-004 — Automatic halt triggers are machine-enforced
-"""
+
+  - REG-0028 — regression coverage for the recorded behavior."""
 
 from __future__ import annotations
 
@@ -15,7 +16,6 @@ import pytest
 from src.diagnostics.runtime_monitor import (
     MEMORY_CRITICAL_MB,
     MEMORY_WARN_MB,
-    STALL_THRESHOLD_S,
     TICK_SCHEDULE_GRACE_S,
     HealthSnapshot,
     ProbeResult,
@@ -215,9 +215,10 @@ async def test_run_all_probes_timeout():
 @pytest.mark.asyncio
 async def test_run_all_probes_tick_stall():
     m = RuntimeMonitor()
-    stale_ts = time.monotonic() - STALL_THRESHOLD_S - 100
-    m.register_tick_source("5m", lambda: stale_ts)
-    await m._run_all_probes()
+    # Freeze the monitor clock so CI load cannot move the timestamp boundary.
+    with patch("src.diagnostics.runtime_monitor.time.monotonic", return_value=1000.0):
+        m.register_tick_source("5m", lambda: 100.0)
+        await m._run_all_probes()
     snap = m.get_snapshot()
     assert any("tick_stall" in a for a in snap.alerts)
 

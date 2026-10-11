@@ -3,6 +3,10 @@ Comprehensive coverage tests for src/engine/orchestrator.py.
 
 Coverage target: 10% → 70%+. Every major code path exercised with mocked
 external dependencies — no real network, DB, or model I/O.
+
+
+Decides:
+  - REG-0028 — regression coverage for the recorded behavior.
 """
 
 from __future__ import annotations

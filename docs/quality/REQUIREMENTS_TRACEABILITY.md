@@ -967,6 +967,8 @@ The default API_CORS_ORIGINS allows both loopback spellings of the dashboard dev
 - **Verification:**
   - `tests/test_startup_readiness.py` (regression)
 
+> layer: test-suite
+
 ## Cryptography and secrets
 
 #### `GOV-051` — no eval or exec in src
@@ -1692,6 +1694,8 @@ The FastAPI lifespan does not await the model warm-up: it calls Orchestrator.sta
 - **Verification:**
   - `tests/test_startup_readiness.py` (regression)
 
+> layer: test-suite
+
 #### `REG-0028` — The tick-stall probe alerted for timeframe loops that were not stalled
 
 **VERIFIED** · medium · regression · source: OPS-2026-10-11
@@ -1705,6 +1709,8 @@ A timeframe loop registers its tick-stall probe when it starts; until the first 
   - `tests/test_runtime_monitor_coverage.py` (regression)
   - `tests/test_orchestrator_coverage.py` (regression)
 
+> layer: test-suite
+
 #### `REG-0029` — A startup that failed left the process alive with its port closed
 
 **VERIFIED** · high · regression · source: OPS-2026-10-11
@@ -1715,6 +1721,8 @@ When the lifespan raises -- the fetcher reaching no exchange venue, the orchestr
 - **Owned by:** `src/api/main.py`
 - **Verification:**
   - `tests/test_startup_readiness.py` (regression)
+
+> layer: test-suite
 
 ## Release and production
 
