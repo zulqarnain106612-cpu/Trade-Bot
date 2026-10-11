@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace as _dc_replace
 from datetime import UTC, datetime
@@ -51,7 +50,7 @@ from src.data.storage import (
     RegimeSnapshotRecord,
 )
 from src.diagnostics.metrics import update_metrics
-from src.diagnostics.runtime_monitor import get_monitor
+from src.diagnostics.runtime_monitor import get_monitor, release_freed_memory
 from src.engine.crypto_box_adapter import CryptoBoxSignalAdapter
 from src.engine.signal_engine import ShadowBundle, SignalEngine, SignalResult
 from src.engine.strategy_portfolio import (
@@ -349,6 +348,7 @@ class Orchestrator:
         self._ensemble_timeout_s: float = ENSEMBLE_TRAIN_TIMEOUT_S
 
         self._running: bool = False
+        self._fetcher_init_task: asyncio.Task[None] | None = None
         self._tick_counts: dict[str, int] = {tf.value: 0 for tf in self._timeframes}
         self._last_tick_ts: dict[str, float] = {tf.value: 0.0 for tf in self._timeframes}
         self._stop_event: asyncio.Event = asyncio.Event()
@@ -378,6 +378,11 @@ class Orchestrator:
         # them (background_tasks / provider_tasks); nothing outside drives them.
         self._run_tasks: tuple[asyncio.Task[None], ...] = ()
         self._provider_tasks: dict[str, tuple[asyncio.Task[None], ...]] = {}
+        # Model warm-up progress per timeframe (see readiness()): pending ->
+        # bootstrapping -> queued -> training -> trained -> ready, or
+        # unavailable | failed with the reason.
+        self._model_state: dict[str, str] = {tf.value: "pending" for tf in self._timeframes}
+        self._model_detail: dict[str, str] = {}
 
     # ------------------------------------------------------------------
     # Startup — bootstrap all subsystems
@@ -387,6 +392,12 @@ class Orchestrator:
     # no constructor has to know about it. Instances read live until one
     # is assigned.
     _cfg_pinned: Settings | None = None
+    # Warm-up bookkeeping, class-level for the same reason: an instance built
+    # without __init__ (the suite does that) reads "not deferred, not run".
+    _warm_up_deferred: bool = False
+    _warm_up_state: str = "pending"
+    _warm_up_error: str | None = None
+    _loops_started: bool = False
 
     @property
     def _cfg(self) -> Settings:
@@ -414,17 +425,35 @@ class Orchestrator:
         """
         self._cfg_pinned = value
 
-    async def startup(self) -> None:
+    async def startup(
+        self,
+        *,
+        defer_warm_up: bool = False,
+        fetcher_init_task: asyncio.Task[None] | None = None,
+    ) -> None:
         """
         Initialize all subsystems in order:
           1. Executor (paper or live)
-          2. Bootstrap historical bars for all timeframes
-          3. Train initial models for all timeframes
-          4. Build signal engines
+          2. Runtime monitor and the pipeline self-test
+          3. Model warm-up (warm_up()): bootstrap historical bars, train the
+             models and build the signal engine for every timeframe
+
+        Step 3 is the slow one -- a history download and a model fit per
+        timeframe, tens of minutes on a cold start. ``defer_warm_up=True``
+        leaves it to run(), which performs it before the first timeframe
+        loop starts: the API passes that so the server is listening, and can
+        say what startup is doing, while the models train. Called plainly,
+        startup() returns with everything built, as it always has.
         """
         self._log.info("orchestrator.startup", trading_mode=self._cfg.trading_mode.value)
+        if fetcher_init_task is not None:
+            self._fetcher_init_task = fetcher_init_task
 
-        await self._load_symbol_precision()
+        # The API defers network-bound venue initialization until after its
+        # listening socket is open. Symbol filters therefore belong to the
+        # deferred startup path too; direct/worker startup keeps its old order.
+        if not defer_warm_up:
+            await self._load_symbol_precision()
 
         # Create executor
         if self._cfg.trading_mode == TradingMode.LIVE:
@@ -451,20 +480,53 @@ class Orchestrator:
         # ── Patch A: Runtime monitor + pipeline self-test ─────────────────
         _mon = get_monitor()
         _mon.register_probe("storage", self._storage.health_check)
-        for _tf in self._timeframes:
-            _tf_val = _tf.value
-
-            def _make_ts_getter(k: str = _tf_val) -> Callable[[], float]:
-                return lambda: self._last_tick_ts.get(k, 0.0)
-
-            _mon.register_tick_source(_tf_val, _make_ts_getter())
+        # Tick sources are registered by each timeframe loop as it starts
+        # (_timeframe_loop): before that there is no loop that could stall.
         await _mon.start()
-        _selftest = run_pipeline_selftest()
-        if not _selftest["passed"]:
-            raise RuntimeError(f"Pipeline self-test FAILED on startup: {_selftest['error']}")
-        self._log.info("orchestrator.selftest_passed", rows=_selftest.get("n_rows"))
-        # ──────────────────────────────────────────────────────────────────
+        if defer_warm_up:
+            self._warm_up_deferred = True
+            self._warm_up_state = "deferred"
+            self._log.info(
+                "orchestrator.warm_up_deferred",
+                timeframes=[tf.value for tf in self._timeframes],
+            )
+            return
+        await self._run_pipeline_selftest()
+        await self.warm_up()
 
+    async def _run_pipeline_selftest(self) -> None:
+        """Run the CPU-heavy feature self-test off the event loop and trim its temporaries."""
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(self._train_executor, run_pipeline_selftest)
+        if not result["passed"]:
+            raise RuntimeError(f"Pipeline self-test FAILED on startup: {result['error']}")
+        self._log.info("orchestrator.selftest_passed", rows=result.get("n_rows"))
+        released_mb = release_freed_memory()
+        self._log.info("orchestrator.selftest_memory_released", released_mb=released_mb)
+
+    async def warm_up(self) -> None:
+        """
+        Startup step 3: bootstrap history, train each timeframe's models and
+        build its signal engine, recording the progress readiness() reports.
+        A failure is recorded and re-raised, exactly as startup() raised it.
+        """
+        self._warm_up_state = "running"
+        self._warm_up_error = None
+        try:
+            await self._warm_up_models()
+        except asyncio.CancelledError:
+            self._warm_up_state = "cancelled"
+            raise
+        except Exception as exc:
+            self._warm_up_state = "failed"
+            self._warm_up_error = str(exc)[:200]
+            raise
+        self._warm_up_state = "complete"
+        # Training's temporaries are garbage now; give their pages back
+        # rather than holding the training peak for the process lifetime.
+        self._log.info("orchestrator.warm_up_complete", released_mb=release_freed_memory())
+
+    async def _warm_up_models(self) -> None:
         # Bootstrap bars — serialized (semaphore=1) to avoid exchange rate-limit bans.
         # Concurrent bootstrap across 3 timeframes generates burst fetches that exceed
         # Binance's 1200 req/min weight limit on cold start.
@@ -472,7 +534,8 @@ class Orchestrator:
 
         async def _bootstrap_one(tf: Timeframe) -> int:
             async with bootstrap_sem:
-                return await self._fetcher.bootstrap_history(self._symbol, tf)
+                self._model_state[tf.value] = "bootstrapping"
+                return await self._prepare_history(tf)
 
         bootstrap_tasks = [_bootstrap_one(tf) for tf in self._timeframes]
         results = await asyncio.gather(*bootstrap_tasks, return_exceptions=True)
@@ -480,6 +543,8 @@ class Orchestrator:
         # Fail loudly on bootstrap errors — never silently continue with no data (fix #15)
         for tf, result in zip(self._timeframes, results, strict=True):
             if isinstance(result, BaseException):
+                self._model_state[tf.value] = "failed"
+                self._model_detail[tf.value] = f"history bootstrap failed: {str(result)[:160]}"
                 self._log.critical(
                     "orchestrator.bootstrap_failed",
                     timeframe=tf.value,
@@ -490,9 +555,13 @@ class Orchestrator:
                     f"Bootstrap failed for timeframe {tf.value}: {result}"
                 ) from result
 
-        # Train models for each timeframe
+        # Train models for each timeframe, one after another
         for tf in self._timeframes:
+            self._model_state[tf.value] = "queued"
+        for tf in self._timeframes:
+            self._model_state[tf.value] = "training"
             await self._train_models(tf)
+            self._model_state[tf.value] = "trained"
 
         # Initialize drift detector with baseline from trained models (GAP-003)
         # Extract OOS Sharpe, accuracy, win rate, max DD from primary model
@@ -533,6 +602,12 @@ class Orchestrator:
             tf_trainer: ModelTrainer | None = self._trainers.get(tf.value)
             if detector is None or tf_trainer is None:
                 self._log.warning("orchestrator.engine_skip", timeframe=tf.value)
+                self._model_state[tf.value] = "unavailable"
+                self._model_detail[tf.value] = (
+                    "no model trained: too little history or the feature build failed"
+                    if tf_trainer is None
+                    else "no model trained: the regime (HMM) fit failed"
+                )
                 continue
             trainer = tf_trainer
 
@@ -541,6 +616,8 @@ class Orchestrator:
                 meta_model = ModelTrainer.load_meta(model_dir, self._symbol, tf.value)
             except FileNotFoundError:
                 self._log.warning("orchestrator.models_not_found", timeframe=tf.value)
+                self._model_state[tf.value] = "unavailable"
+                self._model_detail[tf.value] = f"trained model files not found in {model_dir}"
                 continue
 
             # Ensemble is additive and optional -- a missing/failed load must not
@@ -590,11 +667,146 @@ class Orchestrator:
                 ensemble=ensemble,
                 online_trainer=online_trainer,
             )
+            self._model_state[tf.value] = "ready"
+            # Direction/meta readiness is required; the ensemble and online
+            # learner are additive. Keep the core model ready when an optional
+            # member is absent, but expose the degradation instead of silently
+            # claiming that every model/component is available.
+            optional_degradations: list[str] = []
+            if ensemble is None:
+                optional_degradations.append("ensemble unavailable")
+            else:
+                ensemble_members = getattr(ensemble, "models", None)
+                if isinstance(ensemble_members, dict):
+                    missing_members = sorted(
+                        name
+                        for name, member in ensemble_members.items()
+                        if not bool(getattr(member, "is_fitted", False))
+                    )
+                    if missing_members:
+                        optional_degradations.append(
+                            "ensemble members not fitted: " + ", ".join(missing_members)
+                        )
+            if online_trainer is None:
+                optional_degradations.append("online trainer unavailable")
+            if optional_degradations:
+                self._model_detail[tf.value] = (
+                    "core direction/meta models ready; optional component degradation: "
+                    + "; ".join(optional_degradations)
+                )
+            else:
+                self._model_detail.pop(tf.value, None)
 
         self._log.info(
             "orchestrator.startup_complete",
             engines=list(self._engines.keys()),
         )
+
+    async def _prepare_history(self, tf: Timeframe) -> int:
+        """Reuse a sufficient recent cache; bootstrap fully when it is cold or stale."""
+        timeframe = tf.value
+        tf_seconds = TIMEFRAME_SECONDS[tf]
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+        cutoff_ms = now_ms - (_HISTORY_BARS_FOR_TRAIN * tf_seconds * 1000)
+        cached = await self._storage.fetch_bars(
+            self._symbol,
+            timeframe,
+            since_ts=cutoff_ms,
+            limit=_HISTORY_BARS_FOR_TRAIN,
+        )
+        latest_ts = await self._storage.latest_bar_ts(self._symbol, timeframe)
+
+        # ModelTrainer requires at least 300 usable bars. A smaller or absent
+        # cache cannot satisfy that contract and must use the full bootstrap.
+        if len(cached) < 300 or latest_ts is None:
+            self._log.info(
+                "orchestrator.bootstrap_cache_insufficient",
+                timeframe=timeframe,
+                cached_bars=len(cached),
+                minimum_bars=300,
+            )
+            return await self._fetcher.bootstrap_history(self._symbol, tf)
+
+        cache_age_s = max(0.0, (now_ms - latest_ts) / 1000.0)
+        freshness_limit_s = max(300.0, 2.0 * tf_seconds)
+        try:
+            refreshed = await self._fetcher.gap_fill(self._symbol, tf)
+            latest_after_refresh = await self._storage.latest_bar_ts(self._symbol, timeframe)
+            now_after_refresh_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+            if latest_after_refresh is not None:
+                latest_age_s = max(0.0, (now_after_refresh_ms - latest_after_refresh) / 1000.0)
+                if latest_age_s <= freshness_limit_s:
+                    self._log.info(
+                        "orchestrator.bootstrap_cache_reused",
+                        timeframe=timeframe,
+                        cached_bars=len(cached),
+                        refreshed_bars=int(refreshed or 0),
+                        latest_age_s=round(latest_age_s, 1),
+                    )
+                    return int(refreshed or 0)
+            else:
+                latest_age_s = float("inf")
+            self._log.warning(
+                "orchestrator.bootstrap_cache_stale_after_refresh",
+                timeframe=timeframe,
+                cached_bars=len(cached),
+                latest_age_s=round(latest_age_s, 1),
+                freshness_limit_s=freshness_limit_s,
+            )
+        except Exception as exc:
+            # A recent cache remains usable during a temporary exchange outage;
+            # stale data does not. This keeps the API alive without claiming
+            # readiness: model/loop health is still independently verified.
+            if cache_age_s <= freshness_limit_s:
+                self._log.warning(
+                    "orchestrator.bootstrap_cache_refresh_failed_using_recent_cache",
+                    timeframe=timeframe,
+                    cached_bars=len(cached),
+                    latest_age_s=round(cache_age_s, 1),
+                    error=str(exc)[:200],
+                )
+                return 0
+            self._log.warning(
+                "orchestrator.bootstrap_cache_refresh_failed",
+                timeframe=timeframe,
+                cached_bars=len(cached),
+                latest_age_s=round(cache_age_s, 1),
+                error=str(exc)[:200],
+            )
+
+        self._log.info(
+            "orchestrator.bootstrap_fallback_full_history",
+            timeframe=timeframe,
+            cached_bars=len(cached),
+        )
+        return await self._fetcher.bootstrap_history(self._symbol, tf)
+
+    def readiness(self) -> dict[str, Any]:
+        """
+        What startup has and has not finished, per timeframe -- the
+        orchestrator's part of GET /readyz. Read-only, and cheap enough to
+        answer on every poll.
+        """
+        now = time.monotonic()
+        loops = {task.get_name() for task in self._run_tasks}
+        timeframes: dict[str, dict[str, Any]] = {}
+        for tf in self._timeframes:
+            key = tf.value
+            last_tick = self._last_tick_ts.get(key, 0.0)
+            timeframes[key] = {
+                "model": self._model_state.get(key, "pending"),
+                "detail": self._model_detail.get(key),
+                "loop": f"loop_{key}" in loops,
+                "ticks": self._tick_counts.get(key, 0),
+                "last_tick_age_s": round(now - last_tick, 1) if last_tick > 0 else None,
+                "bar_seconds": TIMEFRAME_SECONDS[tf],
+            }
+        return {
+            "warm_up": "deferred" if self._warm_up_deferred else self._warm_up_state,
+            "error": self._warm_up_error,
+            "loops_started": self._loops_started,
+            "timeframes": timeframes,
+        }
 
     # ------------------------------------------------------------------
     # Main run loop
@@ -604,22 +816,23 @@ class Orchestrator:
         """
         Run the main trading loop until stop() is called.
 
-        Spawns one async task per active timeframe, each sleeping until
-        the next bar close then triggering a tick.
+        The loops that need no model start at once: the position monitor
+        (stop-loss and take-profit on whatever is already open), the midnight
+        reset and the allocation rebalance. A warm-up that startup() deferred
+        runs next, and stop() can end it. Then one task per timeframe with a
+        built engine starts, each sleeping until the next bar close and then
+        ticking. A warm-up that fails starts no timeframe loop -- the reason
+        is in readiness() and the log -- while the position monitor keeps
+        guarding what is open.
         """
         self._running = True
         self._log.info("orchestrator.run_start")
 
         tasks = [
-            asyncio.create_task(self._timeframe_loop(tf), name=f"loop_{tf.value}")
-            for tf in self._timeframes
-            if tf.value in self._engines
+            asyncio.create_task(self._midnight_reset_loop(), name="midnight_reset"),
+            asyncio.create_task(self._position_monitor_loop(), name="position_monitor"),
+            asyncio.create_task(self._allocation_rebalance_loop(), name="allocation_rebalance"),
         ]
-        tasks.append(asyncio.create_task(self._midnight_reset_loop(), name="midnight_reset"))
-        tasks.append(asyncio.create_task(self._position_monitor_loop(), name="position_monitor"))
-        tasks.append(
-            asyncio.create_task(self._allocation_rebalance_loop(), name="allocation_rebalance")
-        )
 
         # Crypto-Box background data provider loops (no-op when CRYPTO_BOX!=true)
         provider_tasks: list[asyncio.Task[None]] = []
@@ -639,14 +852,95 @@ class Orchestrator:
         self._run_tasks = tuple(tasks)
         tasks.extend(provider_tasks)
 
-        # Wait until stop event
-        await self._stop_event.wait()
-        self._running = False
+        # `finally`, so a run() cancelled by its owner (the API gives stop()
+        # ten seconds) still cancels what it started instead of orphaning it.
+        try:
+            if await self._warm_up_unless_stopped():
+                loops = [
+                    asyncio.create_task(self._timeframe_loop(tf), name=f"loop_{tf.value}")
+                    for tf in self._timeframes
+                    if tf.value in self._engines
+                ]
+                self._run_tasks = (*loops, *self._run_tasks)
+                tasks.extend(loops)
+                self._loops_started = True
+            # Wait until stop event
+            await self._stop_event.wait()
+        finally:
+            self._running = False
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._log.info("orchestrator.run_stopped")
 
-        for task in tasks:
-            task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        self._log.info("orchestrator.run_stopped")
+    async def _warm_up_unless_stopped(self) -> bool:
+        """Complete deferred startup prerequisites and warm-up, racing shutdown."""
+        if not self._warm_up_deferred:
+            return True
+        self._warm_up_deferred = False
+        self._warm_up_state = "running"
+        self._warm_up_error = None
+
+        async def prepare() -> None:
+            if self._fetcher_init_task is not None:
+                await self._fetcher_init_task
+                self._fetcher_init_task = None
+            await self._load_symbol_precision()
+            await self._run_pipeline_selftest()
+
+        prerequisites = asyncio.create_task(prepare(), name="startup_prerequisites")
+        stopped = asyncio.create_task(self._stop_event.wait(), name="startup_prerequisites_stop")
+        try:
+            done, _ = await asyncio.wait(
+                {prerequisites, stopped}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if stopped in done and not prerequisites.done():
+                prerequisites.cancel()
+                await asyncio.gather(prerequisites, return_exceptions=True)
+                self._warm_up_state = "cancelled"
+                self._log.info("orchestrator.startup_prerequisites_cancelled")
+                return False
+            await prerequisites
+        except asyncio.CancelledError:
+            self._warm_up_state = "cancelled"
+            raise
+        except Exception as exc:
+            self._warm_up_state = "failed"
+            self._warm_up_error = str(exc)[:200]
+            self._log.critical(
+                "orchestrator.startup_prerequisites_failed",
+                error=self._warm_up_error,
+                action="no timeframe loops started",
+            )
+            return False
+        finally:
+            stopped.cancel()
+            await asyncio.gather(stopped, return_exceptions=True)
+
+        if self._stop_event.is_set():
+            self._warm_up_state = "cancelled"
+            return False
+
+        warm = asyncio.create_task(self.warm_up(), name="model_warm_up")
+        stopped = asyncio.create_task(self._stop_event.wait(), name="warm_up_stop")
+        try:
+            await asyncio.wait({warm, stopped}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in (warm, stopped):
+                task.cancel()
+            await asyncio.gather(warm, stopped, return_exceptions=True)
+        if warm.cancelled():
+            self._log.info("orchestrator.warm_up_cancelled", reason="stop requested")
+            return False
+        error = warm.exception()
+        if error is not None:
+            self._log.critical(
+                "orchestrator.warm_up_failed",
+                error=str(error),
+                action="no timeframe loop started; the position monitor keeps running",
+            )
+            return False
+        return True
 
     def stop(self) -> None:
         """Signal the run loop to exit cleanly."""
@@ -778,8 +1072,10 @@ class Orchestrator:
             await executor.shutdown()
         await get_monitor().stop()  # Patch B: clean monitor shutdown
         self._persist_online_trainers()
-        # Shut down training thread pool cleanly — wait for any in-flight training job
-        self._train_executor.shutdown(wait=True)
+        # Shut down training thread pool cleanly — wait for the in-flight training
+        # job, and drop the queued ones: a warm-up stopped part-way has queued
+        # fits nobody is waiting for any more.
+        self._train_executor.shutdown(wait=True, cancel_futures=True)
         # REG-0015: never wait on a poisoned ensemble pool. Its worker is by
         # definition a thread that did not return inside the timeout, so
         # wait=True would trade a hung startup for a hung shutdown.
@@ -823,6 +1119,11 @@ class Orchestrator:
         then fires a tick.
         """
         tf_seconds = TIMEFRAME_SECONDS[tf]
+        key = tf.value
+        # The stall probe starts with the loop, and waits a bar for the first
+        # tick (runtime_monitor): registered during a model warm-up it would
+        # report a stall for as long as the models took to train.
+        get_monitor().register_tick_source(key, lambda: self._last_tick_ts.get(key, 0.0))
         self._log.info("orchestrator.tf_loop_start", timeframe=tf.value)
 
         while self._running:
@@ -1699,14 +2000,43 @@ class Orchestrator:
         self._trainers[tf.value] = trainer
         version = datetime.now(tz=UTC).isoformat()
 
+        cached_models = await loop.run_in_executor(
+            self._train_executor,
+            trainer.load_compatible_cached_models,
+            fm,
+            self._cfg.storage.model_dir,
+        )
+        if cached_models is not None and (
+            not isinstance(cached_models, tuple) or len(cached_models) != 2
+        ):
+            # A malformed optional cache result must never suppress fresh training.
+            self._log.warning(
+                "orchestrator.cached_models_invalid_result",
+                timeframe=tf.value,
+                action="fall back to full training",
+            )
+            cached_models = None
+        reused_cached_models = cached_models is not None
         try:
-            dir_result = await loop.run_in_executor(
-                self._train_executor, trainer.train_direction, fm
-            )
-            meta_result = await loop.run_in_executor(
-                self._train_executor, trainer.train_meta_label, fm, dir_result.model
-            )
-            trainer.save(dir_result.model, meta_result.model, self._cfg.storage.model_dir, version)
+            if cached_models is not None:
+                dir_result, meta_result = cached_models
+                version = trainer.cached_model_version or version
+                self._log.info(
+                    "orchestrator.cached_direction_meta_models_reused",
+                    timeframe=tf.value,
+                    version=version,
+                    action="skip CPCV retraining; continue HMM/ensemble startup",
+                )
+            else:
+                dir_result = await loop.run_in_executor(
+                    self._train_executor, trainer.train_direction, fm
+                )
+                meta_result = await loop.run_in_executor(
+                    self._train_executor, trainer.train_meta_label, fm, dir_result.model
+                )
+                trainer.save(
+                    dir_result.model, meta_result.model, self._cfg.storage.model_dir, version
+                )
 
             # Diversified prediction ensemble (ARIMA/XGBoost/LSTM/GP/TreeEnsemble) --
             # additive to direction/meta training, never blocks it. A failure here
@@ -1760,12 +2090,15 @@ class Orchestrator:
             )
 
             if tf.value in self._engines:
-                new_dir = ModelTrainer.load_direction(
-                    self._cfg.storage.model_dir, self._symbol, tf.value
-                )
-                new_meta = ModelTrainer.load_meta(
-                    self._cfg.storage.model_dir, self._symbol, tf.value
-                )
+                if reused_cached_models:
+                    new_dir, new_meta = dir_result.model, meta_result.model
+                else:
+                    new_dir = ModelTrainer.load_direction(
+                        self._cfg.storage.model_dir, self._symbol, tf.value
+                    )
+                    new_meta = ModelTrainer.load_meta(
+                        self._cfg.storage.model_dir, self._symbol, tf.value
+                    )
                 await self._route_retrained_bundle(
                     tf=tf,
                     version=version,

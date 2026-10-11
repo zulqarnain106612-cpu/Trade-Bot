@@ -296,6 +296,102 @@ export function useStream(topic, hydratePath, options = {}) {
   return data;
 }
 
+/** The API origin this dashboard talks to (VITE_API_URL), for messages. */
+export const API_ORIGIN = API;
+
+/**
+ * Why a request to the API did not produce data, in words an operator can
+ * act on. `status` 0 means the request never got an HTTP answer.
+ */
+export function apiProblem(status) {
+  if (status === 0) {
+    return {
+      kind: 'unreachable',
+      status,
+      message: `Cannot reach the API at ${API}. Start it with \`uv run python -m src.api\`, `
+        + 'or set VITE_API_URL to the host and port it listens on (API_HOST / API_PORT).',
+    };
+  }
+  if (status === 401 || status === 403) {
+    return {
+      kind: 'unauthorized',
+      status,
+      message: `The API at ${API} rejected this dashboard's key (HTTP ${status}). Set `
+        + 'VITE_API_KEY to the API_SECRET_KEY (or API_READONLY_KEY) the API was started '
+        + 'with, then restart the dashboard.',
+    };
+  }
+  if (status === 404) {
+    return {
+      kind: 'missing',
+      status,
+      message: `The API at ${API} has no such endpoint: the dashboard and the API are `
+        + 'from different versions.',
+    };
+  }
+  if (status === 503) {
+    return { kind: 'unavailable', status, message: 'The API is up, but this part of it is not ready.' };
+  }
+  return { kind: 'error', status, message: `The API at ${API} answered HTTP ${status}.` };
+}
+
+/**
+ * Like usePolling, but says why there is no data: `{ data, problem }`, where
+ * `problem` is null after a good answer and an apiProblem() otherwise --
+ * with the server's own `detail` when it sent one. An empty list and an
+ * unreachable endpoint stop looking alike.
+ */
+export function useApiResource(path, interval, transform) {
+  const [state, setState] = useState({ data: null, problem: null });
+  const transformRef = useRef(transform);
+  transformRef.current = transform;
+
+  useEffect(() => {
+    let live = true;
+    let inFlight = false;
+    async function poll() {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const res = await apiFetch(path);
+        const body = await res.json().catch(() => null);
+        if (!live) return;
+        if (res.ok) {
+          const fn = transformRef.current;
+          setState({ data: fn ? fn(body) : body, problem: null });
+        } else {
+          const problem = { ...apiProblem(res.status), detail: body?.detail ?? null, body };
+          setState({ data: null, problem });
+        }
+      } catch (_) {
+        if (live) setState({ data: null, problem: apiProblem(0) });
+      } finally {
+        inFlight = false;
+      }
+    }
+    poll();
+    const id = setInterval(poll, interval);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
+  }, [path, interval]);
+
+  return state;
+}
+
+/**
+ * GET /readyz: `{ report, problem }`. A 503 carrying a report is the API
+ * saying what it is still doing, so it is a report, not a problem; anything
+ * else that is not a report (unreachable, a rejected key, an API too old to
+ * have /readyz) is a problem.
+ */
+export function useReadiness(interval = 5000) {
+  const { data, problem } = useApiResource('/readyz', interval);
+  if (problem?.status === 503 && problem.body?.phase) return { report: problem.body, problem: null };
+  return { report: data, problem };
+}
+
 export function usePolling(path, interval, transform) {
   const [data, setData] = useState(null);
 

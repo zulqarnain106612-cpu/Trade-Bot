@@ -130,6 +130,16 @@ panel by panel; the old `panel-visibility` key is migrated; "Reset layout"
 restores defaults.
 Narrow screens render a single column without touching the saved layout.
 
+The pointer path itself -- press on the header, the grid's 4px drag
+threshold, collision handling and compaction, the commit into the layout
+store, localStorage and the reload -- is decided against the installed
+library, not a stub (`Workspace.grid.test.jsx`, TERM-011), and was checked
+by dragging and resizing panels in a browser against the same build. A
+dashboard without draggable panels is not this code: the workspace arrived
+with PR #435, and a dev server started from a checkout older than that
+serves the previous fixed layout (check that `frontend/src/workspace/`
+exists in the checkout `npm run dev` runs from).
+
 ### 2.6 Venue controls
 
 Extend `MarketDataFetcher` instead of a second client: per-venue lock (no
@@ -190,6 +200,7 @@ traceability document is generated from it.
 | TERM-008 | Install/upgrade/uninstall never clobber; stop never kills a stranger | `tests/terminal/test_terminal_install_jobs.py`, `tests/terminal/test_terminal_cli.py` |
 | TERM-009 | Status bar, process center, terminal dock | `frontend/src/components/terminal/terminalUi.test.jsx` |
 | TERM-010 | Workspace persistence, repair, maximize/minimize, keyboard | `frontend/src/workspace/layoutStore.test.js`, `frontend/src/components/workspace/Workspace.test.jsx` |
+| TERM-011 | Pointer drag and resize through the real grid, persisted and restored | `frontend/src/components/workspace/Workspace.grid.test.jsx` |
 | VEN-001 | Per-venue connect/disconnect/verify with honest state and every guard | `tests/test_venue_controls.py`, `tests/test_venue_controls_api.py`, `frontend/src/components/panels/VenuesPanel.test.jsx` |
 | SEC-0010 | No path hands a shell to anyone but the local user | `tests/terminal/test_terminal_server.py`, `tests/terminal/test_terminal_host.py`, `frontend/src/desktop/terminalBridge.test.js` |
 

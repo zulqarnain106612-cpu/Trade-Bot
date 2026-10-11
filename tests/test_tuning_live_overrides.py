@@ -11,6 +11,7 @@ import pytest
 
 from src.config import FeatureSettings, HMMSettings, RiskSettings, XGBoostSettings, get_settings
 from src.tuning.live_overrides import (
+    apply_xgboost_resource_profile,
     effective_feature_settings,
     effective_hmm_settings,
     effective_risk_settings,
@@ -197,3 +198,15 @@ class TestXGBoostOverlay:
         assert result.n_estimators == 12
         assert result.max_depth == 12
         assert result.min_child_weight == 12
+
+
+class TestXGBoostResourceProfile:
+    def test_one_gib_budget_caps_native_fit_without_mutating_env_settings(self) -> None:
+        configured = XGBoostSettings(n_estimators=500, max_depth=6, n_jobs=8)
+        effective = apply_xgboost_resource_profile(configured, memory_critical_mb=1024.0)
+        assert (effective.n_estimators, effective.max_depth, effective.n_jobs) == (300, 4, 1)
+        assert (configured.n_estimators, configured.max_depth, configured.n_jobs) == (500, 6, 8)
+
+    def test_larger_memory_budget_preserves_the_configured_model(self) -> None:
+        configured = XGBoostSettings(n_estimators=500, max_depth=6, n_jobs=4)
+        assert apply_xgboost_resource_profile(configured, memory_critical_mb=2048.0) is configured

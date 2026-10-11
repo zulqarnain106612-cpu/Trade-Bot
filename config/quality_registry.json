@@ -5302,6 +5302,166 @@
           "test_type": "api"
         }
       ]
+    },
+    {
+      "id": "RES-025",
+      "kind": "requirement",
+      "title": "The API listens and reports readiness while the models warm up",
+      "statement": "uv run python -m src.api opens its port once the bounded part of startup is done: the model warm-up (history, training, engines) runs in the orchestrator's run task after the lifespan yields, the loops that need no model run from the start, and the timeframe loops start only after it. GET /livez answers while the process serves. GET /readyz answers 200 only when the lifespan finished, the runtime platform is built (desired state restored and reconciled once), every active timeframe has a built engine and the timeframe loops have started, and 503 otherwise with the phase and the reasons; a first tick is reported separately and is required by the controlled preflight, not by the API-readiness endpoint. Optional ensemble-member degradation is returned as a warning without disguising core model readiness. A warm-up stopped by shutdown or failed starts no timeframe loop and is reported with its reason, and a failed lifespan startup releases the orchestrator and storage before the error propagates. The dashboard shows the phase, reasons and optional-component warnings, or why it cannot ask: an unreachable API, a rejected key, an API without /readyz.",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-11",
+      "failure_mode": "An operator starting the API sees a closed port for the whole model warm-up -- 27.7 minutes on a cold PAPER start -- with no endpoint to ask what it is doing, cannot tell a slow start from a hung or failed one, and stops a healthy start; or a readiness signal claims ready while models are untrained or the runtime platform is down, so trading resumes without its engines or without the operator's stored intents.",
+      "owning_modules": [
+        "src/api/main.py",
+        "src/api/readiness.py",
+        "src/engine/orchestrator.py",
+        "frontend/src/hooks/useApi.js",
+        "frontend/src/components/StartupBanner.jsx",
+        "src/intelligence/ensemble_predictor.py",
+        "scripts/startup_preflight.py"
+      ],
+      "depends_on": [
+        "RES-023"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_startup_readiness.py",
+          "test_type": "resilience"
+        },
+        {
+          "test": "frontend/src/hooks/useApi.test.js",
+          "test_type": "component"
+        },
+        {
+          "test": "frontend/src/components/StartupBanner.test.jsx",
+          "test_type": "component"
+        },
+        {
+          "test": "frontend/src/components/panels/runtimeModel.test.js",
+          "test_type": "component"
+        },
+        {
+          "test": "tests/test_ensemble_predictor.py",
+          "test_type": "resilience"
+        }
+      ]
+    },
+    {
+      "id": "REG-0026",
+      "kind": "regression",
+      "title": "A cold start kept the API port closed for the whole model warm-up",
+      "statement": "The FastAPI lifespan does not await the model warm-up: it calls Orchestrator.startup with defer_warm_up=True, and the history bootstrap, the model fits and the engine build run in the orchestrator's run task, so uvicorn binds as soon as the bounded part of startup is done.",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-11",
+      "failure_mode": "The lifespan awaited Orchestrator.startup -- a 90-day history download and a model fit for each of 1m, 15m and 4h -- and uvicorn opens the port only after the lifespan yields. The controlled PAPER preflight on 2026-10-11 at main 32f18196 measured the port closed for 1659.6s (27.7 minutes) of a cold start; the earlier preflight for PR 434 was stopped before the port ever opened.",
+      "owning_modules": [
+        "src/api/main.py",
+        "src/engine/orchestrator.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_startup_readiness.py",
+          "test_type": "regression"
+        }
+      ]
+    },
+    {
+      "id": "REG-0027",
+      "kind": "regression",
+      "title": "The API refused the dashboard's own dev origin, so a running API read as down",
+      "statement": "The default API_CORS_ORIGINS allows both loopback spellings of the dashboard dev server, http://localhost:5173 and http://127.0.0.1:5173.",
+      "criticality": "medium",
+      "subsystem": "api",
+      "status": "verified",
+      "source": "OPS-2026-10-11",
+      "failure_mode": "Vite binds 127.0.0.1 and the desktop app loads http://127.0.0.1:5173, but the default CORS list held only http://localhost:5173: the API answered that origin without Access-Control-Allow-Origin (checked with curl on 2026-10-11), the browser discarded every response, and the dashboard showed a running API as not ready.",
+      "owning_modules": [
+        "src/config.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_startup_readiness.py",
+          "test_type": "regression"
+        }
+      ]
+    },
+    {
+      "id": "REG-0028",
+      "kind": "regression",
+      "title": "The tick-stall probe alerted for timeframe loops that were not stalled",
+      "statement": "A timeframe loop registers its tick-stall probe when it starts; until the first tick the wait is counted from registration, and the stall limit is one bar plus 60s, never under 300s.",
+      "criticality": "medium",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-11",
+      "failure_mode": "Tick sources were registered before the model warm-up with a last-tick time of 0, so the probe measured the monotonic clock since boot and logged CRITICAL tick_stall alerts from the first probe on, throughout the warm-up of the 2026-10-11 baseline preflight; and the fixed 300s limit made every healthy 15m and 4h loop a stall between bars, burying a real stall among false ones.",
+      "owning_modules": [
+        "src/diagnostics/runtime_monitor.py",
+        "src/engine/orchestrator.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_startup_readiness.py",
+          "test_type": "regression"
+        },
+        {
+          "test": "tests/test_runtime_monitor_coverage.py",
+          "test_type": "regression"
+        },
+        {
+          "test": "tests/test_orchestrator_coverage.py",
+          "test_type": "regression"
+        }
+      ]
+    },
+    {
+      "id": "TERM-011",
+      "kind": "requirement",
+      "title": "Panels move and resize with the pointer through the real grid, and the place persists",
+      "statement": "With the installed react-grid-layout, a mouse press on a panel's header title or grip, moved past the 4px drag threshold and released, moves the panel to the drop cell; the drop is committed compacted and saved, and a reload restores it. A press on a header control, the body or an input, or one that stays inside the threshold, moves nothing; the south-east handle resizes; a keyboard move is kept by a later drag; stacked mode is full width and not draggable; the panel content is the same element before and after a drag.",
+      "criticality": "low",
+      "subsystem": "terminal",
+      "status": "verified",
+      "source": "OPS-2026-10-11",
+      "failure_mode": "A stubbed grid alone cannot catch failures in the actual react-grid-layout pointer path. The new DOM integration test uses the lockfile-matched react-grid-layout 2.3.0 implementation and verifies drag, drop persistence, resize, control cancellation and reload restoration; JSDOM still cannot verify native browser layout/scroll behavior, and no running GUI process was available for live-bundle inspection.",
+      "owning_modules": [
+        "frontend/src/components/workspace/Workspace.jsx",
+        "frontend/src/workspace/layoutStore.js"
+      ],
+      "verification": [
+        {
+          "test": "frontend/src/components/workspace/Workspace.grid.test.jsx",
+          "test_type": "component"
+        },
+        {
+          "test": "frontend/src/components/workspace/Workspace.test.jsx",
+          "test_type": "component"
+        }
+      ]
+    },
+    {
+      "id": "REG-0029",
+      "kind": "regression",
+      "title": "A startup that failed left the process alive with its port closed",
+      "statement": "When the lifespan raises -- the fetcher reaching no exchange venue, the orchestrator's startup, anything later -- the orchestrator (when it was built) is shut down and the storage connection is closed before the error propagates, so uvicorn's startup-failure exit actually ends the process.",
+      "criticality": "high",
+      "subsystem": "resilience",
+      "status": "verified",
+      "source": "OPS-2026-10-11",
+      "failure_mode": "On 2026-10-11 a PAPER preflight with both Binance and OKX unreachable failed in open_fetcher; the lifespan raised without closing storage, whose aiosqlite worker is a non-daemon thread held by the module-level state, so after uvicorn's sys.exit(3) the interpreter waited on it forever: every thread parked on a futex, CPU flat, port closed, until SIGINT. The same shape reproduces in isolation with one referenced, unclosed aiosqlite connection.",
+      "owning_modules": [
+        "src/api/main.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_startup_readiness.py",
+          "test_type": "regression"
+        }
+      ]
     }
   ]
 }

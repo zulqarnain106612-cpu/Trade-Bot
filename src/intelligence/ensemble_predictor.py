@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import importlib.util
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -46,30 +47,76 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-try:
-    import torch
-    import torch.nn as nn
+# Torch is an optional, comparatively large native runtime. Importing this
+# module is part of API startup, so importing torch here made the API pay its
+# memory cost even while the core XGBoost model was still training. Detect its
+# availability without importing it; load it only when the optional LSTM is
+# actually fitted. The dynamically registered class remains module-level and
+# therefore picklable by joblib.
+_TORCH_AVAILABLE = importlib.util.find_spec("torch") is not None
+torch: Any = None
+nn: Any = None
+_LSTMNet: Any = None
 
-    class _LSTMNet(nn.Module):  # type: ignore[misc]
-        """
-        Module-level (not nested in LSTMPredictor.fit()) so instances are
-        picklable — joblib/pickle cannot serialize a class defined inside a
-        function, which previously made EnsemblePredictor.save() raise
-        PicklingError whenever the LSTM member had been fit.
-        """
 
-        def __init__(self, hidden_dim: int) -> None:
-            super().__init__()
-            self.lstm = nn.LSTM(input_size=1, hidden_size=hidden_dim, batch_first=True)
-            self.head = nn.Linear(hidden_dim, 1)
+def _current_rss_mb() -> float | None:
+    """Current process RSS in MiB when the host exposes /proc status."""
+    try:
+        for line in Path("/proc/self/status").read_text().splitlines():
+            if line.startswith("VmRSS:"):
+                return round(int(line.split()[1]) / 1024.0, 1)
+    except OSError:
+        return None
+    return None
 
-        def forward(self, x: torch.Tensor) -> torch.Tensor:
-            out, _ = self.lstm(x)
-            return self.head(out[:, -1, :])
 
-    _TORCH_AVAILABLE = True
-except ImportError:
-    _TORCH_AVAILABLE = False
+def _torch_fits_memory_budget() -> bool:
+    """Do not load the optional native Torch runtime without safe headroom.
+
+    The installed CPU Torch runtime adds hundreds of MiB to RSS, before the
+    LSTM's tensors and optimizer state. The ensemble is additive/optional; if
+    the configured critical RSS limit cannot cover a conservative reserve,
+    keep the other ensemble members and report the LSTM as degraded instead
+    of pushing the trading process over its memory ceiling.
+    """
+    from src.diagnostics.runtime_monitor import MEMORY_CRITICAL_MB
+
+    rss_mb = _current_rss_mb()
+    if rss_mb is None:
+        # On platforms without /proc we cannot make a reliable RSS estimate.
+        return True
+    reserve_mb = max(600.0, MEMORY_CRITICAL_MB * 0.60)
+    return rss_mb + reserve_mb < MEMORY_CRITICAL_MB
+
+
+def _ensure_torch() -> bool:
+    global torch, nn, _LSTMNet, _TORCH_AVAILABLE
+    if not _TORCH_AVAILABLE:
+        return False
+    if torch is not None and nn is not None and _LSTMNet is not None:
+        return True
+    try:
+        import torch as torch_module
+        import torch.nn as nn_module
+    except ImportError:
+        # Keep the installation capability flag intact. An import can fail
+        # transiently (or be deliberately blocked in a test); a later fit may
+        # succeed, and no LSTM state was created by this attempt.
+        return False
+
+    from src.intelligence.lstm_runtime import LSTMNet
+
+    # Preserve the legacy pickle path while keeping the heavyweight network in
+    # a module that is imported only after the memory budget permits Torch.
+    LSTMNet.__module__ = __name__
+    LSTMNet.__name__ = "_LSTMNet"
+    LSTMNet.__qualname__ = "_LSTMNet"
+    torch = torch_module
+    nn = nn_module
+    _LSTMNet = LSTMNet
+    globals()["_LSTMNet"] = LSTMNet
+    return True
+
 
 _MODEL_FILENAME: Final[str] = "ensemble_{symbol}_{timeframe}.joblib"
 _MANIFEST_SUFFIX: Final[str] = ".sha256"
@@ -234,6 +281,7 @@ class XGBoostPredictor(PredictionModel):
                 max_depth=self.max_depth,
                 learning_rate=self.learning_rate,
                 n_estimators=100,
+                n_jobs=1,
                 random_state=42,
             )
             self.model.fit(X, y)
@@ -286,10 +334,23 @@ class LSTMPredictor(PredictionModel):
         if not _TORCH_AVAILABLE:
             log.warning("torch not installed, LSTM disabled")
             return
+        if not _torch_fits_memory_budget():
+            from src.diagnostics.runtime_monitor import MEMORY_CRITICAL_MB
+
+            log.warning(
+                "lstm_skipped_memory_budget",
+                rss_mb=_current_rss_mb(),
+                critical_rss_mb=MEMORY_CRITICAL_MB,
+                reason="optional Torch runtime lacks the required memory headroom",
+            )
+            return
+        if not _ensure_torch():
+            log.warning("torch import unavailable, LSTM disabled")
+            return
         try:
             torch.manual_seed(42)
 
-            net = _LSTMNet(self.hidden_dim)
+            net = _LSTMNet(input_size=1, hidden_dim=self.hidden_dim)
             X_t = torch.tensor(np.asarray(X), dtype=torch.float32)
             y_t = torch.tensor(np.asarray(y), dtype=torch.float32).reshape(-1, 1)
 
@@ -872,6 +933,13 @@ class EnsemblePredictor:
         if not path.exists():
             raise FileNotFoundError(f"No saved ensemble model at {path} — call fit() first.")
         _verify_manifest(path)
+        # Older compatible artifacts may contain a fitted Torch _LSTMNet.
+        # Register that class before unpickling only when the memory guard says
+        # the optional native runtime can be loaded safely. If the guard is
+        # closed and the artifact needs Torch, joblib fails closed and the
+        # orchestrator can retrain a degraded ensemble without the LSTM.
+        if _torch_fits_memory_budget():
+            _ensure_torch()
         payload: dict = joblib.load(path)
         instance = cls()
         instance.models = payload["models"]

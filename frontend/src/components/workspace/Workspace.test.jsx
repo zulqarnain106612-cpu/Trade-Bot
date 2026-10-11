@@ -118,7 +118,8 @@ describe('Workspace', () => {
 
   it('a maximized panel fills the measured viewport and Escape restores it', () => {
     const viewport = document.createElement('div');
-    viewport.getBoundingClientRect = () => ({ top: 48, left: 0, width: 1000, height: 600 });
+    let viewportRect = { top: 48, left: 0, width: 1000, height: 600, bottom: 648 };
+    viewport.getBoundingClientRect = () => viewportRect;
     const { container, onChange } = renderWorkspace(setMaximized(defaultLayout(SPECS), 'b'), {
       viewportRef: { current: viewport },
     });
@@ -126,6 +127,12 @@ describe('Workspace', () => {
     expect(workspace.className).toContain('has-maximized');
     expect(workspace.style.getPropertyValue('--ws-max-top')).toBe('48px');
     expect(workspace.style.getPropertyValue('--ws-max-height')).toBe('600px');
+    // Once the document scrolls, maximize remains clipped to the visible
+    // viewport rather than growing to the full document/workspace height.
+    viewportRect = { top: -100, left: 0, width: 1000, height: 900, bottom: 800 };
+    act(() => fireEvent.scroll(window));
+    expect(workspace.style.getPropertyValue('--ws-max-top')).toBe('0px');
+    expect(workspace.style.getPropertyValue('--ws-max-height')).toBe(`${window.innerHeight}px`);
     expect(container.querySelector('[data-ws-id="b"]').className).toContain('ws-maximized');
     expect(grid.props.dragConfig.enabled).toBe(false);
     expect(grid.props.resizeConfig.enabled).toBe(false);

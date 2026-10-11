@@ -183,9 +183,69 @@ signal gate. The same run record is each engine's health in the registry
   stay queued in order and are written by the next flush (every mutating
   `/runtime` call flushes).
 * **Platform build failure** -- trading starts anyway; every `/runtime` route
-  answers 503 (`api.runtime_platform_unavailable` in the log).
+  answers 503 (`api.runtime_platform_unavailable` in the log) and `GET
+  /readyz` stays 503 with phase `degraded`: stored operator intents are not
+  being enforced.
 * **Agent interruption, compaction, stop before commit/push** -- see the
   agent execution protocol (Stop, PreCompact and SessionStart hooks).
+
+## Startup and readiness
+
+`uv run python -m src.api` (host, port and reload from `API_HOST`,
+`API_PORT`, `API_RELOAD`) runs the lifespan in `src/api/main.py`, and uvicorn
+opens the port only when the lifespan yields. The lifespan therefore does
+only what is bounded: settings and secrets, strategy registration, storage,
+`Orchestrator.startup(defer_warm_up=True)` (executor, runtime monitor,
+pipeline self-test), the security controls, the stored execution mode, the
+runtime platform (restore desired state, first reconcile) and the background
+tasks. Then `_state.ready` is set and the server listens.
+
+The model warm-up -- history for every active timeframe, the model fits,
+the signal engines -- runs first thing in the orchestrator's `run()` task.
+The loops that need no model (position monitor, midnight reset, allocation
+rebalance, order-book stream) start before it, so open positions are guarded
+while models train; the timeframe loops start only after it, so nothing
+ticks without its engine. `stop()` ends a warm-up in progress; a warm-up
+that fails starts no timeframe loop and says why.
+
+Before this, the lifespan awaited the whole warm-up: a cold PAPER start
+measured on 2026-10-11 kept port 8000 closed for 27.7 minutes (REG-0026).
+
+| Layer | Where | True when |
+|---|---|---|
+| liveness | `GET /livez` | the process answers; constant, touches nothing |
+| API | `/readyz` `components.api` | the lifespan finished (above) |
+| runtime platform | `components.runtime_platform` | built; `unavailable` otherwise, which is never ready |
+| models | `components.models` | per timeframe: `pending` -> `bootstrapping` -> `queued` -> `training` -> `trained` -> `ready`, or `unavailable` / `failed` with the reason |
+| trading loops | `components.trading_loops` | the timeframe loops started; per timeframe tick count, first tick, age of the last tick |
+
+`GET /readyz` (API key; `src/api/readiness.py`) answers 200 only when every
+layer is up, and 503 otherwise with `phase` (`starting`, `warming_up`,
+`degraded`, `failed`, `stopping`) and `reasons`. A first tick is reported,
+not required: a 4h timeframe's first tick can be hours away. The dashboard
+shows the phase and reasons, or why it cannot ask (unreachable API, rejected
+key, an API without `/readyz`).
+
+* **History on restart.** A store whose newest bar is inside the training
+  window (2000 bars) refreshes the window plus a day instead of the full
+  90-day bootstrap -- every bar training reads is still re-downloaded, the
+  gap since the last bar is closed, and an empty or stale store still takes
+  the full bootstrap.
+* **Tick stalls.** A timeframe loop registers its stall probe when it starts.
+  Until the first tick the wait counts from then, and the limit is one bar
+  plus 60s (never under 300s), so a healthy 15m or 4h loop is not a stall.
+* **Memory.** After the warm-up the process collects garbage and returns
+  freed heap pages to the OS (`malloc_trim` on glibc), logged as
+  `orchestrator.warm_up_complete released_mb=...`. The optional LSTM ensemble
+  member loads the native Torch runtime only when it is fitted; when the
+  configured critical RSS limit cannot cover the conservative runtime/tensor
+  reserve, it is skipped with `lstm_skipped_memory_budget` and the remaining
+  ensemble members are reported as a degraded ensemble. Core direction/meta
+  training and deterministic risk gates are not bypassed.
+* **Preflight.** `python3 scripts/startup_preflight.py` starts the API in
+  PAPER mode with exchange credentials blanked and a one-off API key, and
+  reports listening, readiness phases, first tick, peak RSS against
+  `MEMORY_CRITICAL_MB` and a graceful shutdown as one JSON line.
 
 ## Known limitations
 

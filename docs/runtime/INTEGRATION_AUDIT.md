@@ -8,7 +8,8 @@ RES-024.
 ## What the running process holds
 
 `src/api/main.py` lifespan builds, in order: strategy registry (+ kill
-switches, registered in `Orchestrator.startup` from the training baseline),
+switches, registered by the orchestrator's model warm-up from the training
+baseline -- see RUNTIME_PLATFORM.md, "Startup and readiness"),
 storage, `Orchestrator` (one `SignalEngine` per active timeframe, each with
 its own `ModelRegistry` live slot and optional shadow `ShadowBundle`; the
 `CryptoBoxSignalAdapter`, which holds the 18-engine `EngineOrchestrator` when

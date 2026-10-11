@@ -20,7 +20,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ctypes
 import gc
+import math
 import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
@@ -30,14 +32,27 @@ from typing import Any, Final
 import structlog
 
 from src.eventbus import get_event_bus
+from src.resource_limits import MEMORY_CRITICAL_MB, MEMORY_WARN_MB
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 POLL_INTERVAL_S: Final[float] = 30.0  # health probe cadence
-STALL_THRESHOLD_S: Final[float] = 300.0  # tick stall: 5 min silence → alert
-MEMORY_WARN_MB: Final[float] = 512.0  # RSS warn threshold
-MEMORY_CRITICAL_MB: Final[float] = 1024.0  # RSS critical threshold
+STALL_THRESHOLD_S: Final[float] = 300.0  # tick stall: the shortest silence that alerts
+# A timeframe loop ticks once per bar, so a healthy 15m or 4h loop is silent
+# for 900s or 14400s between ticks: its stall limit is one bar plus this slack.
+TICK_SCHEDULE_GRACE_S: Final[float] = 60.0
 MAX_CONSECUTIVE_FAILURES: Final[int] = 3  # auto-escalate after N failures
+
+_UNIT_SECONDS: Final[dict[str, int]] = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+def tick_stall_limit_s(timeframe: str) -> float:
+    """Silence that counts as a stall: one bar plus grace, never under STALL_THRESHOLD_S."""
+    unit = _UNIT_SECONDS.get(timeframe[-1:])
+    count = timeframe[:-1]
+    if unit is None or not count.isdigit() or int(count) == 0:
+        return STALL_THRESHOLD_S
+    return max(STALL_THRESHOLD_S, int(count) * unit + TICK_SCHEDULE_GRACE_S)
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +118,7 @@ class RuntimeMonitor:
     def __init__(self) -> None:
         self._probes: dict[str, Callable[[], Coroutine[Any, Any, dict[str, Any]]]] = {}
         self._tick_sources: dict[str, Callable[[], float]] = {}
+        self._tick_registered_at: dict[str, float] = {}
         self._results: dict[str, ProbeResult] = {}
         self._task: asyncio.Task | None = None
         self._snapshot: HealthSnapshot | None = None
@@ -122,8 +138,12 @@ class RuntimeMonitor:
         self._results[name] = ProbeResult(name=name, passed=True)
 
     def register_tick_source(self, timeframe: str, ts_getter: Callable[[], float]) -> None:
-        """Register a callable returning the last-tick monotonic timestamp."""
+        """
+        Register a callable returning the last-tick monotonic timestamp, or 0
+        before the first tick -- which is then waited for from this call.
+        """
         self._tick_sources[timeframe] = ts_getter
+        self._tick_registered_at[timeframe] = time.monotonic()
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -251,27 +271,52 @@ class RuntimeMonitor:
         now = time.monotonic()
         for tf, getter in self._tick_sources.items():
             try:
-                last_ts = getter()
-                stale_s = now - last_ts
+                last_ts = float(getter())
                 pr_name = f"tick_stall_{tf}"
-                if stale_s > STALL_THRESHOLD_S:
+                limit_s = tick_stall_limit_s(tf)
+                if not math.isfinite(last_ts):
+                    pr = ProbeResult(
+                        name=pr_name,
+                        passed=False,
+                        value=None,
+                        detail="invalid_tick_timestamp",
+                        consecutive_failures=1,
+                    )
+                    log.error("health_probe.invalid_tick_timestamp", timeframe=tf)
+                    alerts.append(f"tick_stall_{tf}: invalid_tick_timestamp")
+                    self._results[pr_name] = pr
+                    continue
+                # Before the first tick the getter returns 0, which is not a
+                # time anything happened: the wait counts from registration.
+                first = last_ts <= 0
+                since = self._tick_registered_at.get(tf, now) if first else last_ts
+                stale_s = max(0.0, now - since)
+                if first:
+                    failed_detail = f"first_tick_not_seen_for_{stale_s:.0f}s"
+                    ok_detail = "awaiting_first_tick"
+                else:
+                    failed_detail, ok_detail = f"no_tick_for_{stale_s:.0f}s", ""
+                if stale_s > limit_s:
                     pr = ProbeResult(
                         name=pr_name,
                         passed=False,
                         value=round(stale_s, 1),
-                        detail=f"no_tick_for_{stale_s:.0f}s",
+                        detail=failed_detail,
                         consecutive_failures=1,
-                        last_ok_ts=last_ts,
+                        last_ok_ts=since,
                     )
                     log.critical(
                         "health_probe.tick_stall",
                         timeframe=tf,
                         stale_s=round(stale_s, 1),
+                        threshold_s=limit_s,
                         action="check_exchange_connection_and_orchestrator",
                     )
                     alerts.append(f"tick_stall_{tf}: {stale_s:.0f}s")
                 else:
-                    pr = ProbeResult(name=pr_name, passed=True, value=round(stale_s, 1))
+                    pr = ProbeResult(
+                        name=pr_name, passed=True, value=round(stale_s, 1), detail=ok_detail
+                    )
                 self._results[pr_name] = pr
             except Exception as exc:
                 log.warning("health_probe.tick_getter_error", tf=tf, error=str(exc), exc_info=True)
@@ -370,3 +415,23 @@ def get_monitor() -> RuntimeMonitor:
     tests cache_clear() instead of reaching for the global.
     """
     return RuntimeMonitor()
+
+
+def release_freed_memory() -> float | None:
+    """
+    Collect garbage, then hand freed heap pages back to the OS.
+
+    Model training allocates and frees hundreds of MiB of temporaries, and
+    glibc keeps freed pages in its arenas: without this the process holds
+    its training peak for the rest of its life although nothing uses those
+    pages. Returns the MiB released, or None where the C library has no
+    malloc_trim (anything but glibc) -- then only the collection ran.
+    """
+    before = RuntimeMonitor._rss_mb()
+    gc.collect()
+    try:
+        trim = ctypes.CDLL(None).malloc_trim
+    except (OSError, AttributeError):
+        return None
+    trim(0)
+    return round(before - RuntimeMonitor._rss_mb(), 1)

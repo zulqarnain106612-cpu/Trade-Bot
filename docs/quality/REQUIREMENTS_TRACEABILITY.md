@@ -47,11 +47,11 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 209 |
+| VERIFIED | 215 |
 | PARTIAL | 0 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **209** |
+| **Total** | **215** |
 
 ## Summary by subsystem
 
@@ -63,13 +63,13 @@ deletion of the thing it points at.
 | Signal and features | 6 | 6 |
 | Models and leakage | 10 | 10 |
 | Data, money and time | 9 | 9 |
-| API and WebSocket | 20 | 20 |
+| API and WebSocket | 21 | 21 |
 | Cryptography and secrets | 30 | 30 |
 | Supply chain and artifacts | 7 | 7 |
-| Resilience and recovery | 20 | 20 |
+| Resilience and recovery | 24 | 24 |
 | Release and production | 14 | 14 |
 | Governance | 59 | 59 |
-| Terminal and process center | 11 | 11 |
+| Terminal and process center | 12 | 12 |
 
 ## Outstanding work by phase
 
@@ -956,6 +956,17 @@ usePolling and useStream invoke the transform/apply callback their caller passed
 
 > Both halves are one defect: a ref is what lets the latest callback run without the effect's lifetime following the callback's identity. layer: test-suite
 
+#### `REG-0027` — The API refused the dashboard's own dev origin, so a running API read as down
+
+**VERIFIED** · medium · regression · source: OPS-2026-10-11
+
+The default API_CORS_ORIGINS allows both loopback spellings of the dashboard dev server, http://localhost:5173 and http://127.0.0.1:5173.
+
+- **If violated:** Vite binds 127.0.0.1 and the desktop app loads http://127.0.0.1:5173, but the default CORS list held only http://localhost:5173: the API answered that origin without Access-Control-Allow-Origin (checked with curl on 2026-10-11), the browser discarded every response, and the dashboard showed a running API as not ready.
+- **Owned by:** `src/config.py`
+- **Verification:**
+  - `tests/test_startup_readiness.py` (regression)
+
 ## Cryptography and secrets
 
 #### `GOV-051` — no eval or exec in src
@@ -1653,6 +1664,57 @@ RuntimeLoop runs one pass per interval -- re-discover, apply stored intents whos
 - **Verification:**
   - `tests/runtime/test_continuous_reconciliation.py` (recovery)
   - `tests/runtime/test_runtime_loop_resilience.py` (resilience)
+
+#### `RES-025` — The API listens and reports readiness while the models warm up
+
+**VERIFIED** · high · requirement · source: OPS-2026-10-11
+
+uv run python -m src.api opens its port once the bounded part of startup is done: the model warm-up (history, training, engines) runs in the orchestrator's run task after the lifespan yields, the loops that need no model run from the start, and the timeframe loops start only after it. GET /livez answers while the process serves. GET /readyz answers 200 only when the lifespan finished, the runtime platform is built (desired state restored and reconciled once), every active timeframe has a built engine and the timeframe loops have started, and 503 otherwise with the phase and the reasons; a first tick is reported separately and is required by the controlled preflight, not by the API-readiness endpoint. Optional ensemble-member degradation is returned as a warning without disguising core model readiness. A warm-up stopped by shutdown or failed starts no timeframe loop and is reported with its reason, and a failed lifespan startup releases the orchestrator and storage before the error propagates. The dashboard shows the phase, reasons and optional-component warnings, or why it cannot ask: an unreachable API, a rejected key, an API without /readyz.
+
+- **If violated:** An operator starting the API sees a closed port for the whole model warm-up -- 27.7 minutes on a cold PAPER start -- with no endpoint to ask what it is doing, cannot tell a slow start from a hung or failed one, and stops a healthy start; or a readiness signal claims ready while models are untrained or the runtime platform is down, so trading resumes without its engines or without the operator's stored intents.
+- **Owned by:** `src/api/main.py`, `src/api/readiness.py`, `src/engine/orchestrator.py`, `frontend/src/hooks/useApi.js`, `frontend/src/components/StartupBanner.jsx`, `src/intelligence/ensemble_predictor.py`, `scripts/startup_preflight.py`
+- **Depends on:** `RES-023`
+- **Verification:**
+  - `tests/test_startup_readiness.py` (resilience)
+  - `frontend/src/hooks/useApi.test.js` (component)
+  - `frontend/src/components/StartupBanner.test.jsx` (component)
+  - `frontend/src/components/panels/runtimeModel.test.js` (component)
+  - `tests/test_ensemble_predictor.py` (resilience)
+
+#### `REG-0026` — A cold start kept the API port closed for the whole model warm-up
+
+**VERIFIED** · high · regression · source: OPS-2026-10-11
+
+The FastAPI lifespan does not await the model warm-up: it calls Orchestrator.startup with defer_warm_up=True, and the history bootstrap, the model fits and the engine build run in the orchestrator's run task, so uvicorn binds as soon as the bounded part of startup is done.
+
+- **If violated:** The lifespan awaited Orchestrator.startup -- a 90-day history download and a model fit for each of 1m, 15m and 4h -- and uvicorn opens the port only after the lifespan yields. The controlled PAPER preflight on 2026-10-11 at main 32f18196 measured the port closed for 1659.6s (27.7 minutes) of a cold start; the earlier preflight for PR 434 was stopped before the port ever opened.
+- **Owned by:** `src/api/main.py`, `src/engine/orchestrator.py`
+- **Verification:**
+  - `tests/test_startup_readiness.py` (regression)
+
+#### `REG-0028` — The tick-stall probe alerted for timeframe loops that were not stalled
+
+**VERIFIED** · medium · regression · source: OPS-2026-10-11
+
+A timeframe loop registers its tick-stall probe when it starts; until the first tick the wait is counted from registration, and the stall limit is one bar plus 60s, never under 300s.
+
+- **If violated:** Tick sources were registered before the model warm-up with a last-tick time of 0, so the probe measured the monotonic clock since boot and logged CRITICAL tick_stall alerts from the first probe on, throughout the warm-up of the 2026-10-11 baseline preflight; and the fixed 300s limit made every healthy 15m and 4h loop a stall between bars, burying a real stall among false ones.
+- **Owned by:** `src/diagnostics/runtime_monitor.py`, `src/engine/orchestrator.py`
+- **Verification:**
+  - `tests/test_startup_readiness.py` (regression)
+  - `tests/test_runtime_monitor_coverage.py` (regression)
+  - `tests/test_orchestrator_coverage.py` (regression)
+
+#### `REG-0029` — A startup that failed left the process alive with its port closed
+
+**VERIFIED** · high · regression · source: OPS-2026-10-11
+
+When the lifespan raises -- the fetcher reaching no exchange venue, the orchestrator's startup, anything later -- the orchestrator (when it was built) is shut down and the storage connection is closed before the error propagates, so uvicorn's startup-failure exit actually ends the process.
+
+- **If violated:** On 2026-10-11 a PAPER preflight with both Binance and OKX unreachable failed in open_fetcher; the lifespan raised without closing storage, whose aiosqlite worker is a non-daemon thread held by the module-level state, so after uvicorn's sys.exit(3) the interpreter waited on it forever: every thread parked on a futex, CPU flat, port closed, until SIGINT. The same shape reproduces in isolation with one referenced, unclosed aiosqlite connection.
+- **Owned by:** `src/api/main.py`
+- **Verification:**
+  - `tests/test_startup_readiness.py` (regression)
 
 ## Release and production
 
@@ -2657,6 +2719,18 @@ Panels can be dragged by the title area only, resized, minimized, maximized to t
   - `frontend/src/workspace/layoutStore.test.js` (component)
   - `frontend/src/components/workspace/Workspace.test.jsx` (component)
 
+#### `TERM-011` — Panels move and resize with the pointer through the real grid, and the place persists
+
+**VERIFIED** · low · requirement · source: OPS-2026-10-11
+
+With the installed react-grid-layout, a mouse press on a panel's header title or grip, moved past the 4px drag threshold and released, moves the panel to the drop cell; the drop is committed compacted and saved, and a reload restores it. A press on a header control, the body or an input, or one that stays inside the threshold, moves nothing; the south-east handle resizes; a keyboard move is kept by a later drag; stacked mode is full width and not draggable; the panel content is the same element before and after a drag.
+
+- **If violated:** A stubbed grid alone cannot catch failures in the actual react-grid-layout pointer path. The new DOM integration test uses the lockfile-matched react-grid-layout 2.3.0 implementation and verifies drag, drop persistence, resize, control cancellation and reload restoration; JSDOM still cannot verify native browser layout/scroll behavior, and no running GUI process was available for live-bundle inspection.
+- **Owned by:** `frontend/src/components/workspace/Workspace.jsx`, `frontend/src/workspace/layoutStore.js`
+- **Verification:**
+  - `frontend/src/components/workspace/Workspace.grid.test.jsx` (component)
+  - `frontend/src/components/workspace/Workspace.test.jsx` (component)
+
 #### `REG-0025` — tradebot-term attach closes only after the daemon has applied what it sent
 
 **VERIFIED** · high · regression · source: OPS-2026-10-10
@@ -2698,4 +2772,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 209 entries.
+Registry version: 1.0.0 — 215 entries.

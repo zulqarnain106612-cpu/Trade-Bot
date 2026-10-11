@@ -381,6 +381,9 @@ class XGBoostSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="XGB_", env_file=".env", extra="ignore")
 
     n_estimators: int = Field(default=500, ge=10)
+    # One XGBoost worker by default: TRAIN_WORKERS bounds concurrent fits,
+    # while this separately bounds the native threads inside each fit.
+    n_jobs: int = Field(default=1, ge=1, le=32)
     max_depth: int = Field(default=6, ge=1, le=20)
     learning_rate: float = Field(default=0.05, ge=1e-5, le=1.0)
     subsample: float = Field(default=0.8, ge=0.1, le=1.0)
@@ -573,7 +576,11 @@ class APISettings(BaseSettings):
     )
     port: int = Field(default=8000, ge=1024, le=65535)
     reload: bool = Field(default=False)
-    cors_origins: list[str] = Field(default=["http://localhost:5173"])
+    # Both loopback spellings of the dashboard's dev server: Vite binds
+    # 127.0.0.1 (frontend/vite.config.js) and the desktop app loads
+    # http://127.0.0.1:5173, so allowing only "localhost" made the browser
+    # drop every API answer and the dashboard read a running API as down.
+    cors_origins: list[str] = Field(default=["http://localhost:5173", "http://127.0.0.1:5173"])
     ws_heartbeat_s: float = Field(default=5.0, ge=1.0)
 
     @field_validator("cors_origins")

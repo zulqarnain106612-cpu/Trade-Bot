@@ -107,3 +107,17 @@ export function countPairs(counts) {
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([label, n]) => `${label}: ${n}`);
 }
+
+/**
+ * Why the panel has no runtime data, from a useApiResource() problem: a
+ * runtime platform that did not start (503) is a different fault from an
+ * API that cannot be reached or that rejected the key, and neither is an
+ * empty component list.
+ */
+export function runtimeProblemText(problem) {
+  if (problem.status === 503) {
+    return 'Runtime platform not started: the API is up but its control plane is not '
+      + '(it failed to build, or the API is still starting -- see GET /readyz).';
+  }
+  return problem.detail ? `${problem.message} (${problem.detail})` : problem.message;
+}

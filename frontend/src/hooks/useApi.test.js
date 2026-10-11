@@ -12,8 +12,11 @@ import { renderHook, act } from '@testing-library/react';
 import {
   RECONNECT_BASE_MS,
   RECONNECT_CAP_MS,
+  apiProblem,
   reconnectDelay,
+  useApiResource,
   usePolling,
+  useReadiness,
   useStream,
   useWebSocket,
 } from './useApi.js';
@@ -263,5 +266,119 @@ describe('the subscribe frame', () => {
     act(() => { ws.onopen(); });
 
     expect(ws.sent).toHaveLength(0);
+  });
+});
+
+/**
+ * RES-025 — the dashboard says why it has no data. An unreachable API, a
+ * rejected key and a runtime platform that has not started each read
+ * differently, and none of them reads as an empty list.
+ */
+describe('useApiResource and useReadiness', () => {
+  const answer = (status, body) => vi.fn(() => Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => (body === undefined ? Promise.reject(new Error('no body')) : Promise.resolve(body)),
+  }));
+
+  async function settle() {
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  }
+
+  it('returns the data and no problem on a good answer', async () => {
+    vi.stubGlobal('fetch', answer(200, []));
+    const { result } = renderHook(() => useApiResource('/runtime/components', 5000));
+    await settle();
+    expect(result.current).toEqual({ data: [], problem: null });
+  });
+
+  it('applies the transform from the current render', async () => {
+    vi.stubGlobal('fetch', answer(200, { rows: [1, 2] }));
+    const { result } = renderHook(() => useApiResource('/x', 5000, (b) => b.rows));
+    await settle();
+    expect(result.current.data).toEqual([1, 2]);
+  });
+
+  it('names a rejected key with what to set, and keeps the server detail', async () => {
+    vi.stubGlobal('fetch', answer(401, { detail: 'Invalid API key' }));
+    const { result } = renderHook(() => useApiResource('/runtime', 5000));
+    await settle();
+    const { data, problem } = result.current;
+    expect(data).toBeNull();
+    expect(problem.kind).toBe('unauthorized');
+    expect(problem.message).toContain('VITE_API_KEY');
+    expect(problem.detail).toBe('Invalid API key');
+  });
+
+  it('says the API is unreachable when the request never gets an answer', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))));
+    const { result } = renderHook(() => useApiResource('/runtime', 5000));
+    await settle();
+    expect(result.current.problem.kind).toBe('unreachable');
+    expect(result.current.problem.message).toContain('http://localhost:8000');
+  });
+
+  it('recovers on the next poll once the API answers', async () => {
+    const fetch = vi.fn()
+      .mockImplementationOnce(() => Promise.reject(new TypeError('Failed to fetch')))
+      .mockImplementation(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) }));
+    vi.stubGlobal('fetch', fetch);
+    const { result } = renderHook(() => useApiResource('/runtime/components', 5000));
+    await settle();
+    expect(result.current.problem.kind).toBe('unreachable');
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(result.current).toEqual({ data: [], problem: null });
+  });
+
+  it('a 503 /readyz report is the API saying what it is doing, not a failure', async () => {
+    const report = { ready: false, phase: 'warming_up', reasons: ['model warm-up in progress: 1m training'] };
+    vi.stubGlobal('fetch', answer(503, report));
+    const { result } = renderHook(() => useReadiness());
+    await settle();
+    expect(result.current).toEqual({ report, problem: null });
+  });
+
+  it('a /readyz the API does not have is a version mismatch', async () => {
+    vi.stubGlobal('fetch', answer(404, { detail: 'Not Found' }));
+    const { result } = renderHook(() => useReadiness());
+    await settle();
+    expect(result.current.report).toBeNull();
+    expect(result.current.problem.kind).toBe('missing');
+  });
+
+  it('a 503 without a report, or an unreadable body, stays a problem', async () => {
+    vi.stubGlobal('fetch', answer(503, undefined));
+    const { result } = renderHook(() => useReadiness());
+    await settle();
+    expect(result.current.problem.kind).toBe('unavailable');
+    expect(result.current.problem.detail).toBeNull();
+  });
+
+  it('stops polling and ignores a late answer after unmount', async () => {
+    let resolve;
+    const fetch = vi.fn(() => new Promise((r) => { resolve = r; }));
+    vi.stubGlobal('fetch', fetch);
+    const { result, unmount } = renderHook(() => useApiResource('/runtime', 5000));
+    unmount();
+    await act(async () => {
+      resolve({ ok: true, status: 200, json: () => Promise.resolve({ late: true }) });
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(result.current.data).toBeNull();
+  });
+
+  it('does not start a second request while one is in flight', async () => {
+    const fetch = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal('fetch', fetch);
+    renderHook(() => useApiResource('/runtime', 1000));
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('describes any other status by its code', () => {
+    expect(apiProblem(500)).toMatchObject({ kind: 'error', status: 500 });
+    expect(apiProblem(500).message).toContain('HTTP 500');
+    expect(apiProblem(403).kind).toBe('unauthorized');
   });
 });

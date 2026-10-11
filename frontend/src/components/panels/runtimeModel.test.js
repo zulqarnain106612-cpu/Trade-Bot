@@ -13,7 +13,9 @@ import {
   describeTrace,
   describeTransition,
   desiredActualGaps,
+  runtimeProblemText,
 } from './runtimeModel.js';
+import { apiProblem } from '../../hooks/useApi.js';
 
 describe('decisionsFor', () => {
   it.each([
@@ -139,5 +141,18 @@ describe('palette and counts', () => {
   it('sorts count pairs', () => {
     expect(countPairs({ worker: 2, model: 1 })).toEqual(['model: 1', 'worker: 2']);
     expect(countPairs(null)).toEqual([]);
+  });
+
+  // RES-025: no data is never shown as "no components" -- each cause reads
+  // as itself, with the server's detail when it gave one.
+  it('says why there is no runtime data', () => {
+    const notStarted = { ...apiProblem(503), detail: 'Runtime platform not started.' };
+    expect(runtimeProblemText(notStarted)).toContain('Runtime platform not started');
+    expect(runtimeProblemText(notStarted)).toContain('/readyz');
+    const rejected = { ...apiProblem(401), detail: 'Invalid API key' };
+    expect(runtimeProblemText(rejected)).toContain('VITE_API_KEY');
+    expect(runtimeProblemText(rejected)).toContain('(Invalid API key)');
+    const unreachable = { ...apiProblem(0), detail: null };
+    expect(runtimeProblemText(unreachable)).toBe(apiProblem(0).message);
   });
 });
