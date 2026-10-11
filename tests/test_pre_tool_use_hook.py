@@ -6,6 +6,7 @@ Decides:
   - GOV-019 — CI run data is unreadable by every tool route
   - GOV-057 — every authorized tool observation crosses the repository boundary
 """
+
 from __future__ import annotations
 
 import json
@@ -54,10 +55,25 @@ class TestDefaultDeny:
     @pytest.mark.parametrize(
         "tool",
         [
-            "Bash", "Read", "NotebookRead", "Glob", "Grep", "LS", "Write", "Edit",
-            "MultiEdit", "NotebookEdit", "PowerShell", "Monitor", "WebFetch", "WebSearch",
-            "mcp__Desktop_Commander__start_process", "mcp__Desktop_Commander__read_file",
-            "mcp__remote__terminal", "mcp__unknown__read_file", "mcp__github__new_future_tool",
+            "Bash",
+            "Read",
+            "NotebookRead",
+            "Glob",
+            "Grep",
+            "LS",
+            "Write",
+            "Edit",
+            "MultiEdit",
+            "NotebookEdit",
+            "PowerShell",
+            "Monitor",
+            "WebFetch",
+            "WebSearch",
+            "mcp__Desktop_Commander__start_process",
+            "mcp__Desktop_Commander__read_file",
+            "mcp__remote__terminal",
+            "mcp__unknown__read_file",
+            "mcp__github__new_future_tool",
         ],
     )
     def test_every_non_allowlisted_route_is_denied(self, tool: str) -> None:
@@ -115,8 +131,7 @@ class TestApprovedGithubRoute:
             "mcp__GitHub__fetch",
             {
                 "url": (
-                    "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/"
-                    "contents/CLAUDE.md"
+                    "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/contents/CLAUDE.md"
                 )
             },
         )
@@ -138,7 +153,8 @@ class TestApprovedGithubRoute:
 
     def test_unscoped_search_is_denied(self) -> None:
         assert_denied(
-            "mcp__GitHub__search", {"query": "observation_gate"},
+            "mcp__GitHub__search",
+            {"query": "observation_gate"},
             contains="explicitly identify",
         )
 
@@ -328,7 +344,12 @@ class TestBranchAndBoundaryWrites:
             {
                 "repository_full_name": REPO,
                 "tree_elements": [
-                    {"path": ".claude/settings.json", "mode": "100644", "type": "blob", "sha": "a" * 40}
+                    {
+                        "path": ".claude/settings.json",
+                        "mode": "100644",
+                        "type": "blob",
+                        "sha": "a" * 40,
+                    }
                 ],
             },
             contains="Protected observation-boundary",

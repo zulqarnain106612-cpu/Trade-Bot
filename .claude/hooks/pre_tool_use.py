@@ -56,22 +56,61 @@ BASH_MUTATOR_RE = re.compile(
 # Hard, code-owned allowlist: configuration and policy mode cannot add routes.
 GITHUB_REPOSITORY = "zulqarnain106612-cpu/Trade-Bot"
 GITHUB_TOOL_PREFIX = "mcp__github__"
-ALLOWED_GITHUB_TOOL_NAMES = frozenset({
-    # Exact tool names verified against the connected GitHub MCP server.
-    # Unknown or future tool names remain denied unless deliberately reviewed here.
-    "search", "search_issues", "search_prs", "search_commits", "search_branches",
-    "fetch", "fetch_file", "fetch_blob", "fetch_commit", "fetch_pr",
-    "fetch_pr_comments", "fetch_pr_file_patch", "get_pr_diff", "get_pr_info",
-    "list_pr_changed_filenames", "list_pull_request_reviews",
-    "list_pull_request_review_threads",
-    "create_branch", "create_blob", "create_tree", "create_commit", "update_ref",
-    "create_file", "update_file", "create_pull_request", "update_pull_request",
-    "add_comment_to_issue", "add_review_to_pr",
-})
+ALLOWED_GITHUB_TOOL_NAMES = frozenset(
+    {
+        # Exact tool names verified against the connected GitHub MCP server.
+        # Unknown or future tool names remain denied unless deliberately reviewed here.
+        "search",
+        "search_issues",
+        "search_prs",
+        "search_commits",
+        "search_branches",
+        "fetch",
+        "fetch_file",
+        "fetch_blob",
+        "fetch_commit",
+        "fetch_pr",
+        "fetch_pr_comments",
+        "fetch_pr_file_patch",
+        "get_pr_diff",
+        "get_pr_info",
+        "list_pr_changed_filenames",
+        "list_pull_request_reviews",
+        "list_pull_request_review_threads",
+        "create_branch",
+        "create_blob",
+        "create_tree",
+        "create_commit",
+        "update_ref",
+        "create_file",
+        "update_file",
+        "create_pull_request",
+        "update_pull_request",
+        "add_comment_to_issue",
+        "add_review_to_pr",
+    }
+)
 GITHUB_ALWAYS_DENIED_MARKERS = (
-    "workflow", "artifact", "check_run", "check_suite", "combined_status",
-    "status_check", "job_log", "run_log", "logs", "rerun", "cancel", "cache",
-    "status", "watch", "subscribe", "dispatch", "monitor", "download", "delete", "merge",
+    "workflow",
+    "artifact",
+    "check_run",
+    "check_suite",
+    "combined_status",
+    "status_check",
+    "job_log",
+    "run_log",
+    "logs",
+    "rerun",
+    "cancel",
+    "cache",
+    "status",
+    "watch",
+    "subscribe",
+    "dispatch",
+    "monitor",
+    "download",
+    "delete",
+    "merge",
 )
 GITHUB_CI_URL_RE = re.compile(
     r"(?i)(?:/actions(?:/|\?|$)|/check-runs?(?:/|\?|$)|"
@@ -204,7 +243,8 @@ def _github_boundary_write_violation(tool: str, data: dict[str, Any]) -> str:
         protected.update(str(item).replace("\\", "/").lstrip("/") for item in configured)
     matched = next(
         (
-            path for path in paths
+            path
+            for path in paths
             if path in protected
             or path == ".claude"
             or path.startswith(".claude/")
@@ -254,16 +294,16 @@ def _github_fetch_endpoint_allowed(url: str) -> bool:
             return True
         if suffix == ["readme"]:
             return True
-        if len(suffix) >= 2 and suffix[0] == "git" and suffix[1] in {
-            "refs", "commits", "trees", "blobs"
-        }:
+        if (
+            len(suffix) >= 2
+            and suffix[0] == "git"
+            and suffix[1] in {"refs", "commits", "trees", "blobs"}
+        ):
             return True
         return suffix[0] == "compare"
 
     if host == "github.com":
-        return len(parts) >= 4 and parts[2].lower() in {
-            "blob", "tree", "pull", "issues", "commit"
-        }
+        return len(parts) >= 4 and parts[2].lower() in {"blob", "tree", "pull", "issues", "commit"}
 
     if host == "raw.githubusercontent.com":
         return len(parts) >= 4 and all(parts[:3])
@@ -287,7 +327,7 @@ def _github_route_violation(event: dict[str, Any]) -> str:
         )
         index = sum(ord(char) for char in tool) % len(redirects)
         return redirects[index]
-    tail = tool[len(GITHUB_TOOL_PREFIX):]
+    tail = tool[len(GITHUB_TOOL_PREFIX) :]
     if tail not in ALLOWED_GITHUB_TOOL_NAMES:
         return (
             f"Universal GitHub-only boundary: GitHub tool '{tail}' is not "
@@ -330,13 +370,11 @@ def _github_route_violation(event: dict[str, Any]) -> str:
             base_ref = _owner_name(data.get("base_ref")).removeprefix("refs/heads/").lower()
             if not branch_name or branch_name in {"main", "master"}:
                 return (
-                    "Universal boundary: branch creation requires a non-main "
-                    "feature-branch name."
+                    "Universal boundary: branch creation requires a non-main feature-branch name."
                 )
             if base_ref != "main" or data.get("sha"):
                 return (
-                    "Universal boundary: new Claude work branches must be based "
-                    "directly on main."
+                    "Universal boundary: new Claude work branches must be based directly on main."
                 )
         else:
             branch = data.get("branch") or data.get("branch_name") or data.get("target_branch")
