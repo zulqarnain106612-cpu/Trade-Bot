@@ -209,8 +209,8 @@ class TestCIBoundary:
     def test_pull_request_notice_comment_remains_the_ci_diagnostic_channel(self) -> None:
         assert (
             decide(
-                "mcp__github__fetch_pr",
-                {"repository_full_name": REPO, "pr_number": 435, "include_comments": True},
+                "mcp__GitHub__fetch_pr_comments",
+                {"repo_full_name": REPO, "pr_number": 435},
             )["permissionDecision"]
             == "allow"
         )
