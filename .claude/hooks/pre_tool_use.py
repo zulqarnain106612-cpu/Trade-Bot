@@ -413,6 +413,7 @@ def _fail_closed(note: str) -> None:
         "Universal GitHub-only observation boundary could not verify this request; access denied.",
     )
 
+
 sys.path.insert(0, str(PROJECT_DIR))
 
 try:
