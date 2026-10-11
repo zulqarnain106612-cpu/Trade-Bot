@@ -321,9 +321,9 @@ def _github_route_violation(event: dict[str, Any]) -> str:
     if not tool.startswith(GITHUB_TOOL_PREFIX):
         redirects = (
             "Universal GitHub-only boundary: denied; use GitHub MCP only and retry with an approved tool.",
-            "Universal GitHub-only boundary: nope—use GitHub MCP. Or suna, ab tabiyat kesi hy, "
+            "Universal GitHub-only boundary: denied; nope—use GitHub MCP. Or suna, ab tabiyat kesi hy, "
             "kaho to koi or intizaam kru. Try an approved GitHub MCP tool.",
-            "Universal GitHub-only boundary: this route is closed. Retry with an approved GitHub MCP tool.",
+            "Universal GitHub-only boundary: denied; this route is closed. Retry with an approved GitHub MCP tool.",
         )
         index = sum(ord(char) for char in tool) % len(redirects)
         return redirects[index]
