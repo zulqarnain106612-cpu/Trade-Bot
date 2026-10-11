@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { usePolling } from '../../hooks/useApi';
+import { useApiResource, usePolling } from '../../hooks/useApi';
 import {
   HEALTH_COLOR,
   STATE_COLOR,
@@ -9,6 +9,7 @@ import {
   describeTrace,
   describeTransition,
   desiredActualGaps,
+  runtimeProblemText,
 } from './runtimeModel';
 
 /**
@@ -46,8 +47,9 @@ function Empty({ children }) {
   return <div style={{ color: 'var(--c-faint)', fontSize: 12, padding: 12 }}>{children}</div>;
 }
 
-function Overview({ overview, components }) {
-  if (!overview) return <Empty>Runtime platform not reachable.</Empty>;
+function Overview({ overview, components, problem }) {
+  if (problem) return <Empty>{runtimeProblemText(problem)}</Empty>;
+  if (!overview) return <Empty>Loading the runtime platform…</Empty>;
   const gaps = desiredActualGaps(components);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12 }}>
@@ -73,9 +75,11 @@ function Overview({ overview, components }) {
   );
 }
 
-function Components({ components }) {
+function Components({ components, problem }) {
   const [selected, setSelected] = useState(null);
-  if (!components || components.length === 0) return <Empty>No runtime components.</Empty>;
+  if (problem) return <Empty>{runtimeProblemText(problem)}</Empty>;
+  if (!components) return <Empty>Loading runtime components…</Empty>;
+  if (components.length === 0) return <Empty>No runtime components.</Empty>;
   const chosen = components.find((c) => c.component_id === selected);
   return (
     <div>
@@ -219,8 +223,10 @@ function AgentLedgers({ ledgers }) {
 
 export function RuntimePanel({ operatorAction }) {
   const [view, setView] = useState('overview');
-  const overview = usePolling('/runtime', 5000);
-  const components = usePolling('/runtime/components', 5000);
+  // With the reason when there is no data, so "not started", "unreachable"
+  // and "no components" stay three different messages.
+  const { data: overview, problem: overviewProblem } = useApiResource('/runtime', 5000);
+  const { data: components, problem: componentsProblem } = useApiResource('/runtime/components', 5000);
   const graph = usePolling('/runtime/dependencies', 30000);
   const changes = usePolling('/runtime/changes', 5000);
   const traces = usePolling('/runtime/traces?limit=20', 10000);
@@ -244,8 +250,10 @@ export function RuntimePanel({ operatorAction }) {
           </button>
         ))}
       </div>
-      {view === 'overview' && <Overview overview={overview} components={components} />}
-      {view === 'components' && <Components components={components} />}
+      {view === 'overview' && (
+        <Overview overview={overview} components={components} problem={overviewProblem} />
+      )}
+      {view === 'components' && <Components components={components} problem={componentsProblem} />}
       {view === 'dependencies' && <Dependencies graph={graph} />}
       {view === 'changes' && <Changes changes={changes} onDecide={onDecide} onSubmit={onSubmit} />}
       {view === 'traces' && <Traces traces={traces} />}

@@ -507,6 +507,14 @@ class MarketDataFetcher:
 
         try:
             await _with_retry(lambda: exchange.load_markets(), label=f"{venue}.load_markets")
+        except asyncio.CancelledError:
+            # During deferred API startup the owner may stop the fetcher while
+            # load_markets is still in flight. The local client is not assigned
+            # to self until it succeeds, so close it here or the connection pool
+            # would be invisible to MarketDataFetcher.close().
+            with contextlib.suppress(Exception):
+                await exchange.close()
+            raise
         except Exception as exc:
             # Deliberately broad: every ccxt failure mode is a venue that did
             # not come up, and the point of this method is that none of them
@@ -1238,11 +1246,13 @@ def _raw_to_bar_records(
 
 
 class _FetcherContextManager:
-    def __init__(self, storage: AnyStorageBackend) -> None:
+    def __init__(self, storage: AnyStorageBackend, *, initialize: bool = True) -> None:
         self._fetcher = MarketDataFetcher(storage)
+        self._initialize_on_enter = initialize
 
     async def __aenter__(self) -> MarketDataFetcher:
-        await self._fetcher.initialize()
+        if self._initialize_on_enter:
+            await self._fetcher.initialize()
         return self._fetcher
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool | None:
@@ -1260,7 +1270,7 @@ class _FetcherContextManager:
         return False  # do not suppress the original exception
 
 
-def open_fetcher(storage: AnyStorageBackend) -> _FetcherContextManager:
+def open_fetcher(storage: AnyStorageBackend, *, initialize: bool = True) -> _FetcherContextManager:
     """
     Async context manager for MarketDataFetcher.
 
@@ -1269,4 +1279,4 @@ def open_fetcher(storage: AnyStorageBackend) -> _FetcherContextManager:
         async with open_fetcher(storage) as fetcher:
             await fetcher.bootstrap_history("BTC/USDT", Timeframe.INTRADAY)
     """
-    return _FetcherContextManager(storage)
+    return _FetcherContextManager(storage, initialize=initialize)

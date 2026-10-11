@@ -3,11 +3,16 @@ Comprehensive coverage tests for src/engine/orchestrator.py.
 
 Coverage target: 10% → 70%+. Every major code path exercised with mocked
 external dependencies — no real network, DB, or model I/O.
+
+
+Decides:
+  - REG-0028 — regression coverage for the recorded behavior.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -49,6 +54,7 @@ def _make_storage():
     s.earliest_equity_ts = AsyncMock(return_value=None)
     s.insert_bar = AsyncMock(return_value=None)
     s.fetch_bars = AsyncMock(return_value=_make_bars())  # ≥300 rows for trainer
+    s.latest_bar_ts = AsyncMock(return_value=None)
     s.initialize = AsyncMock(return_value=None)
     s.close = AsyncMock(return_value=None)
     return s
@@ -57,6 +63,7 @@ def _make_storage():
 def _make_fetcher():
     f = AsyncMock()
     f.bootstrap_history = AsyncMock(return_value=100)
+    f.gap_fill = AsyncMock(return_value=0)
     # A bare AsyncMock child returns a coroutine from .get(), which the
     # precision loader feeds straight to float(). Give it a real mapping.
     f.fetch_symbol_precision = AsyncMock(return_value={})
@@ -69,6 +76,10 @@ def _make_executor():
     e.initialize = AsyncMock(return_value=None)
     e.get_daily_pnl = AsyncMock(return_value=0.0)
     e.get_consecutive_losses = AsyncMock(return_value=0)
+    # AbstractExecutor.open_positions() is synchronous; do not leave it as an
+    # auto-created AsyncMock coroutine in Prometheus/readiness tests.
+    e.open_positions = MagicMock(return_value=[])
+    e.open_positions_safe = AsyncMock(return_value=[])
     e.equity_usd = 1000.0
     e.starting_equity_usd = 1000.0
     e.shutdown = AsyncMock(return_value=None)
@@ -223,6 +234,60 @@ def _make_orch(storage=None, fetcher=None):
 
 class TestOrchestratorStartup:
     @pytest.mark.asyncio
+    async def test_timeframe_loop_registers_tick_health_when_loop_starts(self):
+        orch = _make_orch()
+        orch._running = False
+        monitor = MagicMock()
+        with patch("src.engine.orchestrator.get_monitor", return_value=monitor):
+            await orch._timeframe_loop(Timeframe.INTRADAY)
+        monitor.register_tick_source.assert_called_once()
+        assert monitor.register_tick_source.call_args.args[0] == Timeframe.INTRADAY.value
+
+    @pytest.mark.asyncio
+    async def test_prepare_history_reuses_sufficient_recent_cache(self):
+        import time
+
+        storage = _make_storage()
+        recent_ts = int(time.time() * 1000) - 120_000
+        storage.latest_bar_ts.return_value = recent_ts
+        fetcher = _make_fetcher()
+        orch = _make_orch(storage, fetcher)
+
+        refreshed = await orch._prepare_history(Timeframe.INTRADAY)
+
+        assert refreshed == 0
+        fetcher.gap_fill.assert_awaited_once_with("BTC/USDT", Timeframe.INTRADAY)
+        fetcher.bootstrap_history.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_prepare_history_bootstraps_when_cache_is_insufficient(self):
+        storage = _make_storage()
+        storage.fetch_bars.return_value = _make_bars(299)
+        storage.latest_bar_ts.return_value = int(time.time() * 1000) - 60_000
+        fetcher = _make_fetcher()
+        orch = _make_orch(storage, fetcher)
+
+        result = await orch._prepare_history(Timeframe.INTRADAY)
+
+        assert result == 100
+        fetcher.bootstrap_history.assert_awaited_once_with("BTC/USDT", Timeframe.INTRADAY)
+        fetcher.gap_fill.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_prepare_history_falls_back_when_refresh_remains_stale(self):
+        storage = _make_storage()
+        stale_ts = int(time.time() * 1000) - 2 * 86_400_000
+        storage.latest_bar_ts.side_effect = [stale_ts, stale_ts]
+        fetcher = _make_fetcher()
+        orch = _make_orch(storage, fetcher)
+
+        result = await orch._prepare_history(Timeframe.INTRADAY)
+
+        assert result == 100
+        fetcher.gap_fill.assert_awaited_once_with("BTC/USDT", Timeframe.INTRADAY)
+        fetcher.bootstrap_history.assert_awaited_once_with("BTC/USDT", Timeframe.INTRADAY)
+
+    @pytest.mark.asyncio
     async def test_startup_paper_creates_executor(self):
         storage = _make_storage()
         fetcher = _make_fetcher()
@@ -287,6 +352,7 @@ class TestOrchestratorStartup:
         ):
             await orch.startup()
         assert captured_kwargs["ensemble"] is None
+        assert "ensemble unavailable" in orch._model_detail[Timeframe.INTRADAY.value]
 
     @pytest.mark.asyncio
     async def test_startup_ensemble_load_error_logs_and_falls_back_to_none(self):
@@ -724,6 +790,45 @@ class TestOrchestratorTrainModels:
 
         assert Timeframe.INTRADAY.value in orch._trainers
         assert Timeframe.INTRADAY.value in orch._detectors
+
+    @pytest.mark.asyncio
+    async def test_train_models_reuses_provenance_valid_cache_without_direction_meta_refit(self):
+        orch = self._orch_for_train()
+        orch._engines = {}
+        fm = MagicMock()
+        fm.features = MagicMock()
+        dir_result = MagicMock()
+        dir_result.live_gate_pass = True
+        dir_result.oos_sharpe = 1.5
+        dir_result.model = MagicMock()
+        dir_result.to_metrics_record = MagicMock(return_value=MagicMock())
+        meta_result = MagicMock()
+        meta_result.live_gate_pass = True
+        meta_result.oos_sharpe = 1.2
+        meta_result.model = MagicMock()
+        meta_result.to_metrics_record = MagicMock(return_value=MagicMock())
+        trainer = MagicMock()
+        trainer.load_compatible_cached_models.return_value = (dir_result, meta_result)
+        trainer.cached_model_version = "2026-10-10T00:00:00+00:00"
+        trainer.train_ensemble.return_value = MagicMock()
+        detector = MagicMock()
+        detector.fit = MagicMock()
+        detector.save = MagicMock()
+        orch._attach_intelligence_features = AsyncMock()
+
+        with (
+            patch("src.engine.orchestrator.build_feature_matrix", return_value=fm),
+            patch("src.engine.orchestrator.ModelTrainer", return_value=trainer),
+            patch("src.engine.orchestrator.RegimeDetector", return_value=detector),
+        ):
+            await orch._train_models(Timeframe.INTRADAY)
+
+        trainer.train_direction.assert_not_called()
+        trainer.train_meta_label.assert_not_called()
+        trainer.save.assert_not_called()
+        trainer.train_ensemble.assert_called_once_with(fm)
+        trainer.save_ensemble.assert_called_once()
+        assert orch._storage.insert_model_metrics.await_count == 2
 
     @pytest.mark.asyncio
     async def test_train_models_stores_error_on_xgb_failure(self):

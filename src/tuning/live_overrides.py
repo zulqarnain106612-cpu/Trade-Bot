@@ -29,6 +29,8 @@ Registry: REG-0005, RISK-005 (config/quality_registry.json).
 
 from __future__ import annotations
 
+import structlog
+
 from src.config import (
     FeatureSettings,
     HMMSettings,
@@ -36,7 +38,15 @@ from src.config import (
     XGBoostSettings,
     get_settings,
 )
+from src.resource_limits import (
+    MEMORY_CRITICAL_MB,
+    XGB_1GIB_MAX_DEPTH,
+    XGB_1GIB_MAX_ESTIMATORS,
+    XGB_1GIB_MAX_JOBS,
+)
 from src.tuning.registry import parameter_registry
+
+log = structlog.get_logger(__name__)
 
 # Matches src.tuning.backtest_harness.XGBOOST_INT_FIELDS -- duplicated here
 # (rather than imported) to avoid this leaf module depending on the
@@ -128,3 +138,41 @@ def effective_xgboost_settings(base: XGBoostSettings | None = None) -> XGBoostSe
         if value is not None:
             overrides[field_name] = round(value) if field_name in _XGBOOST_INT_FIELDS else value
     return base.model_copy(update=overrides) if overrides else base
+
+
+def apply_xgboost_resource_profile(
+    settings: XGBoostSettings, *, memory_critical_mb: float = MEMORY_CRITICAL_MB
+) -> XGBoostSettings:
+    """Apply the hard resource cap without mutating the user's .env settings.
+
+    Under the repository's 1 GiB RSS policy, bound native XGBoost work to a
+    conservative profile. The original configured values remain visible in
+    configuration, while the effective model/provenance records the capped
+    values. CPCV and live-promotion gates are not changed.
+    """
+    if memory_critical_mb > MEMORY_CRITICAL_MB:
+        return settings
+    capped = settings.model_copy(
+        update={
+            "n_estimators": min(settings.n_estimators, XGB_1GIB_MAX_ESTIMATORS),
+            "max_depth": min(settings.max_depth, XGB_1GIB_MAX_DEPTH),
+            "n_jobs": min(settings.n_jobs, XGB_1GIB_MAX_JOBS),
+        }
+    )
+    if capped != settings:
+        log.warning(
+            "xgboost.resource_profile_capped",
+            memory_critical_mb=memory_critical_mb,
+            configured={
+                "n_estimators": settings.n_estimators,
+                "max_depth": settings.max_depth,
+                "n_jobs": settings.n_jobs,
+            },
+            effective={
+                "n_estimators": capped.n_estimators,
+                "max_depth": capped.max_depth,
+                "n_jobs": capped.n_jobs,
+            },
+            quality_gates="unchanged",
+        )
+    return capped

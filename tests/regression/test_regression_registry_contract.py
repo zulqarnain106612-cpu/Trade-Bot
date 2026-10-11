@@ -189,6 +189,10 @@ class TestTheRegistryHasAPlaceForDefects:
         # REG-0025: tradebot-term attach closed its socket without waiting for
         # its detach to be answered, so Linux reset the daemon's end and the
         # keystrokes it had sent were dropped unread -- test-suite.
+        # REG-0026: the lifespan held the port closed during model warm-up -- test-suite.
+        # REG-0027: the loopback Vite origin was missing from default CORS -- test-suite.
+        # REG-0028: timeframe tick-stall probes treated healthy bar intervals as stalls -- test-suite.
+        # REG-0029: a failed fetcher context could leave storage's worker alive -- test-suite.
         assert {e.id for e in registry.by_kind("regression")} == {
             "REG-0005",
             "REG-0007",
@@ -210,6 +214,10 @@ class TestTheRegistryHasAPlaceForDefects:
             "REG-0023",
             "REG-0024",
             "REG-0025",
+            "REG-0026",
+            "REG-0027",
+            "REG-0028",
+            "REG-0029",
         }
         # SEC-0005: `.gitignore` carried a bare `.env`, which matches that one
         # name and nothing else -- so `.env.bak.<timestamp>` from a
@@ -497,7 +505,9 @@ class TestTheMetricsCollector:
         # they disagree -- test-suite, 21 to 22.
         # REG-0025: only a test of what attach does before it closes shows the
         # detach was never waited for -- test-suite, 22 to 23.
-        assert metric["value"] == {"test-suite": 23, "review": 1, "supply-chain": 2}
+        # REG-0026..0029 add four independently tested runtime regressions --
+        # test-suite, 23 to 27.
+        assert metric["value"] == {"test-suite": 27, "review": 1, "supply-chain": 2}
 
     def test_zero_escaped_defects_would_be_stated_explicitly(self, collector, monkeypatch):
         # "We have not measured this" and "this is zero" are different

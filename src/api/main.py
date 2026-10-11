@@ -55,6 +55,7 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from common.command_schema import redact
@@ -76,6 +77,7 @@ from src.api.object_refs import (
     not_found_response,
     validate_object_id,
 )
+from src.api.readiness import readiness_report
 from src.api.runtime_control import (
     OperatorFactor,
     RuntimeActionBody,
@@ -216,7 +218,10 @@ class AppState:
     storage: AnyStorageBackend
     orchestrator: Orchestrator | None
     intel_adapter: Any | None  # IntelligenceAdapter (crypto-intel-v6); None when disabled
-    ready: bool  # True only after orchestrator.startup() completes
+    # True once the lifespan has finished starting the API (see readiness.py);
+    # the model warm-up runs on after it, in the orchestrator task.
+    ready: bool
+    stopping: bool  # set as shutdown begins, so /readyz stops answering ready
     _MAX_WS_CLIENTS: int = 50
     # Bumped only on a breaking change to the frame shape, so a dashboard
     # served from a stale cache can refuse to misread a newer server rather
@@ -229,6 +234,7 @@ class AppState:
 
     def __init__(self) -> None:
         self.ready = False
+        self.stopping = False
         self.intel_adapter = None
         self.orchestrator: Orchestrator | None = None  # set in lifespan after startup()
         # The runtime platform (src/runtime): the control plane's one registry
@@ -444,6 +450,136 @@ _state = AppState()
 # ---------------------------------------------------------------------------
 
 
+async def _release_after_failed_startup(
+    orchestrator: Orchestrator | None, storage: AnyStorageBackend
+) -> None:
+    """
+    Release what a startup that failed part-way leaves open, before the error
+    propagates: the orchestrator's monitor task and executor and training
+    threads (Orchestrator.shutdown), when it got that far, then the storage
+    connection. Each step is best-effort; a failure is logged and never
+    replaces the startup error.
+    """
+    if orchestrator is not None:
+        try:
+            await orchestrator.shutdown()
+        except Exception as exc:
+            log.warning("api.startup_cleanup_failed", resource="orchestrator", error=str(exc))
+    try:
+        await storage.close()
+    except Exception as exc:
+        log.warning("api.startup_cleanup_failed", resource="storage", error=str(exc))
+
+
+class _StartupGuard:
+    """Own partial lifespan resources until startup yields successfully.
+
+    Any failure before or during serving must close subscriptions and cancel
+    tasks as well as the fetcher, orchestrator and storage. The previous guard
+    only closed the last two, so an exception after background-task creation
+    could leave consumers running against closed storage.
+    """
+
+    def __init__(self, storage: AnyStorageBackend) -> None:
+        self.storage = storage
+        self.orchestrator: Orchestrator | None = None
+        self.runtime_stop: asyncio.Event | None = None
+        self.ws_subscription: Any | None = None
+        self.trace_subscription: Any | None = None
+        self.ws_tasks: list[asyncio.Task[Any]] = []
+        self.orch_task: asyncio.Task[Any] | None = None
+        self.fetcher_task: asyncio.Task[Any] | None = None
+        self.tuning_scheduler: Any | None = None
+
+    async def __aenter__(self) -> _StartupGuard:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+        if exc_type is not None:
+            await self._cleanup()
+        return False
+
+    async def _cleanup(self) -> None:
+        _state.ready = False
+        _state.stopping = True
+        if self.runtime_stop is not None:
+            self.runtime_stop.set()
+        for subscription in (self.ws_subscription, self.trace_subscription):
+            if subscription is not None:
+                try:
+                    subscription.close()
+                except Exception as exc:
+                    log.warning(
+                        "api.startup_cleanup_failed", resource="subscription", error=str(exc)
+                    )
+
+        if self.fetcher_task is not None and not self.fetcher_task.done():
+            self.fetcher_task.cancel()
+        if self.fetcher_task is not None:
+            await asyncio.gather(self.fetcher_task, return_exceptions=True)
+        for task in self.ws_tasks:
+            if not task.done():
+                task.cancel()
+        if self.ws_tasks:
+            await asyncio.gather(*self.ws_tasks, return_exceptions=True)
+
+        if _state.runtime_upgrades is not None:
+            try:
+                _state.runtime_upgrades.close()
+            except Exception as exc:
+                log.warning(
+                    "api.startup_cleanup_failed", resource="runtime_upgrades", error=str(exc)
+                )
+            _state.runtime_upgrades = None
+        if _state.runtime is not None:
+            try:
+                await _state.runtime.flush()
+            except Exception as exc:
+                log.warning("api.startup_cleanup_failed", resource="runtime_flush", error=str(exc))
+
+        if self.tuning_scheduler is not None:
+            try:
+                self.tuning_scheduler.stop()
+            except Exception as exc:
+                log.warning(
+                    "api.startup_cleanup_failed", resource="tuning_scheduler", error=str(exc)
+                )
+            _state.tuning_scheduler = None
+        if _state.intel_adapter is not None:
+            try:
+                intel_obj = getattr(_state.intel_adapter, "_intel", None)
+                if intel_obj is not None:
+                    intel_obj.close()
+            except Exception as exc:
+                log.warning("api.startup_cleanup_failed", resource="crypto_intel", error=str(exc))
+            _state.intel_adapter = None
+            _state.crypto_intel = None
+
+        if self.orchestrator is not None:
+            try:
+                self.orchestrator.stop()
+            except Exception as exc:
+                log.warning(
+                    "api.startup_cleanup_failed", resource="orchestrator_stop", error=str(exc)
+                )
+        if self.orch_task is not None:
+            if not self.orch_task.done():
+                try:
+                    await asyncio.wait_for(self.orch_task, timeout=10.0)
+                except TimeoutError:
+                    self.orch_task.cancel()
+                except Exception as exc:
+                    log.warning(
+                        "api.startup_cleanup_failed", resource="orchestrator_task", error=str(exc)
+                    )
+            await asyncio.gather(self.orch_task, return_exceptions=True)
+        await _release_after_failed_startup(self.orchestrator, self.storage)
+        _state.background_tasks = []
+        _state.runtime = None
+        _state.runtime_loop = None
+        _state.runtime_upgrades = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize all subsystems on startup, clean up on shutdown."""
@@ -451,6 +587,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # the operator configured. Idempotent -- src/api/__main__ calls it too,
     # and uvicorn --reload runs this in a fresh process each time.
     configure_logging()
+    _state.stopping = False
 
     # Fail fast on auth misconfiguration before accepting connections
     api_key = os.environ.get("API_SECRET_KEY", "").strip()
@@ -493,21 +630,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # GAP-006: backend chosen by STORAGE_BACKEND (sqlite | timescale)
     _state.storage = create_storage_backend()
-    await _state.storage.initialize()
+    try:
+        await _state.storage.initialize()
+    except Exception:
+        await _release_after_failed_startup(None, _state.storage)
+        raise
 
-    async with open_fetcher(_state.storage) as fetcher:
-        _state.orchestrator = Orchestrator(_state.storage, fetcher)
+    guard = _StartupGuard(_state.storage)
+    async with guard, open_fetcher(_state.storage, initialize=False) as fetcher:
+        # Venue discovery can take a minute of retries on a network outage.
+        # Start it as a tracked task; the API can bind and report `starting`
+        # while the orchestrator waits for the actual result. The context
+        # manager still owns and closes the fetcher at lifespan exit.
+        fetcher_init_task = asyncio.create_task(fetcher.initialize(), name="venue_initialization")
+        guard.fetcher_task = fetcher_init_task
+        _state.orchestrator = guard.orchestrator = Orchestrator(_state.storage, fetcher)
         try:
-            await _state.orchestrator.startup()
+            await _state.orchestrator.startup(
+                defer_warm_up=True, fetcher_init_task=fetcher_init_task
+            )
         except Exception as exc:
-            # NEW-003: ensure fetcher connections are closed even when startup fails
             log.critical("api.startup_failed", error=str(exc), exc_info=True)
-            try:
-                await fetcher.close()
-            except Exception as close_exc:
-                log.warning(
-                    "api.fetcher_close_failed_on_startup_error", error=str(close_exc), exc_info=True
-                )
             raise
         # API-008: the security controls are declared up only here, after
         # startup has actually got past building them. Before this line the
@@ -523,8 +666,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if restored is not await runtime_config.get_execution_mode():
             await runtime_config.set_execution_mode(restored)
             log.warning("api.execution_mode_restored", mode=restored.value)
-
-        _state.ready = True  # NEW-001: mark ready only after full startup
 
         # crypto-intel-v6: start IntelligenceAdapter when INTEL_ENABLED=true
         if os.environ.get("INTEL_ENABLED", "false").lower() == "true":
@@ -545,21 +686,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # The subscription is taken before the task starts: subscribing inside
         # the task would drop every event published between task creation and
         # its first scheduling slice.
-        ws_subscription = get_event_bus().subscribe(TOPICS)
+        ws_subscription = guard.ws_subscription = get_event_bus().subscribe(TOPICS)
         # The runtime platform, and the decision-trace index fed from its own
         # subscription (it can fall behind and drop; it can never slow a
         # producer -- INV-032). Started before the orchestrator's first tick:
         # its first reconcile pass re-applies what an operator left in place
         # before a restart (a strategy quarantine, a self-tuning pause), so no
         # tick runs without it.
-        trace_subscription = get_event_bus().subscribe(TRACE_TOPICS)
+        trace_subscription = guard.trace_subscription = get_event_bus().subscribe(TRACE_TOPICS)
         _state.runtime = await start_runtime_platform()
-        orch_task = asyncio.create_task(_state.orchestrator.run(), name="orchestrator")
-        ws_tasks = [
-            asyncio.create_task(_heartbeat_loop(), name="ws_heartbeat"),
-            asyncio.create_task(_event_fanout_loop(ws_subscription), name="ws_fanout"),
-        ]
-        runtime_stop = asyncio.Event()
+        orch_task = guard.orch_task = asyncio.create_task(
+            _state.orchestrator.run(), name="orchestrator"
+        )
+        ws_tasks = guard.ws_tasks
+        ws_tasks.append(asyncio.create_task(_heartbeat_loop(), name="ws_heartbeat"))
+        ws_tasks.append(asyncio.create_task(_event_fanout_loop(ws_subscription), name="ws_fanout"))
+        runtime_stop = guard.runtime_stop = asyncio.Event()
         if _state.runtime is not None:
             ws_tasks.append(
                 asyncio.create_task(
@@ -587,11 +729,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             )
             tuning_scheduler.start()
             _state.tuning_scheduler = tuning_scheduler
+            guard.tuning_scheduler = tuning_scheduler
 
+        # NEW-001: ready only after the whole start -- the runtime platform
+        # has restored desired state and reconciled once, and the tasks are
+        # running. The models still warm up behind it (GET /readyz).
+        _state.ready = True
         log.info("api.startup_complete", trading_mode=cfg.trading_mode.value)
         try:
             yield
         finally:
+            _state.stopping = True
             # `finally`, not a plain shutdown path: a lifespan unwound by an
             # exception used to leave this subscription registered on the
             # process-wide bus with its waiters parked on a loop that was
@@ -639,6 +787,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await asyncio.wait_for(orch_task, timeout=10.0)
         except TimeoutError:
             orch_task.cancel()
+        if not fetcher_init_task.done():
+            fetcher_init_task.cancel()
+        await asyncio.gather(fetcher_init_task, return_exceptions=True)
         await _state.orchestrator.shutdown()
         await _job_reporter.aclose()
         await _state.storage.close()
@@ -994,6 +1145,36 @@ def _verify_operator_secret(operator_secret: str, operator: str, endpoint: str) 
 # ---------------------------------------------------------------------------
 # REST endpoints — all require API key
 # ---------------------------------------------------------------------------
+
+
+@app.get("/livez", dependencies=[Depends(api_key_header)])
+async def livez() -> dict[str, str]:
+    """
+    Liveness: the process is serving. Constant on purpose -- it touches no
+    storage and no subsystem, so it stays truthful while those are starting
+    or failing (that is GET /readyz's job).
+    """
+    return {"status": "alive"}
+
+
+@app.get("/readyz", dependencies=[Depends(api_key_header)])
+async def readyz() -> JSONResponse:
+    """
+    Readiness, layer by layer (src/api/readiness.py): 200 only when the API,
+    the runtime platform, every timeframe's model and the trading loops are
+    up; otherwise 503 with the same body saying what is missing and why.
+    """
+    orchestrator = _state.orchestrator
+    runtime_loop = _state.runtime_loop
+    report = readiness_report(
+        api_ready=_state.ready,
+        stopping=_state.stopping,
+        runtime_ready=_state.runtime is not None,
+        reconcile_passes=None if runtime_loop is None else runtime_loop.passes,
+        orchestrator=None if orchestrator is None else orchestrator.readiness(),
+        trading_mode=get_settings().trading_mode.value,
+    )
+    return JSONResponse(report, status_code=200 if report["ready"] else 503)
 
 
 @app.get("/health", dependencies=[Depends(api_key_header)])

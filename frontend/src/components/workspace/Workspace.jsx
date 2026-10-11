@@ -38,15 +38,27 @@ export function Workspace({ specs, layout, onChange, renderPanel, viewportRef })
     }
     const measure = () => {
       const r = viewport.getBoundingClientRect();
-      setFrame({ top: r.top, left: r.left, width: r.width, height: r.height });
+      // The workspace now grows with its panels and the document scrolls.
+      // Maximize only the visible intersection, not the full content height;
+      // this also keeps the header/status area out of the overlay when visible.
+      const top = Math.max(0, r.top);
+      const bottom = Math.min(window.innerHeight, r.bottom);
+      setFrame({
+        top,
+        left: r.left,
+        width: r.width,
+        height: Math.max(0, bottom - top),
+      });
     };
     measure();
     const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
     observer?.observe(viewport);
     window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, { passive: true });
     return () => {
       observer?.disconnect();
       window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure);
     };
   }, [maximized, viewportRef]);
 

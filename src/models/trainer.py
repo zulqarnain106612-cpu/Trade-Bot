@@ -20,6 +20,7 @@ Registry: MODL-001, MODL-005, MODL-007 (config/quality_registry.json).
 from __future__ import annotations
 
 import contextlib
+import gc
 import hashlib
 import hmac  # SCAN2-008: was inline-imported inside hmac_compare(); moved to module level
 import io
@@ -60,6 +61,8 @@ from src.models.provenance import (
     hash_feature_schema,
     hash_training_data,
     library_versions,
+    read_manifest,
+    read_provenance,
 )
 from src.tuning.live_overrides import effective_feature_settings, effective_xgboost_settings
 
@@ -494,6 +497,7 @@ def _build_xgb(cfg: XGBoostSettings, scale_pos_weight: float = 1.0) -> XGBClassi
         eval_metric=cfg.eval_metric,
         tree_method=cfg.tree_method,
         device=cfg.device,
+        n_jobs=cfg.n_jobs,
         random_state=cfg.random_state,
         early_stopping_rounds=cfg.early_stopping_rounds,
         scale_pos_weight=scale_pos_weight,
@@ -565,6 +569,7 @@ class ModelTrainer:
         # therefore the only place that can complete the record. Keyed by
         # MODEL_DIRECTION / MODEL_META_LABEL.
         self._provenance: dict[str, dict[str, object]] = {}
+        self._cached_model_version: str | None = None
 
     # ------------------------------------------------------------------
     # Provenance (MODL-001)
@@ -1288,6 +1293,191 @@ class ModelTrainer:
         data = _verify_manifest(path)
         return _attach_feature_columns(joblib.load(io.BytesIO(data)))
 
+    @property
+    def cached_model_version(self) -> str | None:
+        """Original artifact creation timestamp when a provenance-safe cache hit occurs."""
+        return self._cached_model_version
+
+    def load_compatible_cached_models(
+        self, fm: FeatureMatrix, model_dir: str | Path
+    ) -> tuple[TrainingResult, TrainingResult] | None:
+        """Reuse direction/meta artifacts only when data, schema, code, and libraries match.
+
+        Integrity alone is not freshness: a valid SHA-256 manifest is insufficient
+        if the model was trained on different bars or a different feature contract.
+        Any missing, stale, incomplete, or failed-gate provenance returns a cache
+        miss and leaves the caller to run the normal training path.
+        """
+        model_root = Path(model_dir)
+        direction_path = model_root / _DIRECTION_FILENAME.format(
+            symbol=self._symbol.replace("/", "_"), timeframe=self._timeframe
+        )
+        meta_path = model_root / _META_FILENAME.format(
+            symbol=self._symbol.replace("/", "_"), timeframe=self._timeframe
+        )
+        try:
+            direction_provenance = read_provenance(direction_path)
+            meta_provenance = read_provenance(meta_path)
+            direction_manifest = read_manifest(direction_path)
+            meta_manifest = read_manifest(meta_path)
+            if (
+                direction_provenance is None
+                or meta_provenance is None
+                or direction_provenance.artifact_sha256 != direction_manifest.get("sha256")
+                or meta_provenance.artifact_sha256 != meta_manifest.get("sha256")
+            ):
+                self._log.info(
+                    "trainer.cached_models_rejected",
+                    reason="artifact digest and provenance disagree",
+                )
+                return None
+            active_columns = get_active_feature_columns(
+                coverage=getattr(fm, "intelligence_coverage", None), min_coverage=0.6
+            )
+            active_columns = [column for column in active_columns if column in fm.features.columns]
+            x_direction = fm.features[active_columns].to_numpy(dtype=np.float64)
+            y_direction = fm.labels.to_numpy(dtype=np.int8)
+            direction_data_hash = hash_training_data(x_direction, y_direction)
+            direction_schema_hash = hash_feature_schema(active_columns)
+            if not self._cached_provenance_matches(
+                direction_provenance,
+                MODEL_DIRECTION,
+                direction_data_hash,
+                direction_schema_hash,
+                active_columns,
+            ):
+                self._log.info(
+                    "trainer.cached_models_rejected",
+                    reason="direction provenance does not match current data/schema/code/config",
+                )
+                return None
+
+            direction_model = self.load_direction(model_root, self._symbol, self._timeframe)
+            direction_probabilities = direction_model.predict_proba(x_direction)[:, 1]
+            direction_predictions = (direction_probabilities >= 0.5).astype(np.int8)
+            meta_y = meta_labels(
+                pd.Series(direction_predictions, index=fm.labels.index, dtype=np.int8), fm.labels
+            ).to_numpy(dtype=np.int8)
+            x_meta = np.hstack(
+                [
+                    x_direction,
+                    direction_probabilities.reshape(-1, 1),
+                    np.abs(direction_probabilities - 0.5).reshape(-1, 1),
+                ]
+            )
+            meta_columns = [*active_columns, "p_long", "confidence"]
+            if not self._cached_provenance_matches(
+                meta_provenance,
+                MODEL_META_LABEL,
+                hash_training_data(x_meta, meta_y),
+                hash_feature_schema(meta_columns),
+                meta_columns,
+            ):
+                self._log.info(
+                    "trainer.cached_models_rejected",
+                    reason="meta-label provenance does not match current data/schema/code/config",
+                )
+                return None
+
+            meta_model = self.load_meta(model_root, self._symbol, self._timeframe)
+            direction_result = self._cached_training_result(direction_provenance, direction_model)
+            meta_result = self._cached_training_result(meta_provenance, meta_model)
+            if direction_result is None or meta_result is None:
+                self._log.info(
+                    "trainer.cached_models_rejected",
+                    reason="cached model did not pass current live gate",
+                )
+                return None
+            self._direction_columns = list(active_columns)
+            self._meta_columns = list(active_columns)
+            self._cached_model_version = direction_provenance.created_at
+            self._log.info(
+                "trainer.cached_models_reused",
+                symbol=self._symbol,
+                timeframe=self._timeframe,
+                created_at=self._cached_model_version,
+                data_hash=direction_data_hash[:16],
+            )
+            return direction_result, meta_result
+        except Exception as exc:
+            # A cache is optional; malformed, incompatible, or unreadable
+            # artifacts are a cache miss, not a startup-success condition.
+            # The caller falls back to the full training and unchanged gates.
+            self._log.info("trainer.cached_models_rejected", reason=str(exc)[:200])
+            return None
+
+    def _cached_provenance_matches(
+        self,
+        provenance: ModelProvenance | None,
+        model_name: str,
+        data_hash: str,
+        schema_hash: str,
+        columns: Sequence[str],
+    ) -> bool:
+        if provenance is None or not provenance.is_complete:
+            return False
+        return (
+            provenance.model_id == f"{model_name}:{self._symbol}:{self._timeframe}"
+            and provenance.symbol == self._symbol
+            and provenance.timeframe == self._timeframe
+            and provenance.training_data_hash == data_hash
+            and provenance.feature_schema_hash == schema_hash
+            and tuple(provenance.feature_columns) == tuple(columns)
+            and provenance.code_commit == code_commit()
+            and bool(provenance.created_at)
+            and self._valid_provenance_timestamp(provenance.created_at)
+            and provenance.validation_methodology == self._cpcv_methodology()
+            and provenance.hyperparameters == self._xgb_cfg.model_dump()
+            and provenance.random_seed == int(self._xgb_cfg.random_state)
+            and provenance.library_versions == library_versions()
+        )
+
+    @staticmethod
+    def _valid_provenance_timestamp(value: str) -> bool:
+        try:
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return False
+        return True
+
+    def _cached_training_result(
+        self, provenance: ModelProvenance, model: XGBClassifier
+    ) -> TrainingResult | None:
+        metrics = provenance.metrics
+        required = (
+            "oos_sharpe",
+            "max_drawdown",
+            "accuracy",
+            "precision",
+            "recall",
+            "f1",
+            "n_trades",
+        )
+        if any(key not in metrics for key in required):
+            return None
+        values = {key: float(metrics[key]) for key in required}
+        if not all(np.isfinite(value) for value in values.values()):
+            return None
+        n_trades = int(values["n_trades"])
+        live_gate_pass = self._check_live_gate(
+            values["oos_sharpe"], values["max_drawdown"], n_trades
+        )
+        if not live_gate_pass:
+            return None
+        return TrainingResult(
+            model=model,
+            oos_sharpe=values["oos_sharpe"],
+            max_drawdown=values["max_drawdown"],
+            n_trades=n_trades,
+            accuracy=values["accuracy"],
+            precision=values["precision"],
+            recall=values["recall"],
+            f1=values["f1"],
+            live_gate_pass=True,
+            fold_metrics=[],
+            elapsed_s=0.0,
+        )
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -1329,6 +1519,10 @@ class ModelTrainer:
 
             pos_weight = float((y[tr] == 0).sum()) / max(float((y[tr] == 1).sum()), 1.0)
             model = _build_xgb(self._xgb_cfg, scale_pos_weight=pos_weight)
+            # Keep the no-early-stop fallback local to this fold. Previously
+            # `model_no_es` could retain a fitted booster across the next fold,
+            # so the next fit temporarily held multiple native XGBoost models.
+            model_no_es = None
 
             # Internal eval for early stopping: last 10% of train
             inner_split = int(len(tr) * 0.90)
@@ -1391,6 +1585,12 @@ class ModelTrainer:
                 f1=round(f1, 3),
                 sharpe=round(fold_sharpe, 3),
             )
+            # Release native boosters before fitting the next fold. The
+            # validation arrays and scalar metrics above are all that survive.
+            del model
+            if model_no_es is not None:
+                del model_no_es
+            gc.collect()
 
         # M-10: fail-safe for excessive fold skipping — more than 30% skipped
         # means the dataset has severe label imbalance; OOS metrics are unreliable.

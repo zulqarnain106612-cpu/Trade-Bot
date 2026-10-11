@@ -1,8 +1,12 @@
-"""Tests for src/intelligence/ensemble_predictor.py (0% → target 75%+)."""
+"""Tests for src/intelligence/ensemble_predictor.py (0% → target 75%+).
+
+Decides:
+  - RES-025 — regression coverage for the recorded behavior.
+"""
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
@@ -146,6 +150,7 @@ class TestXGBoostPredictor:
         pred = p.predict(X.iloc[:1])
         assert isinstance(pred, float)
         assert p.rmse < np.inf
+        assert p.model.get_params()["n_jobs"] == 1
 
     def test_predict_with_uncertainty_fitted(self):
         p = XGBoostPredictor()
@@ -195,12 +200,34 @@ class TestLSTMPredictor:
         m = p.get_performance_metrics()
         assert "model_type" in m
 
+    def test_fit_skips_optional_torch_when_memory_headroom_is_insufficient(self):
+        from src.intelligence import ensemble_predictor
+
+        p = LSTMPredictor(hidden_dim=4, lookback=5, epochs=1)
+        X = np.zeros((30, 5, 1), dtype=np.float32)
+        y = np.zeros(30, dtype=np.float32)
+        with (
+            patch(
+                "src.intelligence.ensemble_predictor._torch_fits_memory_budget", return_value=False
+            ),
+            patch("src.intelligence.ensemble_predictor._load_torch_runtime") as load_torch,
+        ):
+            p.fit(X, y)
+        load_torch.assert_not_called()
+        assert p.model is None
+        assert ensemble_predictor._torch_installed() is True
+
     def test_fit_import_error_disables_model(self):
         p = LSTMPredictor(hidden_dim=4, lookback=5, epochs=1)
         rng = np.random.default_rng(3)
         X = rng.standard_normal((30, 5, 1)).astype(np.float32)
         y = rng.standard_normal(30).astype(np.float32)
-        with patch.dict("sys.modules", {"torch": None, "torch.nn": None}):
+        with (
+            patch(
+                "src.intelligence.ensemble_predictor._torch_fits_memory_budget", return_value=True
+            ),
+            patch.dict("sys.modules", {"torch": None, "torch.nn": None}),
+        ):
             p.fit(X, y)
         assert p.model is None
 
@@ -209,7 +236,12 @@ class TestLSTMPredictor:
         rng = np.random.default_rng(3)
         X = rng.standard_normal((30, 5, 1)).astype(np.float32)
         y = rng.standard_normal(30).astype(np.float32)
-        with patch("torch.optim.Adam", side_effect=RuntimeError("boom")):
+        with (
+            patch(
+                "src.intelligence.ensemble_predictor._torch_fits_memory_budget", return_value=True
+            ),
+            patch("torch.optim.Adam", side_effect=RuntimeError("boom")),
+        ):
             p.fit(X, y)
         assert p.model is None
 
@@ -218,7 +250,10 @@ class TestLSTMPredictor:
         rng = np.random.default_rng(3)
         X = rng.standard_normal((30, 5, 1)).astype(np.float32)
         y = rng.standard_normal(30).astype(np.float32)
-        p.fit(X, y)
+        with patch(
+            "src.intelligence.ensemble_predictor._torch_fits_memory_budget", return_value=True
+        ):
+            p.fit(X, y)
         assert p.model is not None
         pred = p.predict(X[:1].reshape(1, -1))
         assert isinstance(pred, float)
@@ -228,7 +263,10 @@ class TestLSTMPredictor:
         rng = np.random.default_rng(3)
         X = rng.standard_normal((30, 5, 1)).astype(np.float32)
         y = rng.standard_normal(30).astype(np.float32)
-        p.fit(X, y)
+        with patch(
+            "src.intelligence.ensemble_predictor._torch_fits_memory_budget", return_value=True
+        ):
+            p.fit(X, y)
         with patch.object(p.model, "eval", side_effect=RuntimeError("boom")):
             result = p.predict(X[:1].reshape(1, -1))
         assert result == 0.0
@@ -461,7 +499,10 @@ class TestEnsemblePredictor:
         ep = EnsemblePredictor()
         X = _make_features(60)
         y = pd.Series(X["a"] * 2.0)
-        ep.fit(X, y)
+        with patch(
+            "src.intelligence.ensemble_predictor._torch_fits_memory_budget", return_value=True
+        ):
+            ep.fit(X, y)
         result = ep.predict(X.iloc[:1])
         assert isinstance(result, EnsemblePrediction)
         assert len(result.individual_predictions) == 5
@@ -603,18 +644,79 @@ class TestEnsemblePersistence:
         assert "/" not in path.name
 
     def test_lstm_member_survives_pickling_after_fit(self, tmp_path):
-        """Regression: _LSTMNet used to be defined inside LSTMPredictor.fit(),
-        which pickle/joblib cannot serialize (PicklingError). It is now
-        module-level specifically so a fitted LSTM survives save()/load()."""
-        from src.intelligence.ensemble_predictor import _TORCH_AVAILABLE
+        """Fitted LSTM artifacts must remain serializable across save/load."""
+        from src.intelligence.ensemble_predictor import _torch_installed
 
-        if not _TORCH_AVAILABLE:
+        if not _torch_installed():
             pytest.skip("torch not installed")
         ep = EnsemblePredictor()
         X = _make_features(60)
         y = pd.Series(X["a"] * 2.0)
-        ep.fit(X, y)
+        with patch(
+            "src.intelligence.ensemble_predictor._torch_fits_memory_budget", return_value=True
+        ):
+            ep.fit(X, y)
         assert ep.models["lstm"].model is not None  # confirms LSTM actually fitted
         ep.save(tmp_path, "BTC/USDT", "15m")  # must not raise PicklingError
-        loaded = EnsemblePredictor.load(tmp_path, "BTC/USDT", "15m")
+        with patch(
+            "src.intelligence.ensemble_predictor._torch_fits_memory_budget", return_value=True
+        ):
+            loaded = EnsemblePredictor.load(tmp_path, "BTC/USDT", "15m")
         assert loaded.models["lstm"].model is not None
+
+
+def test_legacy_lstm_class_path_rejects_insufficient_memory():
+    from src.intelligence import ensemble_predictor
+
+    with patch.object(ensemble_predictor, "_torch_fits_memory_budget", return_value=False):
+        with pytest.raises(AttributeError, match="memory budget"):
+            ensemble_predictor.__getattr__("_LSTMNet")
+
+
+def test_legacy_lstm_class_path_rejects_missing_torch_runtime():
+    from src.intelligence import ensemble_predictor
+
+    with (
+        patch.object(ensemble_predictor, "_torch_fits_memory_budget", return_value=True),
+        patch.object(ensemble_predictor, "_load_torch_runtime", return_value=None),
+    ):
+        with pytest.raises(AttributeError, match="unavailable Torch runtime"):
+            ensemble_predictor.__getattr__("_LSTMNet")
+
+
+def test_legacy_lstm_class_path_returns_runtime_class():
+    from types import SimpleNamespace
+
+    from src.intelligence import ensemble_predictor
+
+    legacy_class = type("LegacyLSTM", (), {})
+    with (
+        patch.object(ensemble_predictor, "_torch_fits_memory_budget", return_value=True),
+        patch.object(
+            ensemble_predictor,
+            "_load_torch_runtime",
+            return_value=SimpleNamespace(lstm_net=legacy_class),
+        ),
+    ):
+        assert ensemble_predictor.__getattr__("_LSTMNet") is legacy_class
+
+
+def test_current_rss_unavailable_and_torch_budget_fallback():
+    from src.intelligence import ensemble_predictor
+
+    with patch(
+        "src.intelligence.ensemble_predictor.Path.read_text", side_effect=OSError("no proc")
+    ):
+        assert ensemble_predictor._current_rss_mb() is None
+    with patch.object(ensemble_predictor, "_current_rss_mb", return_value=None):
+        assert ensemble_predictor._torch_fits_memory_budget() is True
+
+
+def test_lstm_predict_returns_zero_if_lazy_runtime_disappears():
+    p = LSTMPredictor()
+    p.model = MagicMock()
+    with (
+        patch("src.intelligence.ensemble_predictor._torch_installed", return_value=True),
+        patch("src.intelligence.ensemble_predictor._load_torch_runtime", return_value=None),
+    ):
+        assert p.predict(_make_features(5)) == 0.0

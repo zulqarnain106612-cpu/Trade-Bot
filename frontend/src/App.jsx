@@ -1,7 +1,10 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { useWebSocket, useStream, usePolling, useOperatorAction, postJson } from './hooks/useApi';
+import {
+  useWebSocket, useStream, usePolling, useOperatorAction, postJson, useReadiness,
+} from './hooks/useApi';
 import { ControlHubPanel } from './components/panels/ControlHubPanel';
 import { Panel } from './components/Panel';
+import { StartupBanner } from './components/StartupBanner';
 import { ModeSwitcher, StatCard } from './components/Controls';
 import { EquityChart, DrawdownChart } from './components/panels/EquityChart';
 import { PositionsTable } from './components/panels/PositionsPanel';
@@ -84,6 +87,8 @@ function Dashboard() {
   // panels get the envelope object, `.length` is undefined, and they render
   // their empty-state placeholder forever with no error shown.
   const status = usePolling('/status', 5000);
+  // Liveness, readiness and why not, from GET /readyz (src/api/readiness.py).
+  const readiness = useReadiness();
   const equityCurve = usePolling('/equity?limit=200', 30000, (b) => b?.curve ?? []);
   // A closed position is a new trade row, so the close event is the trigger
   // to re-read rather than a 15s timer. Re-fetching on the event keeps the
@@ -249,23 +254,7 @@ function Dashboard() {
 
       <div className="app-main">
         <main ref={viewportRef} className="workspace-viewport" aria-label="Dashboard workspace">
-          {!status && (
-            <div
-              role="status"
-              aria-live="polite"
-              style={{
-                margin: '0 0 12px',
-                padding: '10px 14px',
-                border: '1px solid rgba(234, 179, 8, 0.35)',
-                borderRadius: 6,
-                background: 'rgba(234, 179, 8, 0.08)',
-                color: 'var(--c-yellow)',
-                fontSize: 12,
-              }}
-            >
-              Backend API is not ready yet. The dashboard is running, but data panels will populate only after API startup finishes. This page will retry automatically; keep trading in paper/manual mode.
-            </div>
-          )}
+          <StartupBanner report={readiness.report} problem={readiness.problem} />
           {showPanelManager && (
             <PanelManager
               layout={layout}
