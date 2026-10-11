@@ -2,13 +2,22 @@
   "permissions": {
     "deny": [
       "Agent",
+      "AskUserQuestion",
       "Bash",
+      "BashOutput",
       "CronCreate",
       "Edit",
+      "EnterPlanMode",
+      "ExitPlanMode",
       "Glob",
       "Grep",
-      "LS",
+      "KillShell",
       "ListMcpResources",
+      "LS",
+      "mcp__Desktop_Commander__*",
+      "mcp__github__subscribe_pr_activity",
+      "mcp__remote__*",
+      "mcp__Remote_Desktop_Commander__*",
       "Monitor",
       "MultiEdit",
       "NotebookEdit",
@@ -19,6 +28,7 @@
       "RemoteTrigger",
       "ScheduleWakeup",
       "SendMessage",
+      "Skill",
       "Task",
       "TaskOutput",
       "TaskStop",
@@ -26,8 +36,7 @@
       "TodoWrite",
       "WebFetch",
       "WebSearch",
-      "Write",
-      "mcp__github__subscribe_pr_activity"
+      "Write"
     ]
   },
   "hooks": {

@@ -69,7 +69,7 @@ class TestDefaultDeny:
         assert "GitHub MCP" in bash_reason
         assert "GitHub MCP" in read_reason
         assert bash_reason != read_reason
-        assert "or suna, ab tabiyat kesi hy, kaho to koi or intizaam kru" in read_reason
+        assert "or suna, ab tabiyat kesi hy, kaho to koi or intizaam kru" in read_reason.lower()
 
     @pytest.mark.parametrize("override", ["off", "warn"])
     def test_policy_overrides_cannot_reopen_native_routes(self, override: str) -> None:
@@ -90,13 +90,6 @@ class TestDefaultDeny:
 
 class TestApprovedGithubRoute:
     def test_repository_file_read_is_allowed_only_when_repo_scoped(self) -> None:
-        decision = decide(
-            "mcp__GitHub__fetch_file",
-            {"repository_full_name": REPO, "path": "CLAUDE.md", "start_line": 1, "end_line": 30},
-        )
-        assert decision["permissionDecision"] == "allow"
-
-    def test_connector_style_scoped_file_read_is_allowed(self) -> None:
         decision = decide(
             "mcp__GitHub__fetch_file",
             {"repository_full_name": REPO, "path": "CLAUDE.md", "start_line": 1, "end_line": 30},
@@ -303,19 +296,6 @@ class TestBranchAndBoundaryWrites:
             contains="Protected observation-boundary",
         )
 
-    @pytest.mark.parametrize(
-        "path",
-        [
-            ".claude",
-            ".claude/settings.local.json",
-            ".claude/new-hook.py",
-            ".github/workflows",
-            ".mcp.json",
-            ".github/workflows/new-workflow.yml",
-            "src/agent_control/new_gate.py",
-            "CLAUDE.md",
-        ],
-    )
     @pytest.mark.parametrize(
         "path",
         [

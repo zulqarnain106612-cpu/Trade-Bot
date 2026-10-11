@@ -2,6 +2,10 @@
 
 ## 1. Scope
 
+## 1A. Claude Code cloud session boundary
+
+Before working in a hosted Claude Code session, follow [the GitHub-MCP-only cloud setup](docs/security/claude-cloud-github-only.md). Select only this repository, expose only GitHub MCP in the cloud connector inventory, verify with `/mcp`, and start a fresh session after configuration changes. Repository hooks cannot remove tools that the host independently exposes, so host-level connector selection is mandatory defense in depth.
+
 These directives govern all engineering work in this repository, including:
 
 * source code, tests, configuration, dependencies, builds/runtime

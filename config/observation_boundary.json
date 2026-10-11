@@ -46,7 +46,9 @@
     "Project files cannot constrain a separate unmanaged Claude installation outside sessions that load these settings and hooks; host-managed policy is required for that separate trust boundary.",
     "enabled is documentary only; hard enforcement lives in code.",
     "All limits are bounded again by hard ceilings in the hooks.",
-    "The observation mechanism has no runtime off switch."
+    "The observation mechanism has no runtime off switch.",
+    "Hosted Claude Code sessions must select only this repository and expose only GitHub MCP in the host connector inventory; see docs/security/claude-cloud-github-only.md.",
+    "Do not rely on .claude/settings.local.json for hosted cloud enforcement; host-level connector configuration and repository hooks are separate control layers."
   ],
   "github_only_route": {
     "enabled": true,
