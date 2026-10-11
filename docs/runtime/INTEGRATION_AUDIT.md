@@ -145,3 +145,21 @@ Evidence was captured on implementation commit `e8162a3377a6ed90b015c85e1a82eb1d
 All three timeframe models reached `ready`; the API and Runtime Platform reached readiness before model warm-up completed, as intended. The preflight requires the fast 1m first tick; the 15m and 4h loop counters were still zero at the 260.4-second snapshot, so their first scheduled ticks were **not** verified by this run. The effective XGBoost profile was 300 estimators, depth 4, one native worker under the existing 1 GiB cap; configured values remained 500/depth 6 and were not rewritten. No memory-limit violation or failed-readiness state occurred. The isolated run recorded one non-fatal retry-exhaustion for the public OKX instruments endpoint; this does not establish OKX endpoint health, but it did not prevent runtime readiness, model readiness or the required 1m tick.
 
 The report's `live_orders_enabled=false`, `trading_mode=paper`, `exchange_credentials_inherited=false`, and `storage.isolated=true` fields are the evidence that this preflight did not use live exchange credentials or the operator's normal database/artifacts. The run does not constitute a native-browser E2E test of drag-and-drop: the workspace regression is covered by the installed react-grid-layout 2.3.0 DOM interaction test, and no Vite/API GUI process was running when the original bundle/check-out inspection was performed.
+
+### Repeat preflight against the final runtime implementation — 2026-10-11
+
+A second complete PAPER-mode preflight was run against commit `c307752a90837a614cbca725b2ff26b41650a13f` before the coverage-only test follow-up, with `tracked_worktree_dirty=false`. It used loopback port `18181`, isolated SQLite and model-artifact snapshots, blank exchange/optional-service credentials, `live_orders_enabled=false`, and the unchanged 1 GiB critical RSS threshold.
+
+| Measurement | Result |
+|---|---:|
+| API listening | 14.1 s |
+| API readiness | 14.1 s |
+| Runtime Platform readiness | 14.1 s |
+| All timeframe models ready (1m, 15m, 4h) | 414.0 s |
+| First healthy 1m tick | 427.2 s |
+| Runtime reconciliation passes by report | 84 |
+| Peak process-tree RSS | 553.5 MiB / 1,024 MiB critical limit |
+| Total elapsed | 431.5 s |
+| Graceful shutdown | exit 0; 3.4 s; not forced |
+
+The preflight passed with `readiness_failed=false`, `memory_limit_exceeded=false`, `interrupted=false`, `trading_mode=paper`, `exchange_credentials_inherited=false`, and `storage.isolated=true`. The effective XGBoost profile remained 300 estimators/depth 4/one worker; configured 500/depth 6 values were preserved. The 1m loop emitted its first tick. The 15m and 4h loops had zero ticks at this snapshot, so their first scheduled ticks remain unverified. One public OKX instruments request exhausted retries; this did not prevent readiness but does not establish OKX endpoint health.

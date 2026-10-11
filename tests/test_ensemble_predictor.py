@@ -6,7 +6,7 @@ Decides:
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
@@ -663,3 +663,60 @@ class TestEnsemblePersistence:
         ):
             loaded = EnsemblePredictor.load(tmp_path, "BTC/USDT", "15m")
         assert loaded.models["lstm"].model is not None
+
+
+def test_legacy_lstm_class_path_rejects_insufficient_memory():
+    from src.intelligence import ensemble_predictor
+
+    with patch.object(ensemble_predictor, "_torch_fits_memory_budget", return_value=False):
+        with pytest.raises(AttributeError, match="memory budget"):
+            ensemble_predictor.__getattr__("_LSTMNet")
+
+
+def test_legacy_lstm_class_path_rejects_missing_torch_runtime():
+    from src.intelligence import ensemble_predictor
+
+    with (
+        patch.object(ensemble_predictor, "_torch_fits_memory_budget", return_value=True),
+        patch.object(ensemble_predictor, "_load_torch_runtime", return_value=None),
+    ):
+        with pytest.raises(AttributeError, match="unavailable Torch runtime"):
+            ensemble_predictor.__getattr__("_LSTMNet")
+
+
+def test_legacy_lstm_class_path_returns_runtime_class():
+    from types import SimpleNamespace
+
+    from src.intelligence import ensemble_predictor
+
+    legacy_class = type("LegacyLSTM", (), {})
+    with (
+        patch.object(ensemble_predictor, "_torch_fits_memory_budget", return_value=True),
+        patch.object(
+            ensemble_predictor,
+            "_load_torch_runtime",
+            return_value=SimpleNamespace(lstm_net=legacy_class),
+        ),
+    ):
+        assert ensemble_predictor.__getattr__("_LSTMNet") is legacy_class
+
+
+def test_current_rss_unavailable_and_torch_budget_fallback():
+    from src.intelligence import ensemble_predictor
+
+    with patch(
+        "src.intelligence.ensemble_predictor.Path.read_text", side_effect=OSError("no proc")
+    ):
+        assert ensemble_predictor._current_rss_mb() is None
+    with patch.object(ensemble_predictor, "_current_rss_mb", return_value=None):
+        assert ensemble_predictor._torch_fits_memory_budget() is True
+
+
+def test_lstm_predict_returns_zero_if_lazy_runtime_disappears():
+    p = LSTMPredictor()
+    p.model = MagicMock()
+    with (
+        patch("src.intelligence.ensemble_predictor._torch_installed", return_value=True),
+        patch("src.intelligence.ensemble_predictor._load_torch_runtime", return_value=None),
+    ):
+        assert p.predict(_make_features(5)) == 0.0
