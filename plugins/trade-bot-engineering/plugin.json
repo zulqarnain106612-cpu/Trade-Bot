@@ -1,0 +1,37 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "trade-bot-engineering",
+  "version": "1.0.0",
+  "description": "Evidence-first engineering workflows for the Trade-Bot repository, with read-only access to official OpenAI developer documentation.",
+  "author": {
+    "name": "Trade-Bot maintainers"
+  },
+  "repository": "https://github.com/zulqarnain106612-cpu/Trade-Bot",
+  "license": "MIT",
+  "keywords": [
+    "trade-bot",
+    "codex",
+    "engineering",
+    "verification",
+    "quality"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Trade-Bot Engineering",
+        "shortDescription": "Evidence-first Trade-Bot engineering workflows",
+        "longDescription": "Repository-specific instructions for safe, evidence-driven code changes, verification, and delivery. Includes read-only official OpenAI developer documentation lookup.",
+        "developerName": "Trade-Bot maintainers",
+        "category": "Developer tools",
+        "capabilities": [
+          "Read"
+        ],
+        "websiteURL": "https://github.com/zulqarnain106612-cpu/Trade-Bot",
+        "defaultPrompt": [
+          "Audit the current Trade-Bot repository state and identify the next evidence-backed engineering step.",
+          "Verify a proposed Trade-Bot change against repository policy, tests, and delivery gates."
+        ]
+      }
+    }
+  }
+}
