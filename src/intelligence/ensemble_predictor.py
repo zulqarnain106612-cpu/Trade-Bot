@@ -59,8 +59,14 @@ class _TorchRuntime:
     lstm_net: Any
 
 
+# Immutable capability snapshot retained for compatibility with existing
+# diagnostics/tests. The imported Torch modules and model class themselves are
+# never stored in mutable module globals.
+_TORCH_AVAILABLE: Final[bool] = importlib.util.find_spec("torch") is not None
+
+
 def _torch_installed() -> bool:
-    return importlib.util.find_spec("torch") is not None
+    return _TORCH_AVAILABLE
 
 
 def _load_torch_runtime() -> _TorchRuntime | None:
