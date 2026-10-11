@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import structlog
-import asyncio
 
 from src.config import Timeframe
 from src.engine.orchestrator import Orchestrator
@@ -31,8 +31,6 @@ def test_primary_persisted_bar_invokes_adapter_once_with_source_timestamp() -> N
     orchestrator._storage = storage
     orchestrator._symbol = "BTC/USDT"
     orchestrator._log = structlog.get_logger("test.intelligence")
-
-    import asyncio
 
     asyncio.run(orchestrator._process_intelligence_bar(Timeframe.INTRADAY))
     asyncio.run(orchestrator._process_intelligence_bar(Timeframe.INTRADAY))

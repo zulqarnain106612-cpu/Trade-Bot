@@ -16,11 +16,11 @@ Coordinates:
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import Future, ThreadPoolExecutor
 import hashlib
 import math
 import os
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -62,6 +62,7 @@ def _validated_risk_context(
     ):
         return None, "portfolio risk context is stale or outside valid bounds"
     return values, None
+
 
 _CONFIG_PATH = Path(os.environ.get("INTEL_CONFIG", "config/intelligence.yaml"))
 _HORIZONS_CONFIG = Path(os.environ.get("HORIZONS_CONFIG", "config/horizons.yaml"))
@@ -317,11 +318,15 @@ class CryptoIntelligence:
             entry["source_cadence_seconds"] = self._source_cadence_seconds
             entry["source_timeframe"] = self._source_timeframe
             if self._last_horizon_symbol and self._source_timeframe:
-                entry["candidate_evaluation"] = learning_store.latest_candidate_evaluation(
-                    symbol=self._last_horizon_symbol,
-                    horizon_id=int(entry["id"]),
-                    source_timeframe=self._source_timeframe,
-                ) if learning_store is not None else None
+                entry["candidate_evaluation"] = (
+                    learning_store.latest_candidate_evaluation(
+                        symbol=self._last_horizon_symbol,
+                        horizon_id=int(entry["id"]),
+                        source_timeframe=self._source_timeframe,
+                    )
+                    if learning_store is not None
+                    else None
+                )
             instrument_hash = (
                 hashlib.sha256(self._last_horizon_symbol.encode()).hexdigest()[:16]
                 if self._last_horizon_symbol
@@ -331,15 +336,13 @@ class CryptoIntelligence:
                 from src.models.horizon_mlp import HorizonMLPExpert
 
                 artifact_path = (
-                    self._checkpoint_dir
-                    / f"h{entry['id'] + 1}"
-                    / instrument_hash
-                    / "mlp.joblib"
+                    self._checkpoint_dir / f"h{entry['id'] + 1}" / instrument_hash / "mlp.joblib"
                 )
                 entry["artifact_available"] = HorizonMLPExpert.artifact_available(artifact_path)
                 entry["active_lifecycle_state"] = (
                     HorizonMLPExpert.activation_state(artifact_path)
-                    if entry["artifact_available"] else "UNPROMOTED"
+                    if entry["artifact_available"]
+                    else "UNPROMOTED"
                 )
                 candidate_path = artifact_path.parent / "candidate" / artifact_path.name
                 entry["candidate_artifact_available"] = HorizonMLPExpert.artifact_available(
@@ -610,7 +613,9 @@ class CryptoIntelligence:
                         source_timeframe=source_timeframe,
                     )
                     self._learning_status = {
-                        "last_update": time.time() if learning["updated"] else self._learning_status["last_update"],
+                        "last_update": time.time()
+                        if learning["updated"]
+                        else self._learning_status["last_update"],
                         "last_error": None,
                         **{
                             key: self._learning_status.get(key, 0) + learning[key]
@@ -631,9 +636,13 @@ class CryptoIntelligence:
                     log.warning("horizon_learning_event_rejected", symbol=symbol, error=str(exc))
             else:
                 source_ts = None
-                self._learning_status["last_error"] = "invalid source event timestamp; label not scheduled"
+                self._learning_status["last_error"] = (
+                    "invalid source event timestamp; label not scheduled"
+                )
         else:
-            self._learning_status["last_error"] = "source event timestamp unavailable; label not scheduled"
+            self._learning_status["last_error"] = (
+                "source event timestamp unavailable; label not scheduled"
+            )
 
         batch_id = str(uuid.uuid4())[:8]
         expected_task_ids: set[str] = set()
@@ -719,12 +728,10 @@ class CryptoIntelligence:
         # regime. A missing regime or a regime without enough OOS observations
         # remains unavailable and cannot be replaced with the aggregate score.
         if regime_id is not None:
-            stats = await asyncio.to_thread(
-                self._learning_store.stats, symbol, source_timeframe
-            )
+            stats = await asyncio.to_thread(self._learning_store.stats, symbol, source_timeframe)
             for result in results:
-                regime_score = stats.get(result.horizon_id, {}).get("oos_by_regime", {}).get(
-                    int(regime_id)
+                regime_score = (
+                    stats.get(result.horizon_id, {}).get("oos_by_regime", {}).get(int(regime_id))
                 )
                 result.oos_score = (
                     None if regime_score is None else regime_score["directional_accuracy"]
@@ -791,9 +798,7 @@ class CryptoIntelligence:
         best = next(result for result in results if result.horizon_id == best_id)
         ecc_validity = ecc_result.get("_validity", {})
         ecc_anomaly = (
-            float(ecc_result["cluster_flow_score"])
-            if ecc_validity.get("cluster") is True
-            else None
+            float(ecc_result["cluster_flow_score"]) if ecc_validity.get("cluster") is True else None
         )
         score = decision.expected_return / max(decision.uncertainty or 0.0, 1e-12)
 

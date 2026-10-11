@@ -109,51 +109,63 @@ class TestIntelligenceAdapter:
 
     def test_v6_storage_round_trip_and_unknown_column_rejection(self) -> None:
         import pandas as pd
+
         from src.data.storage import StorageBackend
 
-        storage = StorageBackend(db_path=":memory:")
-        try:
-            self._run(storage.initialize())
-            features = {
-                "direction_v6": -1.0,
-                "size_pct_v6": 0.01,
-                "confidence_v6": 0.72,
-                "horizon_idx_v6": 5.0,
-                "ecc_anomaly_v6": None,
-                "conflict_v6": 1.0,
-                "regime_id_v6": 2.0,
-                "agreement_ratio_v6": 0.6,
-                "kyle_lambda_v6": 0.002,
-                "ofi_v6": -0.3,
-                "vpin_v6": 0.5,
-                "expected_return_v6": 0.02,
-                "uncertainty_v6": 0.01,
-                "algo_v6": "TWAP",
-                "horizon_contributions_v6": '{"5":1.0}',
-                "model_versions_v6": '{"5":"v1"}',
-                "freshness_seconds_v6": '{"5":0.2}',
-            }
-            self._run(
-                storage.store_intelligence_features(
+        async def exercise_storage_lifecycle() -> None:
+            storage = StorageBackend(db_path=":memory:")
+            try:
+                await storage.initialize()
+                features = {
+                    "direction_v6": -1.0,
+                    "size_pct_v6": 0.01,
+                    "confidence_v6": 0.72,
+                    "horizon_idx_v6": 5.0,
+                    "ecc_anomaly_v6": None,
+                    "conflict_v6": 1.0,
+                    "regime_id_v6": 2.0,
+                    "agreement_ratio_v6": 0.6,
+                    "kyle_lambda_v6": 0.002,
+                    "ofi_v6": -0.3,
+                    "vpin_v6": 0.5,
+                    "expected_return_v6": 0.02,
+                    "uncertainty_v6": 0.01,
+                    "algo_v6": "TWAP",
+                    "horizon_contributions_v6": '{"5":1.0}',
+                    "model_versions_v6": '{"5":"v1"}',
+                    "freshness_seconds_v6": '{"5":0.2}',
+                }
+                await storage.store_intelligence_features(
                     "BTC/USDT", "1h", 1000, features, confidence=0.72, source="test"
                 )
-            )
-            rows = self._run(storage.fetch_intelligence_features("BTC/USDT", "1h"))
-            assert rows.loc[1000, "direction_v6"] == -1
-            assert rows.loc[1000, "size_pct_v6"] == 0.01
-            assert rows.loc[1000, "horizon_idx_v6"] == 5
-            assert pd.isna(rows.loc[1000, "ecc_anomaly_v6"])
-            assert rows.loc[1000, "algo_v6"] == "TWAP"
-            assert rows.loc[1000, "horizon_contributions_v6"] == '{"5":1.0}'
-            self._run(storage.close())
+                rows = await storage.fetch_intelligence_features("BTC/USDT", "1h")
+                assert rows.loc[1000, "direction_v6"] == -1
+                assert rows.loc[1000, "size_pct_v6"] == 0.01
+                assert rows.loc[1000, "horizon_idx_v6"] == 5
+                assert pd.isna(rows.loc[1000, "ecc_anomaly_v6"])
+                assert rows.loc[1000, "algo_v6"] == "TWAP"
+                assert rows.loc[1000, "horizon_contributions_v6"] == '{"5":1.0}'
+            finally:
+                await storage.close()
 
-            storage = StorageBackend(db_path=":memory:")
-            self._run(
-                storage.store_intelligence_features(
-                    "BTC/USDT", "1h", 1000, {"direction_v6": 1.0}, confidence=0.7
-                )
-            )
-        except ValueError as exc:
-            assert "unsupported intelligence feature columns" in str(exc)
-        else:
-            raise AssertionError("unknown feature names must not be silently stored as NULL")
+            unknown_column_storage = StorageBackend(db_path=":memory:")
+            try:
+                await unknown_column_storage.initialize()
+                try:
+                    await unknown_column_storage.store_intelligence_features(
+                        "BTC/USDT",
+                        "1h",
+                        1000,
+                        {"direction_v6": 1.0, "unknown": 3.0},
+                        confidence=0.7,
+                    )
+                except ValueError as exc:
+                    assert "unsupported intelligence feature columns" in str(exc)
+                else:
+                    raise AssertionError(
+                        "unknown feature names must not be silently stored as NULL"
+                    )
+            finally:
+                await unknown_column_storage.close()
+
+        self._run(exercise_storage_lifecycle())

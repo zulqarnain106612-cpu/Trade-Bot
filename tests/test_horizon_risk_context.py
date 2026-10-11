@@ -43,9 +43,7 @@ def test_risk_context_rejects_stale_future_and_malformed_values() -> None:
 
 
 def test_risk_context_accepts_fresh_bounded_values() -> None:
-    values, reason = _validated_risk_context(
-        _context(990), now=1000, max_age_seconds=30
-    )
+    values, reason = _validated_risk_context(_context(990), now=1000, max_age_seconds=30)
     assert reason is None
     assert values is not None
     assert values["atr"] == 1.0

@@ -90,6 +90,11 @@ class _IntelStub:
 
     def __init__(self, recorded):
         self._last_horizon_results = recorded
+        self._last_horizon_symbol = None
+        self._source_timeframe = None
+        self._source_cadence_seconds = None
+        self._started = False
+        self._cfg = {}
 
     horizon_status = None  # replaced below
 

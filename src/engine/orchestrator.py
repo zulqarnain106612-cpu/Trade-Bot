@@ -2491,9 +2491,7 @@ class Orchestrator:
             skip_reason=f"horizon_{reason}",
         )
 
-    async def _process_intelligence_bar(
-        self, tf: Timeframe, regime_id: int | None = None
-    ) -> None:
+    async def _process_intelligence_bar(self, tf: Timeframe, regime_id: int | None = None) -> None:
         adapter = self._intelligence_adapter
         if adapter is None:
             return

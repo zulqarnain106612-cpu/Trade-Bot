@@ -9,18 +9,40 @@ session (and fails outright off the main thread).
 
 from __future__ import annotations
 
+import hashlib
 import queue
+import time
+from pathlib import Path
 from unittest.mock import patch
 
-from src.workers.orchestrator import WorkerResult, WorkerTask, _model_worker, _run_horizon_inference
+from src.models.horizon_mlp import HorizonMLPExpert
+from src.workers.orchestrator import (
+    WorkerResult,
+    WorkerTask,
+    _model_worker,
+    _run_horizon_inference,
+)
+
+_HORIZON_SECONDS = (30, 120, 300, 900, 3600, 14400, 86400, 259200, 604800, 2592000)
 
 
-def _task(horizon_id: int = 0, task_id: str = "t1") -> WorkerTask:
+def _task(
+    horizon_id: int = 0,
+    task_id: str = "t1",
+    *,
+    features: dict | None = None,
+    model_dir: Path | None = None,
+) -> WorkerTask:
     return WorkerTask(
         task_id=task_id,
         horizon_id=horizon_id,
         symbol="BTC/USDT",
-        features={"price": 100.0, "volume": 5.0},
+        features=features or {"price": 100.0, "volume": 5.0},
+        horizon_seconds=_HORIZON_SECONDS[horizon_id],
+        source_event_ts=time.time(),
+        source_cadence_seconds=1.0 if horizon_id == 0 else 60.0,
+        architecture_names=("mlp",) if model_dir else (),
+        model_dir=None if model_dir is None else str(model_dir),
     )
 
 
@@ -32,10 +54,32 @@ def test_run_horizon_inference_is_deterministic_for_identical_features():
     assert a.magnitude_mu == b.magnitude_mu
 
 
-def test_run_horizon_inference_differs_for_different_features():
-    t1 = _task()
-    t2 = WorkerTask(task_id="t2", horizon_id=0, symbol="BTC/USDT", features={"price": 999.0})
-    assert _run_horizon_inference(t1).confidence != _run_horizon_inference(t2).confidence
+def test_run_horizon_inference_uses_real_model_and_features(tmp_path: Path):
+    instrument = hashlib.sha256(b"BTC/USDT").hexdigest()[:16]
+    model_dir = tmp_path / "h1" / instrument
+    expert = HorizonMLPExpert(
+        ("price", "volume"), seed=17, horizon_id=0, instrument_hash=instrument
+    )
+    for index in range(8):
+        price = 90.0 + index * 3.0
+        expert.partial_fit(
+            {"price": price, "volume": 2.0 + index},
+            (price - 100.0) / 1000.0,
+            sample_id=f"fixture-{index}",
+        )
+    expert.save(model_dir / "mlp.joblib")
+
+    low = _run_horizon_inference(
+        _task(features={"price": 91.0, "volume": 2.0}, model_dir=model_dir)
+    )
+    high = _run_horizon_inference(
+        _task(features={"price": 111.0, "volume": 9.0}, model_dir=model_dir)
+    )
+    restored = HorizonMLPExpert.load(model_dir / "mlp.joblib")
+    assert low.status == high.status == "TRAINED"
+    assert low.magnitude_mu == restored.predict({"price": 91.0, "volume": 2.0})
+    assert high.magnitude_mu == restored.predict({"price": 111.0, "volume": 9.0})
+    assert low.magnitude_mu != high.magnitude_mu
 
 
 def test_run_horizon_inference_bounds_and_shape():
@@ -45,7 +89,8 @@ def test_run_horizon_inference_bounds_and_shape():
     assert result.direction in (-1, 0, 1)
     assert 0.0 <= result.timing <= 1.0
     assert result.magnitude_sigma == abs(result.magnitude_mu) * 0.5
-    assert result.error is None
+    assert result.status == "UNTRAINED"
+    assert result.error == "no trained horizon artifact is configured"
 
 
 def test_run_horizon_inference_algo_ioc_for_fast_horizons():
@@ -67,7 +112,7 @@ def test_run_horizon_inference_zeroes_direction_below_confidence_threshold():
     # Scan feature values until one lands under the 0.65 confidence gate --
     # the module's own rule is "direction only survives above 0.65".
     for i in range(200):
-        task = WorkerTask(task_id="t", horizon_id=0, symbol="S", features={"p": float(i)})
+        task = _task(task_id="t", features={"price": float(i), "volume": 5.0})
         result = _run_horizon_inference(task)
         if result.confidence <= 0.65:
             assert result.direction == 0
@@ -158,4 +203,5 @@ def test_model_worker_continues_after_a_failed_task():
     first = q_out.get_nowait()
     second = q_out.get_nowait()
     assert first.error == "transient"
-    assert second.error is None
+    assert second.task_id == "succeeds"
+    assert second.status == "UNTRAINED"

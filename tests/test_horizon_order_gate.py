@@ -46,9 +46,7 @@ def _result(direction: int = 1) -> SignalResult:
 def test_horizon_abstention_vetoes_an_existing_tradeable_signal(monkeypatch) -> None:
     monkeypatch.setenv("INTEL_ENABLED", "true")
     result = asyncio.run(
-        _orchestrator("ABSTAIN")._apply_intelligence_order_gate(
-            _result(), Timeframe.INTRADAY
-        )
+        _orchestrator("ABSTAIN")._apply_intelligence_order_gate(_result(), Timeframe.INTRADAY)
     )
     assert not result.tradeable
     assert result.kelly_result is None

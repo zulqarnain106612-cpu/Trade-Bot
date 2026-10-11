@@ -7,10 +7,11 @@ import json
 import math
 import os
 import sqlite3
-import tempfile
 import statistics
+import tempfile
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -182,16 +183,20 @@ class HorizonLearningStore:
         """Mature old snapshots and persist this event; optionally fit inline."""
         ts = float(event_ts)
         price = float(close)
-        if not event_id or not symbol or not math.isfinite(ts) or not math.isfinite(price) or price <= 0:
+        if (
+            not event_id
+            or not symbol
+            or not math.isfinite(ts)
+            or not math.isfinite(price)
+            or price <= 0
+        ):
             raise ValueError("event identity, source timestamp, and positive close are required")
         normalized, schema_hash = self._features(features)
         payload = json.dumps(event_payload or {}, sort_keys=True, separators=(",", ":"))
         event_key = hashlib.sha256(f"{symbol}\0{event_id}".encode()).hexdigest()
         matured = updates = rejected = 0
         with self._lock, self._connect() as db:
-            if db.execute(
-                "SELECT 1 FROM horizon_events WHERE event_id=?", (event_key,)
-            ).fetchone():
+            if db.execute("SELECT 1 FROM horizon_events WHERE event_id=?", (event_key,)).fetchone():
                 return {"duplicate": 1, "matured": 0, "updated": 0, "rejected": 0}
             prior = db.execute(
                 "SELECT event_ts FROM horizon_events WHERE symbol=? AND source_timeframe IS ? "
@@ -225,7 +230,7 @@ class HorizonLearningStore:
                 "outcome IS NULL AND due_ts<=? AND source_timeframe IS ?"
                 if defer_training
                 else "((outcome IS NULL AND due_ts<=? AND source_timeframe IS ?) OR "
-                     "(outcome IS NOT NULL AND trained=0 AND source_timeframe IS ?))"
+                "(outcome IS NOT NULL AND trained=0 AND source_timeframe IS ?))"
             )
             pending = db.execute(
                 f"""SELECT sample_id, horizon_id, entry_price, features_json, schema_hash, outcome
@@ -259,8 +264,17 @@ class HorizonLearningStore:
                              ELSE (candidate_prediction_return-?)*(candidate_prediction_return-?) END
                            WHERE sample_id=? AND outcome IS NULL""",
                         (
-                            outcome, ts, outcome, outcome, outcome,
-                            outcome, outcome, outcome, outcome, outcome, sample_id,
+                            outcome,
+                            ts,
+                            outcome,
+                            outcome,
+                            outcome,
+                            outcome,
+                            outcome,
+                            outcome,
+                            outcome,
+                            outcome,
+                            sample_id,
                         ),
                     )
                     matured += 1
@@ -304,15 +318,21 @@ class HorizonLearningStore:
                     db.execute(
                         "UPDATE horizon_samples SET trained=1, trained_at=?, "
                         "update_duration_ms=?, error=NULL WHERE sample_id=?",
-                        ((time.time() if trained_update else None),
-                         (time.perf_counter() - update_started) * 1000.0,
-                         sample_id),
+                        (
+                            (time.time() if trained_update else None),
+                            (time.perf_counter() - update_started) * 1000.0,
+                            sample_id,
+                        ),
                     )
                 except Exception as exc:
                     rejected += 1
                     db.execute(
                         "UPDATE horizon_samples SET error=?, update_duration_ms=? WHERE sample_id=?",
-                        (str(exc)[:500], (time.perf_counter() - update_started) * 1000.0, sample_id),
+                        (
+                            str(exc)[:500],
+                            (time.perf_counter() - update_started) * 1000.0,
+                            sample_id,
+                        ),
                     )
                     log.warning(
                         "horizon_label_update_failed",
@@ -327,9 +347,7 @@ class HorizonLearningStore:
                 if source_cadence_seconds is not None and duration < source_cadence_seconds:
                     continue
                 horizon_id = int(spec["id"])
-                sample_id = hashlib.sha256(
-                    f"{event_key}\0{horizon_id}".encode()
-                ).hexdigest()
+                sample_id = hashlib.sha256(f"{event_key}\0{horizon_id}".encode()).hexdigest()
                 db.execute(
                     """INSERT OR IGNORE INTO horizon_samples
                        (sample_id, event_id, symbol, horizon_id, event_ts, due_ts,
@@ -392,11 +410,7 @@ class HorizonLearningStore:
                 names = tuple(sorted(values))
                 instrument_key = hashlib.sha256(symbol.encode()).hexdigest()[:16]
                 expert_path = (
-                    model_root
-                    / f"h{horizon_id + 1}"
-                    / instrument_key
-                    / "candidate"
-                    / "mlp.joblib"
+                    model_root / f"h{horizon_id + 1}" / instrument_key / "candidate" / "mlp.joblib"
                 )
                 if HorizonMLPExpert.artifact_available(expert_path):
                     expert = HorizonMLPExpert.load(
@@ -427,12 +441,9 @@ class HorizonLearningStore:
                     horizon_id=horizon_id,
                     source_timeframe=source_timeframe or "",
                 )
-                refresh_shadow = (
-                    not HorizonMLPExpert.artifact_available(shadow_path)
-                    or (
-                        previous_evaluation is not None
-                        and previous_evaluation.get("outcome") == "REJECTED"
-                    )
+                refresh_shadow = not HorizonMLPExpert.artifact_available(shadow_path) or (
+                    previous_evaluation is not None
+                    and previous_evaluation.get("outcome") == "REJECTED"
                 )
                 if refresh_shadow and expert.n_samples >= int(shadow_minimum_training_samples):
                     expert.save(shadow_path)
@@ -471,7 +482,11 @@ class HorizonLearningStore:
         recorded = 0
         with self._lock, self._connect() as db:
             for prediction in predictions:
-                if prediction.status not in {"TRAINED", "PROBATION", "PROMOTED", "CANDIDATE_SHADOW"} or prediction.error:
+                if (
+                    prediction.status
+                    not in {"TRAINED", "PROBATION", "PROMOTED", "CANDIDATE_SHADOW"}
+                    or prediction.error
+                ):
                     continue
                 value = float(prediction.magnitude_mu)
                 ts = float(prediction.prediction_ts or 0.0)
@@ -509,8 +524,13 @@ class HorizonLearningStore:
                            WHERE sample_id=? AND symbol=? AND outcome IS NULL
                              AND candidate_prediction_return IS NULL AND schema_hash=?""",
                         (
-                            float(candidate_value), candidate_version, candidate_schema, ts, sample_id,
-                            symbol, candidate_schema,
+                            float(candidate_value),
+                            candidate_version,
+                            candidate_schema,
+                            ts,
+                            sample_id,
+                            symbol,
+                            candidate_schema,
                         ),
                     )
         return recorded
@@ -529,7 +549,11 @@ class HorizonLearningStore:
     ) -> dict[str, Any]:
         """Compare paired incumbent/challenger forecasts against the same labels."""
         instant = time.time() if now is None else float(now)
-        if minimum_samples < 1 or not math.isfinite(max_evidence_age_seconds) or max_evidence_age_seconds <= 0:
+        if (
+            minimum_samples < 1
+            or not math.isfinite(max_evidence_age_seconds)
+            or max_evidence_age_seconds <= 0
+        ):
             raise ValueError("candidate evaluation limits must be positive and finite")
         with self._connect() as db:
             if candidate_version is None or incumbent_version is None:
@@ -541,7 +565,13 @@ class HorizonLearningStore:
                          AND prediction_return IS NOT NULL
                          AND (? IS NULL OR candidate_model_version=?)
                        ORDER BY candidate_prediction_ts DESC LIMIT 1""",
-                    (symbol, horizon_id, source_timeframe, candidate_version, candidate_version),
+                    (
+                        symbol,
+                        horizon_id,
+                        source_timeframe,
+                        candidate_version,
+                        candidate_version,
+                    ),
                 ).fetchone()
                 if candidate_version is None:
                     candidate_version = None if latest_version is None else str(latest_version[0])
@@ -566,14 +596,29 @@ class HorizonLearningStore:
                      AND prediction_ts<=? AND candidate_prediction_ts<=?
                      AND ABS(candidate_prediction_ts-prediction_ts)<=60""",
                 (
-                    symbol, horizon_id, source_timeframe, incumbent_version,
-                    candidate_version, incumbent_version, instant, instant,
+                    symbol,
+                    horizon_id,
+                    source_timeframe,
+                    incumbent_version,
+                    candidate_version,
+                    incumbent_version,
+                    instant,
+                    instant,
                 ),
             ).fetchone()
         (
-            count, incumbent_accuracy, candidate_accuracy, incumbent_mse, candidate_mse,
-            latest, schema_min, schema_max, version_min, version_max,
-            incumbent_min, incumbent_max,
+            count,
+            incumbent_accuracy,
+            candidate_accuracy,
+            incumbent_mse,
+            candidate_mse,
+            latest,
+            schema_min,
+            schema_max,
+            version_min,
+            version_max,
+            incumbent_min,
+            incumbent_max,
         ) = row
         reason = None
         if int(count or 0) < minimum_samples:
@@ -586,22 +631,26 @@ class HorizonLearningStore:
             reason = "incumbent artifact changed across paired evidence"
         elif candidate_version == incumbent_version:
             reason = "candidate and incumbent artifacts are identical"
-        elif latest is None or float(latest) > instant or instant - float(latest) > max_evidence_age_seconds:
+        elif (
+            latest is None
+            or float(latest) > instant
+            or instant - float(latest) > max_evidence_age_seconds
+        ):
             reason = "paired evaluation evidence is stale"
         elif candidate_accuracy is None or candidate_mse is None or incumbent_mse is None:
             reason = "paired metrics are incomplete"
         elif (
             float(candidate_accuracy) <= 0.5
             if incumbent_version == "zero-baseline-v1" and candidate_accuracy is not None
-            else incumbent_accuracy is None
-            or float(candidate_accuracy) < float(incumbent_accuracy)
+            else incumbent_accuracy is None or float(candidate_accuracy) < float(incumbent_accuracy)
         ) or float(candidate_mse) >= float(incumbent_mse):
             reason = "candidate did not meet both incumbent skill metrics"
         outcome = (
             "PASS"
             if reason is None
             else "CONTINUE_SHADOW"
-            if reason in {"insufficient paired forward samples", "paired evaluation evidence is stale"}
+            if reason
+            in {"insufficient paired forward samples", "paired evaluation evidence is stale"}
             else "REJECTED"
         )
         evaluation = {
@@ -630,8 +679,14 @@ class HorizonLearningStore:
                     candidate_model_version, evaluated_at, outcome, metrics_json)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    evaluation_id, symbol, source_timeframe, horizon_id,
-                    candidate_version, instant, str(evaluation["outcome"]), metrics_json,
+                    evaluation_id,
+                    symbol,
+                    source_timeframe,
+                    horizon_id,
+                    candidate_version,
+                    instant,
+                    str(evaluation["outcome"]),
+                    metrics_json,
                 ),
             )
         evaluation["evaluation_id"] = evaluation_id
@@ -659,6 +714,7 @@ class HorizonLearningStore:
         candidate_version: str,
         model_root: Path,
         source_timeframe: str = "1m",
+        minimum_samples: int = 100,
     ) -> None:
         """Atomically point the active model at an evaluated candidate in probation."""
         from src.models.horizon_mlp import HorizonMLPExpert
@@ -672,6 +728,7 @@ class HorizonLearningStore:
             horizon_id=horizon_id,
             source_timeframe=source_timeframe,
             candidate_version=candidate_version,
+            minimum_samples=minimum_samples,
         )
         if not evaluation["eligible"] or evaluation["candidate_model_version"] != candidate_version:
             raise ValueError("candidate has no current, passing paired evaluation")
@@ -724,10 +781,8 @@ class HorizonLearningStore:
                 target = temp_dir / active_path.name
                 target.write_bytes(source.read_bytes())
                 manifest_path_for(target).write_bytes(source_manifest.read_bytes())
-                try:
+                with suppress(FileExistsError):
                     os.replace(temp_dir, version_dir)
-                except FileExistsError:
-                    pass
             finally:
                 if temp_dir.exists():
                     import shutil
@@ -892,7 +947,9 @@ class HorizonLearningStore:
                 "last_error": last_error,
                 "last_update_duration_ms": update_duration_ms,
                 "oos_samples": int(oos_count or 0),
-                "oos_directional_accuracy": float(oos_accuracy) if oos_accuracy is not None else None,
+                "oos_directional_accuracy": float(oos_accuracy)
+                if oos_accuracy is not None
+                else None,
                 "candidate_oos_samples": int(candidate_oos_count or 0),
                 "candidate_oos_directional_accuracy": (
                     float(candidate_oos_accuracy) if candidate_oos_accuracy is not None else None
@@ -933,7 +990,7 @@ class HorizonLearningStore:
         timestamps = [float(row[0]) for row in rows]
         gaps = [
             newer - older
-            for newer, older in zip(timestamps, timestamps[1:])
+            for newer, older in zip(timestamps, timestamps[1:], strict=False)
             if math.isfinite(newer - older) and newer > older
         ]
         return statistics.median(gaps) if len(gaps) >= 5 else None

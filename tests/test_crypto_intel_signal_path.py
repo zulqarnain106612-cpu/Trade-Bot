@@ -100,9 +100,7 @@ def _deliver_results(intel, results: list[WorkerResult]) -> None:
             return None
         result = results.pop(0)
         task = next(
-            task
-            for task in intel._orchestrator.submitted
-            if task.horizon_id == result.horizon_id
+            task for task in intel._orchestrator.submitted if task.horizon_id == result.horizon_id
         )
         result.task_id = task.task_id
         return result

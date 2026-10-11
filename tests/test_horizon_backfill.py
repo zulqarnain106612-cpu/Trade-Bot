@@ -18,8 +18,16 @@ def test_warm_start_is_causal_isolated_and_resumable(tmp_path: Path) -> None:
         connection.executemany(
             "INSERT INTO bars VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                ("BTC/USDT", "1m", 1_700_000_000_000 + i * 60_000,
-                 100 + i, 101 + i, 99 + i, 100 + i, 1.0)
+                (
+                    "BTC/USDT",
+                    "1m",
+                    1_700_000_000_000 + i * 60_000,
+                    100 + i,
+                    101 + i,
+                    99 + i,
+                    100 + i,
+                    1.0,
+                )
                 for i in range(4)
             ],
         )
@@ -44,9 +52,12 @@ def test_warm_start_is_causal_isolated_and_resumable(tmp_path: Path) -> None:
     assert 0 not in result["horizons"]  # no 30-second labels from 1-minute bars
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT COUNT(*) FROM bars").fetchone()[0] == 4
-        assert connection.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE name='horizon_samples'"
-        ).fetchone()[0] == 0
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name='horizon_samples'"
+            ).fetchone()[0]
+            == 0
+        )
 
     resumed = warm_start(
         database,

@@ -20,11 +20,11 @@ import hashlib
 import math
 import multiprocessing as mp
 import os
-from pathlib import Path
 import signal
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -141,12 +141,31 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
     schema = tuple(sorted(task.features))
     schema_hash = hashlib.sha256("\0".join(schema).encode()).hexdigest()
     started = time.perf_counter()
+    try:
+        source_event_ts = None if task.source_event_ts is None else float(task.source_event_ts)
+    except (TypeError, ValueError, OverflowError):
+        source_event_ts = None
+    horizon_seconds = task.horizon_seconds
+    execution_algo = (
+        "IOC"
+        if horizon_seconds is not None and horizon_seconds <= 120
+        else "iceberg"
+        if horizon_seconds is not None and horizon_seconds <= 3600
+        else "TWAP"
+        if horizon_seconds is not None
+        else ""
+    )
     queue_age_ms = (
         max(0.0, (time.monotonic() - task.submitted_monotonic) * 1000.0)
         if task.submitted_monotonic is not None
         else 0.0
     )
-    if task.source_event_ts is None or not math.isfinite(float(task.source_event_ts)):
+    if (
+        source_event_ts is None
+        or not math.isfinite(source_event_ts)
+        or source_event_ts <= 0
+        or source_event_ts > time.time() + 1.0
+    ):
         return WorkerResult(
             task_id=task.task_id,
             horizon_id=task.horizon_id,
@@ -155,7 +174,7 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
             magnitude_mu=0.0,
             magnitude_sigma=0.0,
             timing=0.0,
-            algo="",
+            algo=execution_algo,
             error="source event timestamp is unavailable or invalid",
             status="UNAVAILABLE_SOURCE_TIME",
             prediction_ts=time.time(),
@@ -167,7 +186,10 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
     if (
         task.horizon_seconds is not None
         and task.horizon_seconds < 60
-        and (task.source_cadence_seconds is None or task.source_cadence_seconds >= task.horizon_seconds)
+        and (
+            task.source_cadence_seconds is None
+            or task.source_cadence_seconds >= task.horizon_seconds
+        )
     ):
         return WorkerResult(
             task_id=task.task_id,
@@ -177,7 +199,7 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
             magnitude_mu=0.0,
             magnitude_sigma=0.0,
             timing=0.0,
-            algo="",
+            algo=execution_algo,
             error="source cadence is unavailable or too slow for this prediction horizon",
             status="UNAVAILABLE_CADENCE",
             prediction_ts=time.time(),
@@ -239,10 +261,12 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
                 magnitude_mu=magnitude,
                 magnitude_sigma=empirical_sigma,
                 timing=0.0,
-                algo="",
+                algo=execution_algo,
                 status=(
-                    "PROMOTED" if activation_state == "PROMOTED"
-                    else "PROBATION" if activation_state == "PROBATION"
+                    "PROMOTED"
+                    if activation_state == "PROMOTED"
+                    else "PROBATION"
+                    if activation_state == "PROBATION"
                     else "TRAINED"
                 ),
                 model_id=f"h{task.horizon_id}-mlp-{instrument_hash}",
@@ -251,8 +275,8 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
                 prediction_ts=time.time(),
                 horizon_seconds=task.horizon_seconds,
                 target_expiry_ts=(
-                    task.source_event_ts + task.horizon_seconds
-                    if task.source_event_ts is not None and task.horizon_seconds is not None
+                    source_event_ts + task.horizon_seconds
+                    if source_event_ts is not None and task.horizon_seconds is not None
                     else None
                 ),
                 target_definition="log return to first source event at or after expiry",
@@ -278,7 +302,7 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
                 magnitude_mu=0.0,
                 magnitude_sigma=0.0,
                 timing=0.0,
-                algo="",
+                algo=execution_algo,
                 error=f"incompatible horizon artifact: {exc}",
                 status="FAILED",
                 feature_schema_hash=schema_hash,
@@ -314,7 +338,7 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
                 magnitude_mu=0.0,
                 magnitude_sigma=0.0,
                 timing=0.0,
-                algo="",
+                algo=execution_algo,
                 status="CANDIDATE_SHADOW",
                 model_id=f"h{task.horizon_id}-baseline-{instrument_hash}",
                 model_version="zero-baseline-v1",
@@ -322,8 +346,8 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
                 prediction_ts=time.time(),
                 horizon_seconds=task.horizon_seconds,
                 target_expiry_ts=(
-                    task.source_event_ts + task.horizon_seconds
-                    if task.source_event_ts is not None and task.horizon_seconds is not None
+                    source_event_ts + task.horizon_seconds
+                    if source_event_ts is not None and task.horizon_seconds is not None
                     else None
                 ),
                 target_definition="log return to first source event at or after expiry",
@@ -335,7 +359,9 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
                 candidate_schema_hash=challenger.schema_hash,
             )
         except Exception as exc:
-            log.warning("horizon_shadow_inference_failed", horizon_id=task.horizon_id, error=str(exc))
+            log.warning(
+                "horizon_shadow_inference_failed", horizon_id=task.horizon_id, error=str(exc)
+            )
     reason = (
         "no trained horizon artifact is configured"
         if not task.model_dir or not task.architecture_names
@@ -349,15 +375,15 @@ def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
         magnitude_mu=0.0,
         magnitude_sigma=0.0,
         timing=0.0,
-        algo="",
+        algo=execution_algo,
         error=reason,
         status="UNTRAINED",
         feature_schema_hash=schema_hash,
         prediction_ts=time.time(),
         horizon_seconds=task.horizon_seconds,
         target_expiry_ts=(
-            task.source_event_ts + task.horizon_seconds
-            if task.source_event_ts is not None and task.horizon_seconds is not None
+            source_event_ts + task.horizon_seconds
+            if source_event_ts is not None and task.horizon_seconds is not None
             else None
         ),
         target_definition="log return to first source event at or after expiry",

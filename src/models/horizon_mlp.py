@@ -104,7 +104,9 @@ class HorizonMLPExpert:
         self.regressor.train()
         self.optimizer.zero_grad(set_to_none=True)
         prediction = self.regressor(self.encoder(inputs))
-        loss = torch.nn.functional.mse_loss(prediction, torch.tensor([[target]], dtype=torch.float32))
+        loss = torch.nn.functional.mse_loss(
+            prediction, torch.tensor([[target]], dtype=torch.float32)
+        )
         loss.backward()
         self.optimizer.step()
         self.encoder.eval()
@@ -260,7 +262,9 @@ class HorizonMLPExpert:
     @classmethod
     def activation_state(cls, path: Path) -> str:
         pointer = cls.activation_pointer(path)
-        return "UNPROMOTED" if pointer is None else str(pointer.get("lifecycle_status", "UNPROMOTED"))
+        return (
+            "UNPROMOTED" if pointer is None else str(pointer.get("lifecycle_status", "UNPROMOTED"))
+        )
 
     @staticmethod
     def write_activation_pointer(path: Path, payload: dict[str, Any]) -> None:
@@ -283,7 +287,7 @@ class HorizonMLPExpert:
         expected_horizon_id: int | None = None,
         expected_instrument_hash: str | None = None,
     ) -> HorizonMLPExpert:
-        from src.models.provenance import hash_artifact, read_provenance, read_manifest
+        from src.models.provenance import hash_artifact, read_manifest, read_provenance
 
         artifact_path = cls.active_artifact_path(path)
         payload = artifact_path.read_bytes()

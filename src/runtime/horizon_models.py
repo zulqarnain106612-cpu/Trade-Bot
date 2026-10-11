@@ -78,7 +78,18 @@ class HorizonModelRuntime:
             active_version = None if active_pointer is None else active_pointer.get("sha256")
             source_timeframe = str(horizon.get("source_timeframe") or "")
 
-            def add_component(version: str, *, active: bool, eligible: bool) -> None:
+            def add_component(
+                version: str,
+                *,
+                active: bool,
+                eligible: bool,
+                horizon_id: int = horizon_id,
+                symbol: str = symbol,
+                instrument_hash: str = instrument_hash,
+                source_timeframe: str = source_timeframe,
+                active_pointer: dict[str, Any] | None = active_pointer,
+                evaluation: dict[str, Any] = evaluation,
+            ) -> None:
                 config = {
                     "horizon_id": horizon_id,
                     "symbol": symbol,
@@ -114,7 +125,10 @@ class HorizonModelRuntime:
                     health = HealthReport(
                         HealthState.HEALTHY if eligible else HealthState.DEGRADED,
                         "paired forward evaluation passed; human approval required"
-                        if eligible else str(evaluation.get("reason") or "candidate shadow evidence unavailable"),
+                        if eligible
+                        else str(
+                            evaluation.get("reason") or "candidate shadow evidence unavailable"
+                        ),
                     )
                 rows.append(
                     Discovery(
@@ -179,10 +193,12 @@ class HorizonModelRuntime:
         target_version: ComponentVersion | None,
     ) -> None:
         config = dict(record.version.configuration)
-        intelligence, _, shadow_path, symbol = self._context(config)
+        intelligence, _, _, symbol = self._context(config)
         if action is LifecycleAction.ACTIVATE:
             if target_version is not None:
-                raise ActionRefusedError("horizon candidate activation does not accept a replacement version")
+                raise ActionRefusedError(
+                    "horizon candidate activation does not accept a replacement version"
+                )
             if not self._evaluation_passes(config):
                 raise ActionRefusedError("candidate paired evaluation failed or became stale")
             try:
@@ -193,6 +209,9 @@ class HorizonModelRuntime:
                     candidate_version=str(config["candidate_version"]),
                     model_root=Path(intelligence.checkpoint_dir),
                     source_timeframe=str(config["source_timeframe"]),
+                    minimum_samples=int(
+                        intelligence._cfg.get("candidate_minimum_oos_samples", 100)
+                    ),
                 )
             except Exception:
                 try:
@@ -219,7 +238,7 @@ class HorizonModelRuntime:
     def probe(self, record: Any) -> HealthReport:
         config = dict(record.version.configuration)
         try:
-            intelligence, active_path, _, _ = self._context(config)
+            _, active_path, _, _ = self._context(config)
             pointer = HorizonMLPExpert.activation_pointer(active_path)
             if pointer is not None and pointer.get("sha256") == config["candidate_version"]:
                 state = str(pointer.get("lifecycle_status", "UNPROMOTED"))

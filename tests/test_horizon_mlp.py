@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import torch
 
-from src.models.horizon_mlp import HorizonMLPExpert
 from src.models.horizon_learning import HorizonLearningStore
+from src.models.horizon_mlp import HorizonMLPExpert
 from src.models.mlp import MLPHead
 from src.workers.orchestrator import WorkerTask, _run_horizon_inference
 
@@ -19,9 +19,7 @@ def test_horizon_mlp_trains_persists_and_is_used_by_its_worker(tmp_path: Path) -
     expert = HorizonMLPExpert(names, seed=11, horizon_id=3, instrument_hash=instrument_hash)
     assert isinstance(expert.encoder, MLPHead)
 
-    rows = [
-        {"close_delta": float(index) / 10.0, "volume": float(index % 3)} for index in range(20)
-    ]
+    rows = [{"close_delta": float(index) / 10.0, "volume": float(index % 3)} for index in range(20)]
     for row in rows:
         expert.partial_fit(row, matured_return=row["close_delta"] * 0.02 - 0.01)
 
@@ -234,14 +232,10 @@ def test_candidate_evaluation_requires_paired_fresh_oos_evidence(tmp_path: Path)
                     magnitude_mu=0.005,
                     prediction_ts=timestamp,
                     model_version="incumbent-v1",
-                    feature_schema_hash=store._features(
-                        {"price": close, "volume": 1.0}
-                    )[1],
+                    feature_schema_hash=store._features({"price": close, "volume": 1.0})[1],
                     candidate_magnitude_mu=0.01,
                     candidate_model_version="candidate-v1",
-                    candidate_schema_hash=store._features(
-                        {"price": close, "volume": 1.0}
-                    )[1],
+                    candidate_schema_hash=store._features({"price": close, "volume": 1.0})[1],
                 )
             ],
         )
@@ -271,9 +265,12 @@ def test_candidate_evaluation_requires_paired_fresh_oos_evidence(tmp_path: Path)
     assert passed["eligible"]
     assert passed["outcome"] == "PASS"
     assert passed["candidate_rmse"] < passed["incumbent_rmse"]
-    assert store.latest_candidate_evaluation(
-        symbol="BTC/USDT", horizon_id=0, source_timeframe="1m"
-    )["evaluation_id"] == passed["evaluation_id"]
+    assert (
+        store.latest_candidate_evaluation(symbol="BTC/USDT", horizon_id=0, source_timeframe="1m")[
+            "evaluation_id"
+        ]
+        == passed["evaluation_id"]
+    )
 
 
 def test_matured_training_can_run_after_event_persistence(tmp_path: Path) -> None:
@@ -292,9 +289,12 @@ def test_matured_training_can_run_after_event_persistence(tmp_path: Path) -> Non
         )
     assert store.stats("BTC/USDT")[0]["matured_samples"] == 1
     assert store.stats("BTC/USDT")[0]["training_samples"] == 0
-    assert store.train_pending(
-        symbol="BTC/USDT", horizons=horizons, model_root=tmp_path / "models"
-    )["updated"] == 1
+    assert (
+        store.train_pending(symbol="BTC/USDT", horizons=horizons, model_root=tmp_path / "models")[
+            "updated"
+        ]
+        == 1
+    )
     assert store.stats("BTC/USDT")[0]["training_samples"] == 1
     instrument = hashlib.sha256(b"BTC/USDT").hexdigest()[:16]
     model_dir = tmp_path / "models" / "h1" / instrument
@@ -353,12 +353,12 @@ def test_forward_prediction_is_joined_to_its_matured_outcome(tmp_path: Path) -> 
         horizon_id=0,
         model_version="v1",
     )
-    assert store.record_predictions(
-        event_id="bar-a", symbol="BTC/USDT", predictions=[prediction]
-    ) == 1
-    assert store.record_predictions(
-        event_id="bar-a", symbol="BTC/USDT", predictions=[prediction]
-    ) == 0
+    assert (
+        store.record_predictions(event_id="bar-a", symbol="BTC/USDT", predictions=[prediction]) == 1
+    )
+    assert (
+        store.record_predictions(event_id="bar-a", symbol="BTC/USDT", predictions=[prediction]) == 0
+    )
     store.observe_event(
         event_id="bar-b",
         symbol="BTC/USDT",
@@ -390,8 +390,7 @@ def test_event_source_payload_and_regime_survive_store_reopen(tmp_path: Path) ->
     reopened = HorizonLearningStore(tmp_path / "state")
     with reopened._connect() as db:
         event = db.execute(
-            "SELECT provider, quality, schema_version, payload_json, regime_id "
-            "FROM horizon_events"
+            "SELECT provider, quality, schema_version, payload_json, regime_id FROM horizon_events"
         ).fetchone()
     assert event[0:3] == ("persisted_market_bars", "persisted_bar", 1)
     assert '"close":100.0' in event[3]
@@ -403,6 +402,7 @@ def test_canonical_horizon_loader_rejects_architecture_without_online_trainer(
     tmp_path: Path, monkeypatch
 ) -> None:
     import pytest
+
     import src.intel as intel_module
 
     config = tmp_path / "horizons.yaml"

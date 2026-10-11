@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 from src.agent_control.model import ManifestError, to_dict
 from src.agent_control.store import STATE_DIR_ENV, STATE_DIR_NAME, TaskStore
+from src.runtime.adaptive import SYSTEM_EVALUATOR
 from src.runtime.changes import (
     ROLE_APPROVER,
     ROLE_REQUESTER,
@@ -43,9 +44,8 @@ from src.runtime.changes import (
     ChangeStatus,
     UnauthorizedError,
 )
-from src.runtime.adaptive import SYSTEM_EVALUATOR
-from src.runtime.contracts import ChangeClass
 from src.runtime.contracts import (
+    ChangeClass,
     ComponentVersion,
     LifecycleAction,
     LifecycleState,

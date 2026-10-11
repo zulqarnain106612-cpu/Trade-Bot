@@ -135,9 +135,7 @@ class IntelligenceAdapter:
                 meta.get("horizon_contributions", {}), sort_keys=True
             ),
             "model_versions_v6": json.dumps(meta.get("model_versions", {}), sort_keys=True),
-            "freshness_seconds_v6": json.dumps(
-                meta.get("freshness_seconds", {}), sort_keys=True
-            ),
+            "freshness_seconds_v6": json.dumps(meta.get("freshness_seconds", {}), sort_keys=True),
         }
 
 
