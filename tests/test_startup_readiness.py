@@ -745,10 +745,13 @@ async def test_failed_deferred_fetcher_initialization_marks_readiness_failed_and
 
         with pytest.raises(RuntimeError, match="no exchange venue"):
             await asyncio.wait_for(fetcher_task, 2)
-        # Yield once so the orchestrator observes the completed prerequisite
-        # task without adding a wall-clock sleep to the test suite.
-        await asyncio.sleep(0)
-        report = orch.readiness()
+        # Yield to the prerequisite task until its failure is reflected in
+        # readiness, without a wall-clock sleep or scheduler-dependent delay.
+        for _ in range(10):
+            report = orch.readiness()
+            if report["error"] is not None:
+                break
+            await asyncio.sleep(0)
         assert "no exchange venue" in report["error"]
         assert report["loops_started"] is False
         assert not any(t.get_name().startswith("loop_") for t in orch._run_tasks)
