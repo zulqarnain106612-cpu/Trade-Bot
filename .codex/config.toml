@@ -1,0 +1,16 @@
+# Project-scoped Codex settings. Loaded only when this repository is trusted.
+# Shared by supported Codex local clients, including CLI and the VS Code extension.
+
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+web_search = "live"
+
+[mcp_servers.openaiDeveloperDocs]
+url = "https://developers.openai.com/mcp"
+enabled = true
+required = false
+startup_timeout_sec = 10
+tool_timeout_sec = 60
+
+[plugins."trade-bot-engineering@trade-bot-local"]
+enabled = true
