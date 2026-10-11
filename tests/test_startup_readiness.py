@@ -562,15 +562,22 @@ async def test_the_first_tick_is_awaited_from_registration_not_from_boot() -> No
 
 async def test_a_quarter_hour_loop_between_bars_is_not_a_stall() -> None:
     monitor = RuntimeMonitor()
-    last_tick = time.monotonic() - 600
-    monitor.register_tick_source("15m", lambda: last_tick)
-    await monitor._run_all_probes()
-    assert monitor._results["tick_stall_15m"].passed is True
+    # CI runners can have a monotonic uptime shorter than 15 minutes. Freeze
+    # the monitor clock at a positive value so stale timestamps cannot be
+    # mistaken for the sentinel (0) meaning "no tick has ever occurred".
+    with patch(
+        "src.diagnostics.runtime_monitor.time",
+        SimpleNamespace(monotonic=lambda: 2000.0, time=time.time),
+    ):
+        last_tick = 1400.0  # 600 s stale: within the 15m bar + grace window.
+        monitor.register_tick_source("15m", lambda: last_tick)
+        await monitor._run_all_probes()
+        assert monitor._results["tick_stall_15m"].passed is True
 
-    last_tick = time.monotonic() - 1000
-    monitor.register_tick_source("15m", lambda: last_tick)
-    await monitor._run_all_probes()
-    assert monitor._results["tick_stall_15m"].passed is False
+        last_tick = 1000.0  # 1000 s stale: beyond the 960 s limit.
+        monitor.register_tick_source("15m", lambda: last_tick)
+        await monitor._run_all_probes()
+        assert monitor._results["tick_stall_15m"].passed is False
 
 
 def test_freed_memory_is_returned_to_the_os_where_glibc_allows() -> None:
