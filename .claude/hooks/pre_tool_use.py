@@ -57,16 +57,16 @@ BASH_MUTATOR_RE = re.compile(
 GITHUB_REPOSITORY = "zulqarnain106612-cpu/Trade-Bot"
 GITHUB_TOOL_PREFIX = "mcp__github__"
 ALLOWED_GITHUB_TOOL_NAMES = frozenset({
-    "search", "search_code", "search_issues", "search_pull_requests", "search_prs",
-    "search_commits", "search_branches", "fetch", "fetch_file", "get_file_contents",
-    "fetch_blob", "fetch_commit", "get_commit", "compare_commits", "fetch_pr",
-    "get_pull_request", "get_pr_info", "list_pr_changed_filenames",
-    "fetch_pr_file_patch", "get_pr_diff", "get_pull_request_files",
-    "get_pull_request_comments", "get_pull_request_reviews", "get_issue",
-    "get_issue_comments", "list_pull_request_reviews", "list_pull_request_review_threads",
+    # Exact tool names verified against the connected GitHub MCP server.
+    # Unknown or future tool names remain denied unless deliberately reviewed here.
+    "search", "search_issues", "search_prs", "search_commits", "search_branches",
+    "fetch", "fetch_file", "fetch_blob", "fetch_commit", "fetch_pr",
+    "fetch_pr_comments", "fetch_pr_file_patch", "get_pr_diff", "get_pr_info",
+    "list_pr_changed_filenames", "list_pull_request_reviews",
+    "list_pull_request_review_threads",
     "create_branch", "create_blob", "create_tree", "create_commit", "update_ref",
-    "create_file", "update_file", "create_or_update_file", "push_files",
-    "create_pull_request", "update_pull_request", "add_comment_to_issue", "add_review_to_pr",
+    "create_file", "update_file", "create_pull_request", "update_pull_request",
+    "add_comment_to_issue", "add_review_to_pr",
 })
 GITHUB_ALWAYS_DENIED_MARKERS = (
     "workflow", "artifact", "check_run", "check_suite", "combined_status",
@@ -127,6 +127,7 @@ def _github_repo_refs(data: dict[str, Any]) -> list[str]:
     owner = _owner_name(data.get("owner") or data.get("org") or data.get("organization"))
     for key in (
         "repository_full_name",
+        "repo_full_name",
         "repository_name",
         "repository",
         "repo",
@@ -271,14 +272,21 @@ def _github_fetch_endpoint_allowed(url: str) -> bool:
 
 
 def _github_route_violation(event: dict[str, Any]) -> str:
-    tool = tool_name(event).strip().lower()
+    tool = str(event.get("tool_name") or event.get("toolName") or "").strip().lower()
     if not tool:
-        return "Universal boundary: missing tool identity; access denied."
-    if not tool.startswith(GITHUB_TOOL_PREFIX):
         return (
-            "Universal GitHub-only boundary: all non-GitHub tools and all unrecognized "
-            "execution, terminal, filesystem, browser, agent, and MCP routes are denied."
+            "Universal GitHub-only boundary: tool identity is missing; access denied. "
+            "Use an approved GitHub MCP tool and retry."
         )
+    if not tool.startswith(GITHUB_TOOL_PREFIX):
+        redirects = (
+            "Denied: use GitHub MCP only. Retry with an approved GitHub MCP tool.",
+            "Nope—GitHub MCP only. Or suna, ab tabiyat kesi hy, kaho to koi or intizaam kru. "
+            "Try a GitHub MCP tool instead.",
+            "This route is closed. Use GitHub MCP and retry with an approved GitHub MCP tool.",
+        )
+        index = sum(ord(char) for char in tool) % len(redirects)
+        return redirects[index]
     tail = tool[len(GITHUB_TOOL_PREFIX):]
     if tail not in ALLOWED_GITHUB_TOOL_NAMES:
         return (

@@ -21,8 +21,7 @@ HOOK = PROJECT_DIR / ".claude" / "hooks" / "pre_tool_use.py"
 REPO = "zulqarnain106612-cpu/Trade-Bot"
 
 
-def decide(tool: str, tool_input: dict, env_extra: dict | None = None) -> dict:
-    payload = json.dumps({"tool_name": tool, "tool_input": tool_input})
+def run_hook(payload: str, env_extra: dict | None = None) -> dict:
     env = {**os.environ, "CLAUDE_PROJECT_DIR": str(PROJECT_DIR)}
     env.pop("TB_COMMAND_POLICY", None)
     env.update(env_extra or {})
@@ -37,6 +36,11 @@ def decide(tool: str, tool_input: dict, env_extra: dict | None = None) -> dict:
     )
     assert proc.returncode == 0
     return json.loads(proc.stdout)["hookSpecificOutput"]
+
+
+def decide(tool: str, tool_input: dict, env_extra: dict | None = None) -> dict:
+    payload = json.dumps({"tool_name": tool, "tool_input": tool_input})
+    return run_hook(payload, env_extra)
 
 
 def assert_denied(tool: str, tool_input: dict | None = None, *, contains: str = "") -> None:
@@ -59,6 +63,14 @@ class TestDefaultDeny:
     def test_every_non_allowlisted_route_is_denied(self, tool: str) -> None:
         assert_denied(tool, {"command": "anything"}, contains="boundary")
 
+    def test_non_github_denial_redirects_to_github_mcp_and_varies_by_tool(self) -> None:
+        bash_reason = decide("Bash", {})["permissionDecisionReason"]
+        read_reason = decide("Read", {})["permissionDecisionReason"]
+        assert "GitHub MCP" in bash_reason
+        assert "GitHub MCP" in read_reason
+        assert bash_reason != read_reason
+        assert "or suna, ab tabiyat kesi hy, kaho to koi or intizaam kru" in read_reason
+
     @pytest.mark.parametrize("override", ["off", "warn"])
     def test_policy_overrides_cannot_reopen_native_routes(self, override: str) -> None:
         decision = decide("Bash", {"command": "printf hello"}, {"TB_COMMAND_POLICY": override})
@@ -72,25 +84,15 @@ class TestDefaultDeny:
         )
 
     def test_malformed_hook_input_fails_closed(self) -> None:
-        proc = subprocess.run(
-            [sys.executable, str(HOOK)],
-            input="{",
-            capture_output=True,
-            text=True,
-            env={**os.environ, "CLAUDE_PROJECT_DIR": str(PROJECT_DIR)},
-            timeout=30,
-            check=False,
-        )
-        assert proc.returncode == 0
-        decision = json.loads(proc.stdout)["hookSpecificOutput"]
+        decision = run_hook("{")
         assert decision["permissionDecision"] == "deny"
 
 
 class TestApprovedGithubRoute:
     def test_repository_file_read_is_allowed_only_when_repo_scoped(self) -> None:
         decision = decide(
-            "mcp__github__get_file_contents",
-            {"owner": "zulqarnain106612-cpu", "repo": "Trade-Bot", "path": "CLAUDE.md"},
+            "mcp__GitHub__fetch_file",
+            {"repository_full_name": REPO, "path": "CLAUDE.md", "start_line": 1, "end_line": 30},
         )
         assert decision["permissionDecision"] == "allow"
 
@@ -103,19 +105,15 @@ class TestApprovedGithubRoute:
 
     def test_scoped_search_is_allowed(self) -> None:
         decision = decide(
-            "mcp__github__search_code",
-            {
-                "query": "repo:zulqarnain106612-cpu/Trade-Bot observation_gate",
-                "owner": "zulqarnain106612-cpu",
-                "repo": "Trade-Bot",
-            },
+            "mcp__GitHub__search",
+            {"query": "observation_gate", "repository_name": REPO},
         )
         assert decision["permissionDecision"] == "allow"
 
     def test_pull_request_notice_comment_route_remains_allowed(self) -> None:
         decision = decide(
-            "mcp__github__fetch_pr",
-            {"repository_full_name": REPO, "pr_number": 435, "include_comments": True},
+            "mcp__GitHub__fetch_pr_comments",
+            {"repo_full_name": REPO, "pr_number": 435},
         )
         assert decision["permissionDecision"] == "allow"
 
@@ -140,25 +138,21 @@ class TestApprovedGithubRoute:
 
     def test_search_cannot_smuggle_a_second_repository_in_the_query(self) -> None:
         assert_denied(
-            "mcp__github__search_code",
-            {
-                "owner": "zulqarnain106612-cpu",
-                "repo": "Trade-Bot",
-                "query": "repo:another-owner/another-repo secret",
-            },
+            "mcp__GitHub__search",
+            {"repository_name": REPO, "query": "repo:another-owner/another-repo secret"},
             contains=REPO,
         )
 
     def test_unscoped_search_is_denied(self) -> None:
         assert_denied(
-            "mcp__github__search_code", {"query": "observation_gate"},
+            "mcp__GitHub__search", {"query": "observation_gate"},
             contains="explicitly identify",
         )
 
     def test_other_repository_is_denied(self) -> None:
         assert_denied(
-            "mcp__github__get_file_contents",
-            {"owner": "another-owner", "repo": "another-repo", "path": "README.md"},
+            "mcp__GitHub__fetch_file",
+            {"repository_full_name": "another-owner/another-repo", "path": "README.md"},
             contains=REPO,
         )
 
@@ -274,12 +268,13 @@ class TestBranchAndBoundaryWrites:
 
     def test_feature_branch_write_is_allowed(self) -> None:
         decision = decide(
-            "mcp__github__push_files",
+            "mcp__GitHub__update_file",
             {
-                "owner": "zulqarnain106612-cpu",
-                "repo": "Trade-Bot",
+                "repository_full_name": REPO,
                 "branch": "security/observation-boundary",
-                "files": [{"path": "docs/example.md", "content": "x"}],
+                "path": "docs/example.md",
+                "content": "x",
+                "sha": "a" * 40,
             },
         )
         assert decision["permissionDecision"] == "allow"
@@ -287,13 +282,14 @@ class TestBranchAndBoundaryWrites:
     @pytest.mark.parametrize("branch", ["main", "master", "", None])
     def test_writes_without_a_feature_branch_are_denied(self, branch: str | None) -> None:
         args = {
-            "owner": "zulqarnain106612-cpu",
-            "repo": "Trade-Bot",
-            "files": [{"path": "docs/example.md", "content": "x"}],
+            "repository_full_name": REPO,
+            "path": "docs/example.md",
+            "content": "x",
+            "sha": "a" * 40,
         }
         if branch is not None:
             args["branch"] = branch
-        assert_denied("mcp__github__push_files", args, contains="non-main feature branch")
+        assert_denied("mcp__GitHub__update_file", args, contains="non-main feature branch")
 
     def test_boundary_files_cannot_be_changed_through_github_file_tools(self) -> None:
         assert_denied(
@@ -320,26 +316,40 @@ class TestBranchAndBoundaryWrites:
             "CLAUDE.md",
         ],
     )
+    @pytest.mark.parametrize(
+        "path",
+        [
+            ".claude",
+            ".claude/settings.local.json",
+            ".claude/new-hook.py",
+            ".github/workflows",
+            ".mcp.json",
+            ".github/workflows/new-workflow.yml",
+            "src/agent_control/new_gate.py",
+            "CLAUDE.md",
+        ],
+    )
     def test_policy_directories_and_launch_configuration_are_protected(self, path: str) -> None:
         assert_denied(
-            "mcp__github__push_files",
+            "mcp__GitHub__update_file",
             {
-                "owner": "zulqarnain106612-cpu",
-                "repo": "Trade-Bot",
+                "repository_full_name": REPO,
                 "branch": "security/test-boundary",
-                "files": [{"path": path, "content": "bypass"}],
+                "path": path,
+                "content": "bypass",
+                "sha": "a" * 40,
             },
             contains="Protected observation-boundary",
         )
 
-    def test_boundary_files_cannot_be_changed_inside_bulk_push(self) -> None:
+    def test_boundary_files_cannot_be_changed_inside_tree_writes(self) -> None:
         assert_denied(
-            "mcp__github__push_files",
+            "mcp__GitHub__create_tree",
             {
-                "owner": "zulqarnain106612-cpu",
-                "repo": "Trade-Bot",
-                "branch": "security/agent-boundary",
-                "files": [{"path": ".claude/settings.json", "content": "{}"}],
+                "repository_full_name": REPO,
+                "tree_elements": [
+                    {"path": ".claude/settings.json", "mode": "100644", "type": "blob", "sha": "a" * 40}
+                ],
             },
             contains="Protected observation-boundary",
         )
