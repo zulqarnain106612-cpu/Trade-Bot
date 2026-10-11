@@ -52,6 +52,7 @@ class RuntimePlatform:
     traces: DecisionTraceIndex
     persister: DesiredStatePersister | None = None
     audit_persister: AuditPersister | None = None
+    horizon_models: Any | None = None
 
     async def flush(self) -> int:
         """Persist queued desired-state changes and change audit; 0 without a backend."""
@@ -105,6 +106,7 @@ def build_runtime_platform(
     desired_backend: DesiredStateBackend | None = None,
     audit_backend: AuditBackend | None = None,
     policy: RestartPolicy | None = None,
+    horizon_models: Any | None = None,
 ) -> RuntimePlatform:
     registry = RuntimeRegistry()
     registry.add_transition_listener(transition_publisher(bus))
@@ -133,4 +135,5 @@ def build_runtime_platform(
         traces=DecisionTraceIndex(),
         persister=persister,
         audit_persister=audit_persister,
+        horizon_models=horizon_models,
     )

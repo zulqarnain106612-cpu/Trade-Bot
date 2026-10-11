@@ -68,7 +68,8 @@
     "PR-009": "Supply-Chain + Artifact Security",
     "PR-010": "Recovery/Chaos/Performance",
     "PR-011": "Paper-Trading Qualification",
-    "PR-012": "Production/Canary Security Gate"
+    "PR-012": "Production/Canary Security Gate",
+    "PR-013": "Adaptive Horizon Intelligence"
   },
   "entries": [
     {
@@ -860,6 +861,29 @@
       "failure_mode": "Orders are rejected by the venue at exactly the moment the strategy needs them."
     },
     {
+      "id": "DATA-006",
+      "kind": "requirement",
+      "title": "Historical horizon warm-start is causal and leaves source storage unchanged",
+      "statement": "Historical bars are replayed in source-time order into an isolated horizon store, with one-minute cadence exclusions, durable event deduplication and no writes to the source database.",
+      "criticality": "high",
+      "subsystem": "data",
+      "status": "partial",
+      "source": "QE-80",
+      "owning_modules": [
+        "src/models/horizon_backfill.py",
+        "src/models/horizon_learning.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_horizon_backfill.py",
+          "test_type": "regression",
+          "note": "Uses a disposable SQLite source to verify cadence exclusion, causal matured labels, isolated output, and idempotent resume."
+        }
+      ],
+      "failure_mode": "A warm-start mutates source bars, labels a shorter horizon from coarse data, or repeats learner updates after restart.",
+      "planned_in": "PR-013"
+    },
+    {
       "id": "PORT-001",
       "kind": "requirement",
       "title": "Portfolio-level exposure, correlation and agreement limits are enforced",
@@ -986,6 +1010,11 @@
         {
           "test": "tests/test_model_registry.py",
           "test_type": "model"
+        },
+        {
+          "test": "tests/test_horizon_mlp.py",
+          "test_type": "model",
+          "note": "The active artifact pointer resolves to a checksummed immutable bundle containing the trained horizon MLP and complete provenance."
         }
       ],
       "failure_mode": "A model in production cannot be traced to the data or code that made it."
@@ -5466,6 +5495,34 @@
         }
       ],
       "notes": "layer: test-suite"
+    },
+    {
+      "id": "REG-0030",
+      "kind": "regression",
+      "title": "Horizon decisions cannot bypass the single risk-gated order path",
+      "statement": "When intelligence is enabled, an order from the existing primary timeframe proceeds only with a fresh calibrated fused horizon decision aligned to its direction; abstention, stale or unavailable intelligence, disagreement, and non-primary timeframe duplicates suppress submission without changing or skipping existing risk gates.",
+      "criticality": "critical",
+      "subsystem": "execution",
+      "status": "partial",
+      "source": "QE-92",
+      "failure_mode": "An untrained or stale horizon output could authorize duplicate orders or bypass the existing deterministic risk and authorization path.",
+      "owning_modules": [
+        "src/engine/orchestrator.py",
+        "src/fusion/horizon_decision.py",
+        "src/models/horizon_mlp.py",
+        "src/models/horizon_learning.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_horizon_order_gate.py",
+          "test_type": "regression"
+        },
+        {
+          "test": "tests/test_horizon_decision.py",
+          "test_type": "unit"
+        }
+      ],
+      "planned_in": "PR-013"
     }
   ]
 }

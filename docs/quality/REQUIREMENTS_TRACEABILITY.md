@@ -48,21 +48,21 @@ deletion of the thing it points at.
 | Status | Entries |
 |---|---|
 | VERIFIED | 215 |
-| PARTIAL | 0 |
+| PARTIAL | 2 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **215** |
+| **Total** | **217** |
 
 ## Summary by subsystem
 
 | Subsystem | Entries | Verified |
 |---|---|---|
 | Risk | 10 | 10 |
-| Execution | 12 | 12 |
+| Execution | 13 | 12 |
 | Portfolio | 1 | 1 |
 | Signal and features | 6 | 6 |
 | Models and leakage | 10 | 10 |
-| Data, money and time | 9 | 9 |
+| Data, money and time | 10 | 9 |
 | API and WebSocket | 21 | 21 |
 | Cryptography and secrets | 30 | 30 |
 | Supply chain and artifacts | 7 | 7 |
@@ -87,6 +87,7 @@ deletion of the thing it points at.
 | PR-010 | Recovery/Chaos/Performance | — |
 | PR-011 | Paper-Trading Qualification | — |
 | PR-012 | Production/Canary Security Gate | — |
+| PR-013 | Adaptive Horizon Intelligence | `DATA-006`, `REG-0030` |
 
 ---
 
@@ -367,6 +368,18 @@ Nightly mutation testing of the execution modules kills at least 90% of generate
 - **Verification:**
   - `tests/regression/test_regression_registry_contract.py` (mutation) — The execution subsystem's 90% floor, mutating order_fsm, idempotency and exchange_contract nightly.
 
+#### `REG-0030` — Horizon decisions cannot bypass the single risk-gated order path
+
+**PARTIAL → PR-013** · critical · regression · source: QE-92
+
+When intelligence is enabled, an order from the existing primary timeframe proceeds only with a fresh calibrated fused horizon decision aligned to its direction; abstention, stale or unavailable intelligence, disagreement, and non-primary timeframe duplicates suppress submission without changing or skipping existing risk gates.
+
+- **If violated:** An untrained or stale horizon output could authorize duplicate orders or bypass the existing deterministic risk and authorization path.
+- **Owned by:** `src/engine/orchestrator.py`, `src/fusion/horizon_decision.py`, `src/models/horizon_mlp.py`, `src/models/horizon_learning.py`
+- **Verification:**
+  - `tests/test_horizon_order_gate.py` (regression)
+  - `tests/test_horizon_decision.py` (unit)
+
 ## Portfolio
 
 #### `PORT-001` — Portfolio-level exposure, correlation and agreement limits are enforced
@@ -470,6 +483,7 @@ A model artifact records model id, training-data hash, feature-schema hash, code
   - `tests/models/test_model_provenance.py` (model) — All ten fields, with each hash asserted to change when its subject changes and not to change when something irrelevant does.
   - `tests/models/test_model_artifacts.py` (model) — The manifest written by save() carries a complete record, and the legacy {file, sha256} keys still verify.
   - `tests/test_model_registry.py` (model)
+  - `tests/test_horizon_mlp.py` (model) — The active artifact pointer resolves to a checksummed immutable bundle containing the trained horizon MLP and complete provenance.
 
 #### `MODL-002` — A model never decides to bypass the risk gate
 
@@ -660,6 +674,17 @@ Every submitted order conforms to the venue's tick, lot and minimum-notional rul
 - **Verification:**
   - `tests/execution/test_venue_precision.py` (unit) — Quantisation never increases a quantity, and every minimum is compared against the quantised value -- the number the venue actually sees.
   - `tests/test_fetcher_symbol_precision.py` (unit)
+
+#### `DATA-006` — Historical horizon warm-start is causal and leaves source storage unchanged
+
+**PARTIAL → PR-013** · high · requirement · source: QE-80
+
+Historical bars are replayed in source-time order into an isolated horizon store, with one-minute cadence exclusions, durable event deduplication and no writes to the source database.
+
+- **If violated:** A warm-start mutates source bars, labels a shorter horizon from coarse data, or repeats learner updates after restart.
+- **Owned by:** `src/models/horizon_backfill.py`, `src/models/horizon_learning.py`
+- **Verification:**
+  - `tests/test_horizon_backfill.py` (regression) — Uses a disposable SQLite source to verify cadence exclusion, causal matured labels, isolated output, and idempotent resume.
 
 #### `VEN-001` — Exchange venues are connected and disconnected per venue, with honest state
 
@@ -2780,4 +2805,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 215 entries.
+Registry version: 1.0.0 — 217 entries.

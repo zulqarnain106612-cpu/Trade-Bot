@@ -43,6 +43,8 @@ from src.runtime.changes import (
     ChangeStatus,
     UnauthorizedError,
 )
+from src.runtime.adaptive import SYSTEM_EVALUATOR
+from src.runtime.contracts import ChangeClass
 from src.runtime.contracts import (
     ComponentVersion,
     LifecycleAction,
@@ -51,6 +53,7 @@ from src.runtime.contracts import (
 )
 from src.runtime.platform import RuntimePlatform
 from src.runtime.registry import UnknownComponentError
+from src.runtime.supervisor import ActionRefusedError
 
 # What /runtime/components/{id}/{action} accepts: the operator's direct
 # levers. Version changes and activations go through /runtime/changes, where
@@ -209,12 +212,41 @@ def decide(
             result = changes.approve(change_id, actor)
             # A staged class waits for its shadow/canary result; anything
             # else approved by a human runs now.
-            if result.classification not in STAGE_FOR:
+            component = platform.registry.get(result.request.component_id)
+            is_horizon_model = component.version.configuration.get("horizon_id") is not None
+            if is_horizon_model and result.classification is ChangeClass.SHADOW_REQUIRED:
+                if platform.horizon_models is None:
+                    raise RuntimeControlError(503, "horizon model lifecycle is unavailable")
+                detail = platform.horizon_models.record_shadow_stage(component)
+                changes.record_stage(
+                    change_id,
+                    stage="shadow",
+                    passed=True,
+                    detail=detail,
+                    actor=SYSTEM_EVALUATOR,
+                )
+                result = changes.execute(change_id, SYSTEM_EVALUATOR)
+            elif result.classification not in STAGE_FOR:
                 result = changes.execute(change_id, actor)
         elif verb == "execute":
             result = changes.execute(change_id, actor)
         elif verb == "promote":
-            result = changes.promote(change_id, actor)
+            current = changes.get(change_id)
+            component = platform.registry.get(current.request.component_id)
+            horizon_component = component.version.configuration.get("horizon_id") is not None
+            result = (
+                current
+                if horizon_component and current.status is ChangeStatus.PROMOTED
+                else changes.promote(change_id, actor)
+            )
+            component = platform.registry.get(result.request.component_id)
+            if (
+                result.status is ChangeStatus.PROMOTED
+                and component.version.configuration.get("horizon_id") is not None
+            ):
+                if platform.horizon_models is None:
+                    raise RuntimeControlError(503, "horizon model lifecycle is unavailable")
+                platform.horizon_models.complete_promotion(component)
         elif verb == "rollback":
             result = changes.rollback(change_id, actor, body.reason or "operator rollback")
         elif verb == "cancel":
@@ -223,6 +255,8 @@ def decide(
             raise RuntimeControlError(404, f"unknown decision {verb!r}")
     except UnauthorizedError as exc:
         raise RuntimeControlError(403, str(exc)) from exc
+    except ActionRefusedError as exc:
+        raise RuntimeControlError(409, str(exc)) from exc
     except ChangeError as exc:
         status = 404 if str(exc).startswith("unknown change") else 409
         raise RuntimeControlError(status, str(exc)) from exc

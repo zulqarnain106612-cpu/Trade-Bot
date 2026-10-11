@@ -5,29 +5,13 @@ existing storage schema (store_intelligence_features).
 The orchestrator already reads from storage.fetch_intelligence_features() and
 joins the columns into the training FeatureMatrix. This adapter calls
 CryptoIntelligence.on_bar() for each incoming bar and writes the produced
-IntelSignal as intelligence features, making the v6 signals available to every
-downstream model, the risk gate, and the position sizer.
-
-Column mapping (18 intelligence columns → IntelSignal fields):
-  direction_v6           → signal.direction
-  size_pct_v6            → signal.size_pct
-  confidence_v6          → signal.confidence
-  horizon_idx_v6         → signal.horizon_idx
-  ecc_anomaly_v6         → signal.ecc_anomaly
-  conflict_v6            → signal.conflict (0/1)
-  regime_id_v6           → signal.regime_id
-  agreement_ratio_v6     → signal.meta['agreement_ratio']
-  kyle_lambda_v6         → signal.meta['kyle_lambda']
-  ofi_v6                 → signal.meta['ofi']
-  vpin_v6                → signal.meta['vpin']
-  algo_ioc_v6            → 1 if algo=='IOC'
-  algo_iceberg_v6        → 1 if algo=='iceberg'
-  algo_twap_v6           → 1 if algo=='TWAP'
-  (4 reserved zeros)
+IntelSignal as intelligence features. V6 decision outputs are mapped to
+dedicated nullable columns and JSON fields, separate from older provider data.
 """
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -73,7 +57,7 @@ class IntelligenceAdapter:
         ohlcv: dict,
         bids: list | None = None,
         asks: list | None = None,
-        regime_id: int = 0,
+        regime_id: int | None = None,
         regime_confidences: list[float] | None = None,
         derivatives_data: dict | None = None,
         alt_prices: dict[str, list[float]] | None = None,
@@ -93,6 +77,9 @@ class IntelligenceAdapter:
                 regime_confidences=regime_confidences,
                 derivatives_data=derivatives_data,
                 alt_prices=alt_prices,
+                event_ts=bar_ts_ms / 1000.0,
+                event_id=f"{symbol}:{timeframe}:{bar_ts_ms}",
+                source_timeframe=timeframe,
             )
         except Exception as exc:
             log.warning("intelligence_on_bar_failed", symbol=symbol, exc=str(exc))
@@ -101,7 +88,16 @@ class IntelligenceAdapter:
         if signal is None:
             return
 
-        features = self._signal_to_features(signal)
+        try:
+            features = self._signal_to_features(signal)
+        except ValueError as exc:
+            log.warning(
+                "intelligence_feature_contract_unsupported",
+                symbol=symbol,
+                timeframe=timeframe,
+                error=str(exc),
+            )
+            return
 
         try:
             await self._storage.store_intelligence_features(
@@ -115,22 +111,37 @@ class IntelligenceAdapter:
         except Exception as exc:
             log.warning("intelligence_store_failed", symbol=symbol, exc=str(exc))
 
-    def _signal_to_features(self, signal: Any) -> dict[str, float]:
-        """Convert IntelSignal to the 14-column feature dict."""
-        meta = getattr(signal, "meta", {})
+    def _signal_to_features(self, signal: Any) -> dict[str, Any]:
+        """Map each unified V6 decision field to a durable storage column."""
+        meta = signal.meta or {}
         return {
             "direction_v6": float(signal.direction),
             "size_pct_v6": float(signal.size_pct),
             "confidence_v6": float(signal.confidence),
             "horizon_idx_v6": float(signal.horizon_idx),
-            "ecc_anomaly_v6": float(signal.ecc_anomaly),
-            "conflict_v6": float(int(signal.conflict)),
+            "ecc_anomaly_v6": (
+                float(signal.ecc_anomaly) if signal.ecc_anomaly is not None else None
+            ),
+            "conflict_v6": float(bool(signal.conflict)),
             "regime_id_v6": float(signal.regime_id),
-            "agreement_ratio_v6": float(meta.get("agreement_ratio", 0.0)),
-            "kyle_lambda_v6": float(meta.get("kyle_lambda", 0.0)),
-            "ofi_v6": float(meta.get("ofi", 0.0)),
-            "vpin_v6": float(meta.get("vpin", 0.0)),
-            "algo_ioc_v6": float(signal.algo == "IOC"),
-            "algo_iceberg_v6": float(signal.algo == "iceberg"),
-            "algo_twap_v6": float(signal.algo == "TWAP"),
+            "agreement_ratio_v6": _optional_float(meta.get("agreement_ratio")),
+            "kyle_lambda_v6": _optional_float(meta.get("kyle_lambda")),
+            "ofi_v6": _optional_float(meta.get("ofi")),
+            "vpin_v6": _optional_float(meta.get("vpin")),
+            "expected_return_v6": _optional_float(meta.get("expected_return")),
+            "uncertainty_v6": _optional_float(meta.get("uncertainty")),
+            "algo_v6": str(signal.algo),
+            "horizon_contributions_v6": json.dumps(
+                meta.get("horizon_contributions", {}), sort_keys=True
+            ),
+            "model_versions_v6": json.dumps(meta.get("model_versions", {}), sort_keys=True),
+            "freshness_seconds_v6": json.dumps(
+                meta.get("freshness_seconds", {}), sort_keys=True
+            ),
         }
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    return float(value)

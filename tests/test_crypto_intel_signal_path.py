@@ -1,21 +1,15 @@
-"""Covers src/intel.py's full on_bar signal path and route_signal.
-
-The existing tests exercise construction and the early-return paths; on_bar
-never got as far as conflict resolution because no worker results ever arrive
-without a live worker pool. Here the orchestrator and the network-backed
-feature fetchers are replaced with in-process fakes so the fusion, risk-gate,
-persistence and routing branches all run for real.
-"""
+"""Covers horizon dispatch, honest abstention, and the risk-gated signal path."""
 
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 
 from src.features.mempool import MempoolFeatures
 from src.features.onchain import OnChainFeatures
-from src.intel import CryptoIntelligence, IntelSignal
+from src.intel import CryptoIntelligence
 from src.workers.orchestrator import WorkerResult
 
 
@@ -37,16 +31,26 @@ class _FakeOrchestrator:
         self.shutdown_called = True
 
 
-def _result(horizon_id: int, direction: int = 1, confidence: float = 0.9) -> WorkerResult:
+def _result(
+    horizon_id: int,
+    direction: int = 1,
+    confidence: float = 0.9,
+    status: str = "UNTRAINED",
+) -> WorkerResult:
     return WorkerResult(
         task_id=f"t{horizon_id}",
         horizon_id=horizon_id,
         direction=direction,
         confidence=confidence,
-        magnitude_mu=0.01,
+        magnitude_mu=0.01 * direction,
         magnitude_sigma=0.002,
         timing=0.5,
         algo="IOC",
+        status=status,
+        model_id=f"model-{horizon_id}" if status != "UNTRAINED" else None,
+        model_version=f"version-{horizon_id}" if status != "UNTRAINED" else None,
+        prediction_ts=time.time(),
+        oos_score=0.75 if status != "UNTRAINED" else None,
     )
 
 
@@ -56,6 +60,14 @@ def intel(tmp_path, monkeypatch):
     cfg.write_text(
         f"n_workers: 1\nn_horizons: 3\nduckdb_path: {tmp_path / 'intel.duckdb'}\n",
     )
+    horizons = tmp_path / "horizons.yaml"
+    horizons.write_text(
+        "horizons:\n"
+        "  short: {id: 0, label: 30s, seconds: 30, models: [mlp]}\n"
+        "  medium: {id: 1, label: 2m, seconds: 120, models: [mlp]}\n"
+        "  long: {id: 2, label: 5m, seconds: 300, models: [mlp]}\n"
+    )
+    monkeypatch.setattr("src.intel._HORIZONS_CONFIG", horizons)
     monkeypatch.setenv("DUCKDB_PATH", str(tmp_path / "intel.duckdb"))
     obj = CryptoIntelligence(config_path=cfg)
     obj._orchestrator = _FakeOrchestrator()
@@ -82,36 +94,46 @@ def _ohlcv() -> dict:
     return {"close": 50000.0, "volume": 12.0, "atr": 500.0}
 
 
-def test_on_bar_returns_a_signal_when_horizons_agree(intel):
+def _deliver_results(intel, results: list[WorkerResult]) -> None:
+    def drain(_timeout):
+        if not results:
+            return None
+        result = results.pop(0)
+        task = next(
+            task
+            for task in intel._orchestrator.submitted
+            if task.horizon_id == result.horizon_id
+        )
+        result.task_id = task.task_id
+        return result
+
+    intel._drain_one = drain
+
+
+def test_on_bar_abstains_when_horizon_models_are_untrained(intel):
     results = [_result(i) for i in range(3)]
-    intel._drain_one = lambda timeout: results.pop(0) if results else None
+    _deliver_results(intel, results)
 
     sig = asyncio.run(intel.on_bar("BTC/USDT", _ohlcv(), regime_id=2))
 
-    assert isinstance(sig, IntelSignal)
-    assert sig.symbol == "BTC/USDT"
-    assert sig.direction == 1
-    assert sig.regime_id == 2
-    assert sig.algo == "IOC"
-    assert 0.0 <= sig.size_pct <= 0.05
-    assert sig.meta["ofi"] == 0.0
+    assert sig is None  # declared models are untrained and therefore abstain
     # one task submitted per configured horizon
     assert len(intel._orchestrator.submitted) == 3
 
 
-def test_on_bar_applies_regime_confidences_as_horizon_weights(intel):
+def test_on_bar_does_not_treat_regime_confidence_as_model_evidence(intel):
     results = [_result(i) for i in range(3)]
-    intel._drain_one = lambda timeout: results.pop(0) if results else None
+    _deliver_results(intel, results)
 
     sig = asyncio.run(
         intel.on_bar("BTC/USDT", _ohlcv(), regime_confidences=[0.9, 0.5, 0.1]),
     )
-    assert sig is not None
+    assert sig is None
 
 
 def test_on_bar_updates_granger_when_alt_price_history_is_long_enough(intel):
     results = [_result(i) for i in range(3)]
-    intel._drain_one = lambda timeout: results.pop(0) if results else None
+    _deliver_results(intel, results)
     seen: dict[str, object] = {}
     intel._granger.update = lambda btc_ret, alts: seen.update(n=len(btc_ret), alts=alts)
 
@@ -131,18 +153,19 @@ def test_on_bar_returns_none_when_no_worker_results_arrive(intel, monkeypatch):
 
 
 def test_on_bar_returns_none_when_horizons_resolve_to_flat(intel):
-    results = [_result(0, direction=1), _result(1, direction=-1), _result(2, direction=0)]
-    intel._drain_one = lambda timeout: results.pop(0) if results else None
-    intel._resolver.resolve_with_ecc = lambda *_a, **_kw: type(
-        "R", (), {"direction": 0, "weight": 0.0, "conflict": True, "agreement_ratio": 0.3}
-    )()
+    results = [
+        _result(0, direction=1, status="PROMOTED"),
+        _result(1, direction=-1, status="PROMOTED"),
+        _result(2, direction=-1, status="PROMOTED"),
+    ]
+    _deliver_results(intel, results)
 
     assert asyncio.run(intel.on_bar("BTC/USDT", _ohlcv())) is None
 
 
 def test_on_bar_returns_none_when_the_circuit_breaker_trips(intel):
-    results = [_result(i) for i in range(3)]
-    intel._drain_one = lambda timeout: results.pop(0) if results else None
+    results = [_result(i, status="PROMOTED") for i in range(3)]
+    _deliver_results(intel, results)
     intel._risk_gate.circuit_breaker = lambda drawdown, daily_loss: True
 
     assert asyncio.run(intel.on_bar("BTC/USDT", _ohlcv())) is None
@@ -150,8 +173,8 @@ def test_on_bar_returns_none_when_the_circuit_breaker_trips(intel):
 
 def test_on_bar_returns_none_when_the_risk_gate_suppresses_the_size(intel):
     # confidence below the gate's threshold -> suppressed, no signal
-    results = [_result(i, confidence=0.01) for i in range(3)]
-    intel._drain_one = lambda timeout: results.pop(0) if results else None
+    results = [_result(i, confidence=0.01, status="PROMOTED") for i in range(3)]
+    _deliver_results(intel, results)
 
     assert asyncio.run(intel.on_bar("BTC/USDT", _ohlcv())) is None
 
@@ -192,64 +215,6 @@ def test_collect_ecc_drops_a_stale_worker_result_from_a_previous_bar(intel):
     intel._ecc_state = {"cluster_flow_score": 0.4}
 
     assert intel._collect_ecc() == {"cluster_flow_score": 0.4}
-
-
-class TestRouteSignal:
-    def _signal(self, **overrides) -> IntelSignal:
-        base = dict(
-            symbol="BTC/USDT",
-            direction=1,
-            size_pct=0.02,
-            confidence=0.8,
-            horizon_idx=2,
-            algo="IOC",
-            ecc_anomaly=0.1,
-            conflict=False,
-            regime_id=0,
-            meta={"kyle_lambda": 0.002},
-        )
-        return IntelSignal(**(base | overrides))
-
-    def test_routes_a_long_and_records_the_fill(self, intel):
-        routed: dict[str, object] = {}
-
-        async def _route(signal, kyle, size_usd):
-            routed.update(signal=signal, kyle=kyle, size_usd=size_usd)
-            return {"filled": True}
-
-        recorded: dict[str, object] = {}
-        intel._router.route = _route
-        intel._post_trade.record = lambda *args: recorded.update(args=args)
-
-        asyncio.run(intel.route_signal(self._signal(), price=50000.0, capital_usd=100_000.0))
-
-        assert routed["size_usd"] == pytest.approx(2000.0)
-        assert routed["kyle"] == 0.002
-        assert routed["signal"]["side"] == "buy"
-        assert routed["signal"]["horizon_seconds"] == 300
-        assert recorded["args"][1:4] == ("BTC/USDT", "buy", 2)
-
-    def test_clamps_the_horizon_index_to_the_longest_bucket(self, intel):
-        captured: dict[str, object] = {}
-
-        async def _route(signal, kyle, size_usd):
-            captured.update(signal)
-            return {}
-
-        intel._router.route = _route
-        intel._post_trade.record = lambda *args: None
-
-        asyncio.run(intel.route_signal(self._signal(horizon_idx=42, direction=-1), 50000.0, 1000.0))
-        assert captured["side"] == "sell"
-        assert captured["horizon_seconds"] == 86400 * 30
-
-    @pytest.mark.parametrize("kwargs", [{"direction": 0}, {"size_pct": 0.0}])
-    def test_does_not_route_a_flat_or_zero_size_signal(self, intel, kwargs):
-        def _fail(*_a, **_kw):
-            raise AssertionError("router must not be called")
-
-        intel._router.route = _fail
-        asyncio.run(intel.route_signal(self._signal(**kwargs), 50000.0, 1000.0))
 
 
 def test_close_survives_a_duckdb_that_fails_to_close(intel):

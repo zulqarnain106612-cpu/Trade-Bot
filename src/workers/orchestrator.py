@@ -16,8 +16,11 @@ ECC results are always keyed with {'type': 'ecc', 'result': {...}}.
 
 from __future__ import annotations
 
+import hashlib
+import math
 import multiprocessing as mp
 import os
+from pathlib import Path
 import signal
 import threading
 import time
@@ -29,7 +32,10 @@ import structlog
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 _MIN_WORKERS = 2
-_MAX_WORKERS = 24
+# The runtime memory critical threshold is 1 GiB. Torch is imported in each
+# model process, so a 24-process default can exceed that limit before fitting.
+# Keep the pool small; bounded queues preserve backpressure for the ten heads.
+_MAX_WORKERS = 4
 
 
 @dataclass
@@ -38,7 +44,14 @@ class WorkerTask:
     horizon_id: int
     symbol: str
     features: dict[str, Any]
-    ecc_features: dict[str, float] = field(default_factory=dict)
+    ecc_features: dict[str, Any] = field(default_factory=dict)
+    horizon_seconds: int | None = None
+    source_event_ts: float | None = None
+    architecture_names: tuple[str, ...] = ()
+    model_dir: str | None = None
+    submitted_monotonic: float | None = None
+    regime_id: int | None = None
+    source_cadence_seconds: float | None = None
 
 
 @dataclass
@@ -52,6 +65,27 @@ class WorkerResult:
     timing: float  # entry delay probability [0, 1]
     algo: str  # IOC / iceberg / TWAP
     error: str | None = None
+    status: str = "UNTRAINED"
+    model_id: str | None = None
+    model_version: str | None = None
+    feature_schema_hash: str | None = None
+    prediction_ts: float | None = None
+    horizon_seconds: int | None = None
+    target_expiry_ts: float | None = None
+    target_definition: str | None = None
+    training_samples: int = 0
+    inference_latency_ms: float | None = None
+    oos_score: float | None = None
+    queue_age_ms: float | None = None
+    confidence_calibrated: bool = False
+    uncertainty_calibrated: bool = False
+    oos_sample_count: int = 0
+    source_cadence_seconds: float | None = None
+    candidate_magnitude_mu: float | None = None
+    candidate_model_version: str | None = None
+    candidate_schema_hash: str | None = None
+    candidate_error: str | None = None
+    calibration_method: str | None = None
 
 
 def _model_worker(
@@ -90,57 +124,245 @@ def _model_worker(
                     timing=0.5,
                     algo="TWAP",
                     error=str(exc),
+                    status="FAILED",
+                    prediction_ts=time.time(),
                 )
             )
 
 
 def _run_horizon_inference(task: WorkerTask) -> WorkerResult:
     """
-    Run the model head(s) for a single horizon and return a result.
+    Run a compatible, trained horizon artifact or report it unavailable.
 
-    In the full implementation, this would load the per-horizon checkpoint
-    and run the appropriate model heads (CNN+TCN for h1, TFT+GRU for h4, etc.)
-    through the cross-attention fusion.  Currently routes to a placeholder
-    that returns a random-walk prediction until models are trained.
+    An architecture declaration is not a trained model. Until a horizon has
+    a compatible artifact, this worker returns UNTRAINED and never synthesizes
+    a neutral-looking prediction.
     """
-    import hashlib
-
-    import numpy as np
-
-    # Deterministic pseudo-inference based on features until training completes.
-    # sha256: nothing here is security-sensitive -- the digest only seeds an
-    # RNG -- but the weak digest this replaces needed usedforsecurity=False
-    # plus a nosec to quiet two scanners, and a reader still had to work out
-    # whether the exemption was genuine. sha256 costs nothing at one hash per
-    # task and needs no exemption at all.
-    feature_hash = int(
-        hashlib.sha256(str(sorted(task.features.items())).encode()).hexdigest(),
-        16,
+    schema = tuple(sorted(task.features))
+    schema_hash = hashlib.sha256("\0".join(schema).encode()).hexdigest()
+    started = time.perf_counter()
+    queue_age_ms = (
+        max(0.0, (time.monotonic() - task.submitted_monotonic) * 1000.0)
+        if task.submitted_monotonic is not None
+        else 0.0
     )
-    rng = np.random.default_rng(feature_hash % 2**32)
+    if task.source_event_ts is None or not math.isfinite(float(task.source_event_ts)):
+        return WorkerResult(
+            task_id=task.task_id,
+            horizon_id=task.horizon_id,
+            direction=0,
+            confidence=0.0,
+            magnitude_mu=0.0,
+            magnitude_sigma=0.0,
+            timing=0.0,
+            algo="",
+            error="source event timestamp is unavailable or invalid",
+            status="UNAVAILABLE_SOURCE_TIME",
+            prediction_ts=time.time(),
+            horizon_seconds=task.horizon_seconds,
+            source_cadence_seconds=task.source_cadence_seconds,
+            inference_latency_ms=(time.perf_counter() - started) * 1000.0,
+            queue_age_ms=queue_age_ms,
+        )
+    if (
+        task.horizon_seconds is not None
+        and task.horizon_seconds < 60
+        and (task.source_cadence_seconds is None or task.source_cadence_seconds >= task.horizon_seconds)
+    ):
+        return WorkerResult(
+            task_id=task.task_id,
+            horizon_id=task.horizon_id,
+            direction=0,
+            confidence=0.0,
+            magnitude_mu=0.0,
+            magnitude_sigma=0.0,
+            timing=0.0,
+            algo="",
+            error="source cadence is unavailable or too slow for this prediction horizon",
+            status="UNAVAILABLE_CADENCE",
+            prediction_ts=time.time(),
+            horizon_seconds=task.horizon_seconds,
+            source_cadence_seconds=task.source_cadence_seconds,
+            inference_latency_ms=(time.perf_counter() - started) * 1000.0,
+            queue_age_ms=queue_age_ms,
+        )
+    artifact_path = Path(task.model_dir or "") / "mlp.joblib"
+    active_pointer = artifact_path.with_suffix(artifact_path.suffix + ".active.json")
+    if (
+        task.model_dir
+        and "mlp" in {name.strip().lower() for name in task.architecture_names}
+        and (artifact_path.is_file() or active_pointer.is_file())
+    ):
+        try:
+            from src.models.horizon_mlp import HorizonMLPExpert
 
-    confidence = float(np.clip(rng.beta(2, 2), 0.0, 1.0))
-    direction = int(rng.choice([-1, 0, 1], p=[0.3, 0.4, 0.3]))
-    magnitude = float(rng.normal(0, 0.01))
-    timing = float(rng.uniform(0, 1))
+            instrument_hash = hashlib.sha256(task.symbol.encode()).hexdigest()[:16]
+            expert = HorizonMLPExpert.load(
+                artifact_path,
+                expected_horizon_id=task.horizon_id,
+                expected_instrument_hash=instrument_hash,
+            )
+            if not set(expert.feature_names).issubset(task.features):
+                raise ValueError("inference event is missing fields from the model feature schema")
+            model_features = {name: task.features[name] for name in expert.feature_names}
+            magnitude = expert.predict(model_features)
+            activation_state = HorizonMLPExpert.activation_state(artifact_path)
+            empirical_oos_ready = expert.oos_samples >= 100
+            empirical_accuracy = expert.oos_directional_accuracy
+            empirical_sigma = expert.predictive_sigma
+            candidate_magnitude: float | None = None
+            candidate_version: str | None = None
+            candidate_schema: str | None = None
+            candidate_error: str | None = None
+            candidate_path = artifact_path.parent / "shadow" / artifact_path.name
+            if HorizonMLPExpert.artifact_available(candidate_path):
+                try:
+                    challenger = HorizonMLPExpert.load(
+                        candidate_path,
+                        expected_schema_hash=expert.schema_hash,
+                        expected_horizon_id=task.horizon_id,
+                        expected_instrument_hash=instrument_hash,
+                    )
+                    candidate_features = {
+                        name: task.features[name] for name in challenger.feature_names
+                    }
+                    candidate_magnitude = challenger.predict(candidate_features)
+                    candidate_version = str(challenger.artifact_sha256 or "")
+                    candidate_schema = challenger.schema_hash
+                except Exception as exc:
+                    candidate_error = f"incompatible candidate artifact: {exc}"
+            return WorkerResult(
+                task_id=task.task_id,
+                horizon_id=task.horizon_id,
+                direction=1 if magnitude > 0 else -1 if magnitude < 0 else 0,
+                confidence=float(empirical_accuracy or 0.0),
+                magnitude_mu=magnitude,
+                magnitude_sigma=empirical_sigma,
+                timing=0.0,
+                algo="",
+                status=(
+                    "PROMOTED" if activation_state == "PROMOTED"
+                    else "PROBATION" if activation_state == "PROBATION"
+                    else "TRAINED"
+                ),
+                model_id=f"h{task.horizon_id}-mlp-{instrument_hash}",
+                model_version=str(expert.artifact_sha256 or ""),
+                feature_schema_hash=expert.schema_hash,
+                prediction_ts=time.time(),
+                horizon_seconds=task.horizon_seconds,
+                target_expiry_ts=(
+                    task.source_event_ts + task.horizon_seconds
+                    if task.source_event_ts is not None and task.horizon_seconds is not None
+                    else None
+                ),
+                target_definition="log return to first source event at or after expiry",
+                training_samples=expert.n_samples,
+                inference_latency_ms=(time.perf_counter() - started) * 1000.0,
+                oos_score=expert.oos_directional_accuracy,
+                queue_age_ms=queue_age_ms,
+                candidate_magnitude_mu=candidate_magnitude,
+                candidate_model_version=candidate_version,
+                candidate_schema_hash=candidate_schema,
+                candidate_error=candidate_error,
+                confidence_calibrated=empirical_oos_ready and empirical_accuracy is not None,
+                uncertainty_calibrated=empirical_oos_ready and empirical_sigma > 0,
+                oos_sample_count=expert.oos_samples,
+                calibration_method=("prequential_empirical" if empirical_oos_ready else None),
+            )
+        except Exception as exc:
+            return WorkerResult(
+                task_id=task.task_id,
+                horizon_id=task.horizon_id,
+                direction=0,
+                confidence=0.0,
+                magnitude_mu=0.0,
+                magnitude_sigma=0.0,
+                timing=0.0,
+                algo="",
+                error=f"incompatible horizon artifact: {exc}",
+                status="FAILED",
+                feature_schema_hash=schema_hash,
+                prediction_ts=time.time(),
+                horizon_seconds=task.horizon_seconds,
+                inference_latency_ms=(time.perf_counter() - started) * 1000.0,
+                queue_age_ms=queue_age_ms,
+            )
+    shadow_path = artifact_path.parent / "shadow" / artifact_path.name
+    shadow_available = False
+    if task.model_dir and "mlp" in {name.strip().lower() for name in task.architecture_names}:
+        from src.models.horizon_mlp import HorizonMLPExpert
 
-    # Algo selection based on horizon index and confidence
-    if task.horizon_id <= 1:
-        algo = "IOC"
-    elif task.horizon_id <= 4:
-        algo = "iceberg"
-    else:
-        algo = "TWAP"
+        shadow_available = HorizonMLPExpert.artifact_available(shadow_path)
+    if shadow_available:
+        try:
+            from src.models.horizon_mlp import HorizonMLPExpert
 
+            instrument_hash = hashlib.sha256(task.symbol.encode()).hexdigest()[:16]
+            challenger = HorizonMLPExpert.load(
+                shadow_path,
+                expected_horizon_id=task.horizon_id,
+                expected_instrument_hash=instrument_hash,
+            )
+            shadow_features = {name: task.features[name] for name in challenger.feature_names}
+            candidate_magnitude = challenger.predict(shadow_features)
+            version = str(challenger.artifact_sha256 or "")
+            return WorkerResult(
+                task_id=task.task_id,
+                horizon_id=task.horizon_id,
+                direction=0,
+                confidence=0.0,
+                magnitude_mu=0.0,
+                magnitude_sigma=0.0,
+                timing=0.0,
+                algo="",
+                status="CANDIDATE_SHADOW",
+                model_id=f"h{task.horizon_id}-baseline-{instrument_hash}",
+                model_version="zero-baseline-v1",
+                feature_schema_hash=challenger.schema_hash,
+                prediction_ts=time.time(),
+                horizon_seconds=task.horizon_seconds,
+                target_expiry_ts=(
+                    task.source_event_ts + task.horizon_seconds
+                    if task.source_event_ts is not None and task.horizon_seconds is not None
+                    else None
+                ),
+                target_definition="log return to first source event at or after expiry",
+                training_samples=challenger.n_samples,
+                inference_latency_ms=(time.perf_counter() - started) * 1000.0,
+                queue_age_ms=queue_age_ms,
+                candidate_magnitude_mu=candidate_magnitude,
+                candidate_model_version=version,
+                candidate_schema_hash=challenger.schema_hash,
+            )
+        except Exception as exc:
+            log.warning("horizon_shadow_inference_failed", horizon_id=task.horizon_id, error=str(exc))
+    reason = (
+        "no trained horizon artifact is configured"
+        if not task.model_dir or not task.architecture_names
+        else "no compatible trained horizon artifact is available"
+    )
     return WorkerResult(
         task_id=task.task_id,
         horizon_id=task.horizon_id,
-        direction=direction if confidence > 0.65 else 0,
-        confidence=confidence,
-        magnitude_mu=magnitude,
-        magnitude_sigma=abs(magnitude) * 0.5,
-        timing=timing,
-        algo=algo,
+        direction=0,
+        confidence=0.0,
+        magnitude_mu=0.0,
+        magnitude_sigma=0.0,
+        timing=0.0,
+        algo="",
+        error=reason,
+        status="UNTRAINED",
+        feature_schema_hash=schema_hash,
+        prediction_ts=time.time(),
+        horizon_seconds=task.horizon_seconds,
+        target_expiry_ts=(
+            task.source_event_ts + task.horizon_seconds
+            if task.source_event_ts is not None and task.horizon_seconds is not None
+            else None
+        ),
+        target_definition="log return to first source event at or after expiry",
+        inference_latency_ms=(time.perf_counter() - started) * 1000.0,
+        queue_age_ms=queue_age_ms,
     )
 
 
@@ -282,7 +504,7 @@ def _run_ecc_cycle(
     rpc_url: str,
     rpc_user: str,
     rpc_pass: str,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """Run one pass of every ECC analysis and return the merged feature set.
 
     Split out of the worker loop so the pipeline is testable without a thread,
@@ -291,7 +513,14 @@ def _run_ecc_cycle(
     from src.ecc.schnorr_taproot import parse_taproot_block
     from src.ecc.utxo_curve import compute_hodler_index, utxo_curve_feature_vector
 
-    ecc_result = dict(_ECC_NEUTRAL_FEATURES)
+    ecc_result: dict[str, Any] = dict(_ECC_NEUTRAL_FEATURES)
+    ecc_validity = {
+        "cluster": False,
+        "zksnark": False,
+        "utxo": False,
+        "taproot": False,
+        "ecdsa": False,
+    }
 
     # Each analysis is isolated: an unreachable Ethereum node must not
     # discard the Bitcoin clustering features that did resolve.
@@ -302,6 +531,7 @@ def _run_ecc_cycle(
             whale_count=cluster_result.whale_count,
             total_whale_btc=cluster_result.total_whale_btc,
         )
+        ecc_validity["cluster"] = True
     except Exception as exc:
         log.warning("ecc_cluster_failed", exc=str(exc))
         cluster_result = None
@@ -312,6 +542,7 @@ def _run_ecc_cycle(
             dark_pool_pressure=zk_result.dark_pool_pressure,
             tornado_deposits=zk_result.tornado_deposits_detected,
         )
+        ecc_validity["zksnark"] = True
     except Exception as exc:
         log.warning("ecc_zksnark_failed", exc=str(exc))
 
@@ -323,6 +554,7 @@ def _run_ecc_cycle(
                     compute_hodler_index(_utxos_with_ages(cluster_result.utxos))
                 )
             )
+            ecc_validity["utxo"] = True
     except Exception as exc:
         log.warning("ecc_utxo_curve_failed", exc=str(exc))
 
@@ -342,6 +574,7 @@ def _run_ecc_cycle(
                 p2tr_input_count=taproot.p2tr_input_count,
                 schnorr_divergence=taproot.smart_money_divergence,
             )
+            ecc_validity["taproot"] = True
     except Exception as exc:
         log.warning("ecc_taproot_failed", exc=str(exc))
 
@@ -364,9 +597,12 @@ def _run_ecc_cycle(
             ecdsa_keys_recovered=keys_recovered,
             ecdsa_weakness=peak_risk,
         )
+        ecc_validity["ecdsa"] = True
     except Exception as exc:
         log.warning("ecc_ecdsa_scan_failed", exc=str(exc))
 
+    ecc_result["_validity"] = ecc_validity
+    ecc_result["_observed_at"] = time.time()
     log.info(
         "ecc_pipeline_complete",
         flow_score=ecc_result["cluster_flow_score"],
@@ -395,6 +631,7 @@ class WorkerOrchestrator:
         btc_rpc_user: str = "crypto",
         btc_rpc_pass: str = "crypto",
         ecc_interval: float = 60.0,
+        ecc_enabled: bool = True,
     ) -> None:
         n_workers = max(self.MIN_WORKERS, min(n_workers, self.MAX_WORKERS))
         self._n_workers = n_workers
@@ -402,9 +639,11 @@ class WorkerOrchestrator:
         self._btc_rpc_user = btc_rpc_user
         self._btc_rpc_pass = btc_rpc_pass
         self._ecc_interval = ecc_interval
+        self._ecc_enabled = bool(ecc_enabled)
 
         self._queue_in: mp.Queue = mp.Queue(maxsize=1000)
         self._queue_out: mp.Queue = mp.Queue(maxsize=1000)
+        self._dropped_tasks = 0
         self._workers: list[mp.Process] = []
         self._ecc_thread: threading.Thread | None = None
         self._started = False
@@ -429,7 +668,7 @@ class WorkerOrchestrator:
             self._pin_cpu(p.pid, i)
             self._workers.append(p)
 
-        if self._ecc_thread is None or not self._ecc_thread.is_alive():
+        if self._ecc_enabled and (self._ecc_thread is None or not self._ecc_thread.is_alive()):
             self._ecc_thread = threading.Thread(
                 target=_ecc_worker,
                 args=(
@@ -457,7 +696,21 @@ class WorkerOrchestrator:
         """Submit a task for processing by a model worker."""
         if not self._started:
             self.start()
-        self._queue_in.put_nowait(task)
+        task.submitted_monotonic = time.monotonic()
+        try:
+            self._queue_in.put_nowait(task)
+        except Exception as exc:
+            # Queue.Full differs across multiprocessing implementations; keep
+            # the error explicit and expose the loss counter to runtime health.
+            self._dropped_tasks += 1
+            log.warning(
+                "horizon_task_dropped",
+                task_id=task.task_id,
+                horizon_id=task.horizon_id,
+                dropped_total=self._dropped_tasks,
+                error=str(exc),
+            )
+            raise
 
     def collect(self, timeout: float = 5.0) -> WorkerResult | dict | None:
         """Collect one result from the output queue. Returns None on timeout."""
@@ -495,3 +748,27 @@ class WorkerOrchestrator:
     @property
     def worker_count(self) -> int:
         return len(self._workers)
+
+    @property
+    def dropped_tasks(self) -> int:
+        return self._dropped_tasks
+
+    def health_snapshot(self) -> dict[str, Any]:
+        """Bounded scheduler health for the operator-facing horizon status."""
+        try:
+            input_depth = self._queue_in.qsize()
+        except (NotImplementedError, OSError, ValueError):
+            input_depth = None
+        try:
+            output_depth = self._queue_out.qsize()
+        except (NotImplementedError, OSError, ValueError):
+            output_depth = None
+        return {
+            "configured_workers": self._n_workers,
+            "alive_model_workers": sum(worker.is_alive() for worker in self._workers),
+            "input_queue_depth": input_depth,
+            "output_queue_depth": output_depth,
+            "dropped_tasks": self._dropped_tasks,
+            "started": self._started,
+            "ecc_enabled": self._ecc_enabled,
+        }
