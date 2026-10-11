@@ -26,19 +26,39 @@
     ".claude/hooks/observation_gate.py",
     ".claude/hooks/observation_failure.py",
     "config/observation_boundary.json",
-    "tests/test_observation_boundary_contract.py"
+    "tests/test_observation_boundary_contract.py",
+    "tests/test_pre_tool_use_hook.py",
+    "CLAUDE.md",
+    ".mcp.json"
   ],
   "policy": {
     "changed_local_source": "diff_first",
     "clean_source": "bounded_useful_excerpt",
     "failure_context": "compact_additional_context_only",
-    "ci_run_data": "blocked",
+    "ci_run_data": "blocked across GitHub MCP tools, generic GitHub fetch URLs, shells, and every other route",
     "live_monitoring": "blocked",
-    "environment_scope": "all successful tool observations cross PostToolUse '*'"
+    "environment_scope": "only exact allowlisted, repository-scoped GitHub MCP operations can run; every successful result crosses PostToolUse '*'"
   },
   "notes": [
+    "Hard GitHub tool allowlist is code-owned in .claude/hooks/pre_tool_use.py; this JSON cannot add an execution route.",
+    "Every tool not explicitly allowlisted is denied before execution, including newly introduced tool names.",
+    "Repository writes require an explicitly named non-main branch; boundary files and tree deletions are denied.",
+    "Project files cannot constrain a separate unmanaged Claude installation outside sessions that load these settings and hooks; host-managed policy is required for that separate trust boundary.",
     "enabled is documentary only; hard enforcement lives in code.",
     "All limits are bounded again by hard ceilings in the hooks.",
-    "The observation mechanism has no runtime off switch."
-  ]
+    "The observation mechanism has no runtime off switch.",
+    "Hosted Claude Code sessions must select only this repository and expose only GitHub MCP in the host connector inventory; see docs/security/claude-cloud-github-only.md.",
+    "Do not rely on .claude/settings.local.json for hosted cloud enforcement; host-level connector configuration and repository hooks are separate control layers."
+  ],
+  "github_only_route": {
+    "enabled": true,
+    "repository": "zulqarnain106612-cpu/Trade-Bot",
+    "unknown_tool_policy": "deny",
+    "native_tools": "deny",
+    "unlisted_github_tools": "deny",
+    "unscoped_github_requests": "deny",
+    "main_branch_writes": "deny",
+    "ci_logs_jobs_artifacts_checks_statuses_and_caches": "deny",
+    "boundary_policy_mutation": "deny"
+  }
 }

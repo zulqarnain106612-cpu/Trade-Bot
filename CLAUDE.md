@@ -2,6 +2,10 @@
 
 ## 1. Scope
 
+## 1A. Claude Code cloud session boundary
+
+Before working in a hosted Claude Code session, follow [the GitHub-MCP-only cloud setup](docs/security/claude-cloud-github-only.md). Select only this repository, expose only GitHub MCP in the cloud connector inventory, verify with `/mcp`, and start a fresh session after configuration changes. Repository hooks cannot remove tools that the host independently exposes, so host-level connector selection is mandatory defense in depth.
+
 These directives govern all engineering work in this repository, including:
 
 * source code, tests, configuration, dependencies, builds/runtime
@@ -250,45 +254,39 @@ Passing tests alone is insufficient if the wrong behavior was implemented.
 
 # 7. Command Execution and Model Observation
 
-The repository has a **universal model-observation boundary**. It is not a
-prompt instruction and it does not depend on a command wrapper.
+Trade-Bot Claude sessions use a **default-deny, GitHub-only tool boundary**.
+This is an enforcement rule, not a prompt instruction:
 
-.claude/settings.json routes every tool through the repository PreToolUse hook
-before execution and the PostToolUse observation hook after every successful
-tool execution.
+- `.claude/hooks/pre_tool_use.py` denies every tool unless its exact, code-owned
+  name is in the GitHub tool allowlist and the request explicitly targets
+  `zulqarnain106612-cpu/Trade-Bot`.
+- Native shells, integrated terminals, filesystem tools, browser tools, agents,
+  unlisted MCP tools, newly introduced tool names, and unscoped GitHub requests
+  are refused before execution. Unknown routes do not inherit permission.
+- CI logs, workflow/job records, artifacts, caches, check runs, and status
+  endpoints are refused even through generic GitHub fetch calls. The PR notice
+  comment remains the approved compact CI diagnostic channel.
+- Repository writes require an explicit non-main branch. Force ref updates,
+  deletion operations, tree deletions, and mutations of the observation policy,
+  hooks, and boundary contract tests are denied.
+- `.claude/settings.json` additionally denies built-in execution and filesystem
+  tools. The wildcard PreToolUse hook remains the final route gate, so the
+  settings list is defense in depth rather than the complete tool inventory.
+- Every successful result from the authorized GitHub route is processed by the
+  wildcard PostToolUse observation hook. Failure hooks add compact context, but
+  do not claim to replace Claude Code's native failure record.
 
-The PreToolUse boundary enforces hard observation controls for native source
-reads and direct CI run-data access. These observation controls remain active
-even when TB_COMMAND_POLICY=off and cannot be disabled by observation config
-flags. The PostToolUse boundary replaces every successful result delivered to
-Claude with a semantically compact representation while preserving useful
-structured metadata.
+The observation code remains diff-first and type-aware. Source excerpts, diffs,
+search results, logs, lists, and structured metadata are compacted before they
+are returned to the model. CI checks are not made readable by applying a
+smaller output limit; those data routes are denied outright.
 
-Changed local source files are **diff-first**: after a write/test/fix cycle, a
-subsequent Read returns the current tracked diff candidates instead of
-re-injecting the whole changed file. Clean source reads remain explicitly
-bounded and retain useful content within the hard 80-line limit rather than
-collapsing useful source context to three lines.
-
-Diff/patch fields, execution logs, search inventories, Git status output,
-nested MCP content and large result lists are compacted by semantic type. The
-same PostToolUse rule applies to built-in tools and MCP tools. It is therefore
-the repository-level observation boundary for shell execution, file reads,
-Git/GitHub operations, search/navigation, MCP responses, browser/tool results,
-and every other successful tool observation.
-
-The observation-boundary hook files and config are protected targets:
-Claude-tool writes/edits and remote file mutation calls aimed at those paths
-are refused by PreToolUse, so the session cannot silently weaken its own
-context boundary.
-
-.claude/hooks/observation_failure.py is registered for PostToolUseFailure.
-Claude Code exposes only additionalContext at this event, so the hook adds a
-three-line failure summary but does not claim to erase the native failure
-record.
-
-Security controls such as destructive-command authorization and credential
-protection remain separate from observation minimization.
+**Trust boundary:** project files govern sessions that load this repository's
+settings and hooks. They cannot by themselves prevent someone from launching a
+separate, unmanaged Claude installation with different settings or access
+credentials. Separate installations require host/admin-managed policy and
+operating-system or service-level restrictions. Never report those separate
+trust boundaries as protected until independently deployed and verified.
 
 ---
 
