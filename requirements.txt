@@ -20,7 +20,7 @@ websockets>=13.0,<16.0
 fastapi>=0.142.2,<1.0
 uvicorn>=0.30,<1.0
 pydantic>=2.13.5,<3.0
-pydantic-settings>=2.3,<3.0
+pydantic-settings>=2.15.0,<3.0
 
 # --- storage ----------------------------------------------------------------
 aiosqlite>=0.22.1,<1.0
@@ -45,7 +45,7 @@ ccxt>=4.3,<4.5.65
 numpy>=2.4.6,<3.0
 pandas>=2.2,<3.0
 scipy>=1.13,<2.0
-scikit-learn>=1.9.0,<2.0
+scikit-learn>=1.9.1,<2.0
 statsmodels>=0.15,<1.0   # 0.15 removed grangercausalitytests(verbose=)
 networkx>=3.6.1,<4.0
 joblib>=1.6.0,<2.0
@@ -74,7 +74,7 @@ PyYAML>=6.0,<7.0
 #   torch                 src/fusion/*, src/models/bert_head.py -- and
 #                         tests/test_meta_network_loss.py imports it at module
 #                         scope, so pytest needs it at collection time.
-xgboost>=2.0,<4.0
+xgboost>=3.2.0,<4.0
 hmmlearn>=0.3.3,<1.0
 optuna>=5.0.0,<6.0
 sentence-transformers>=6.1.0,<7.0
