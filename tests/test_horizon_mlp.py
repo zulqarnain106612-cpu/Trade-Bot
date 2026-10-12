@@ -952,7 +952,6 @@ def test_horizon_event_replay_is_idempotent(tmp_path):
         "event_id": "same-source-event",
         "symbol": "BTC/USDT",
         "event_ts": 100.0,
-        "receive_ts": 200.0,
         "close": 100.0,
         "features": {"price": 100.0, "volume": 1.0},
         "horizons": [{"id": 0, "seconds": 60, "models": ["mlp"]}],
@@ -1052,7 +1051,8 @@ def test_horizon_learning_trains_inline_and_in_batches(tmp_path):
         model_root=batch_root,
         shadow_minimum_training_samples=1,
     )
-    assert second_batch == {"updated": 1, "rejected": 0, "attempted": 1}
+    # Both the event at t=130 and the event at t=160 mature by t=190.
+    assert second_batch == {"updated": 2, "rejected": 0, "attempted": 2}
 
 
 def test_horizon_learning_skips_training_for_non_mlp_horizons(tmp_path):
@@ -1215,6 +1215,7 @@ def test_horizon_mlp_atomic_pointer_write_cleans_up_after_replace_failure(tmp_pa
     import src.models.horizon_mlp as mlp_module
 
     pointer = tmp_path / "models" / "mlp.joblib.active.json"
+    pointer.parent.mkdir(parents=True)
 
     def fail_replace(source, destination):
         raise OSError("atomic replacement failed")

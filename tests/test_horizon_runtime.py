@@ -272,4 +272,4 @@ def test_probe_treats_promoted_active_artifact_as_healthy(intelligence, monkeypa
 
     report = runtime.probe(component)
 
-    assert report.state is LifecycleState.HEALTHY
+    assert report.state is HealthState.HEALTHY
