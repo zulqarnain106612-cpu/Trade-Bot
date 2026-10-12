@@ -20,9 +20,7 @@ import structlog
 log = structlog.get_logger(__name__)
 
 
-def _ensure_column(
-    db: Any, table: str, name: str, sql_type: str
-) -> None:
+def _ensure_column(db: Any, table: str, name: str, sql_type: str) -> None:
     """Add a missing column safely when concurrent startup migrates the same DB."""
     columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
     if name in columns:

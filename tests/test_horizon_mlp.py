@@ -1383,7 +1383,5 @@ def test_schema_migration_tolerates_concurrent_duplicate_column():
         "REAL",
     )
 
-    columns = {
-        row[1] for row in connection.execute("PRAGMA table_info(horizon_samples)")
-    }
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(horizon_samples)")}
     assert "candidate_oos_squared_error" in columns
