@@ -32,7 +32,7 @@ dowhy>=0.14,<1.0                   # src/causal
 # --- market / chain data ----------------------------------------------------
 yfinance>=1.7.0,<2.0                 # src/data
 web3>=6.19,<8.0                    # src/data on-chain
-vaderSentiment>=3.3,<4.0           # src/intelligence sentiment
+vaderSentiment>=3.3.2,<4.0           # src/intelligence sentiment
 
 # --- streaming --------------------------------------------------------------
 aiokafka>=0.10,<1.0                # src/workers
