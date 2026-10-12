@@ -150,3 +150,14 @@ class TestWorkerTask:
         assert result.confidence == 0.0
         assert result.model_id is None
         assert result.feature_schema_hash
+
+class TestWorkerSignalHandler:
+    def test_sigterm_uses_system_exit_without_site_quitter(self) -> None:
+        from src.workers.orchestrator import _handle_worker_sigterm
+
+        try:
+            _handle_worker_sigterm()
+        except SystemExit as exc:
+            assert exc.code == 0
+        else:
+            raise AssertionError("SIGTERM handler did not request clean worker exit")
