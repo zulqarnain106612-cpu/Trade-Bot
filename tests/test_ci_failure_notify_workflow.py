@@ -316,16 +316,19 @@ class TestUnmatchedFailureOutput:
 
 
 class TestGateLaw:
-    def test_it_correctly_has_no_gate_job(self, spec):
+    def test_pull_request_trigger_has_a_gate_job(self, spec):
         """
-        The gate law covers `pull_request` workflows, where a missing check
-        silently satisfies branch protection. This one runs on `workflow_run`,
-        is never a required check, and its only job deliberately posts
-        nothing on a green run -- a gate would turn every passing CI run red.
+        This workflow has pull_request triggers as well as workflow_run triggers.
+        The PR-triggered run therefore needs a gate so branch protection cannot
+        treat a missing notifier result as verified.
         """
-        assert "gate" not in spec["jobs"]
+        assert "gate" in spec["jobs"]
+        gate = spec["jobs"]["gate"]
+        assert gate["if"] == "always()"
+        assert "notify" in gate["needs"]
+        assert "merged-comment" in gate["needs"]
         triggers = spec.get("on") or spec.get(True)
-        assert "pull_request" not in triggers
+        assert "pull_request" in triggers
 
 
 SIGNAL_SRC = re.compile(r"const SIGNAL = \[(.*?)\n\s*\];", re.S)
