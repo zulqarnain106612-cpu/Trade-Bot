@@ -64,7 +64,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      actions: write
+      actions: write # Required to cancel sibling workflow runs when a check is non-green.
       checks: read
       pull-requests: write
     steps:
