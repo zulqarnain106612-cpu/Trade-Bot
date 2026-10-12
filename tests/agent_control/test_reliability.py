@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from src.agent_control import reliability
 
 
@@ -195,3 +197,47 @@ def test_tool_failure_binds_active_context_when_not_supplied(monkeypatch, tmp_pa
     event = reliability.record_tool_failure(tool="Bash", command="cmd", summary="failure")
     assert event["task_id"] == "task-1"
     assert event["head_sha"] == "a" * 40
+
+
+def test_save_cleans_up_temporary_file_when_atomic_replace_fails(monkeypatch, tmp_path):
+    path = tmp_path / "reliability.json"
+
+    def fail_replace(_source, _destination):
+        raise OSError("simulated atomic replace failure")
+
+    monkeypatch.setattr(reliability.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="simulated atomic replace failure"):
+        reliability._save(path, {"events": []})
+
+    assert not path.exists()
+    assert list(tmp_path.glob(".reliability-*.tmp")) == []
+
+
+def test_active_context_survives_task_store_failure(monkeypatch, tmp_path):
+    from src.agent_control.store import TaskStore
+
+    monkeypatch.setattr(reliability, "ROOT", tmp_path)
+    monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
+
+    def fail_active_task_id(_self, _worktree):
+        raise RuntimeError("simulated task-store failure")
+
+    monkeypatch.setattr(TaskStore, "active_task_id", fail_active_task_id)
+
+    class Ok:
+        returncode = 0
+
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    def fake_run(command, **_kwargs):
+        if command[-1] == "--show-toplevel":
+            return Ok(str(tmp_path))
+        if command[-1] == "HEAD":
+            return Ok("a" * 40)
+        return Ok("")
+
+    monkeypatch.setattr(reliability.subprocess, "run", fake_run)
+
+    assert reliability._active_context() == (None, "a" * 40)
