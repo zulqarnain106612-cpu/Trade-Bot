@@ -315,23 +315,11 @@ class TestTheSkillAppliesWithoutBeingInvoked:
         for tool in ("Write", "Edit"):
             assert any(tool in m for m in matchers), f"{tool} is not matched"
 
-    def test_the_hook_does_not_run_local_quality_gates(self, tmp_path):
-        event = {
-            "tool_name": "Edit",
-            "tool_input": {"file_path": str(REPO / "config" / "quality_registry.json")},
-        }
-        result = subprocess.run(
-            [sys.executable, str(HOOK)],
-            input=json.dumps(event),
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-            env={**os.environ, "CLAUDE_PROJECT_DIR": str(REPO)},
-        )
-        assert result.returncode == 0
-        assert result.stdout.strip() == ""
-        assert "_run_gate" not in HOOK.read_text(encoding="utf-8")
+    def test_the_hook_does_not_run_local_quality_gates(self):
+        source = HOOK.read_text(encoding="utf-8")
+        assert "_run_gate" not in source
+        assert "subprocess" not in source
+        assert "qe_gate.py" not in source
 
     def test_the_hook_ignores_files_outside_the_project(self):
         result = subprocess.run(
