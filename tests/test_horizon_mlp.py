@@ -11,8 +11,8 @@ import math
 from pathlib import Path
 from types import SimpleNamespace
 
-import torch
 import pytest
+import torch
 
 from src.models.horizon_learning import HorizonLearningStore
 from src.models.horizon_mlp import HorizonMLPExpert

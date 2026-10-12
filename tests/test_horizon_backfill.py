@@ -7,9 +7,9 @@ Decides:
 from __future__ import annotations
 
 import sqlite3
+from pathlib import Path
 
 import pytest
-from pathlib import Path
 
 from src.models.horizon_backfill import iter_market_bars, warm_start
 

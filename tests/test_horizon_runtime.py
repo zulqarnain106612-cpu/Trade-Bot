@@ -8,9 +8,15 @@ from types import SimpleNamespace
 import pytest
 
 from src.models.horizon_mlp import HorizonMLPExpert
-from src.runtime.contracts import ComponentType, ComponentVersion, HealthState, LifecycleAction, LifecycleState
-from src.runtime.supervisor import ActionRefusedError
+from src.runtime.contracts import (
+    ComponentType,
+    ComponentVersion,
+    HealthState,
+    LifecycleAction,
+    LifecycleState,
+)
 from src.runtime.horizon_models import HorizonModelRuntime
+from src.runtime.supervisor import ActionRefusedError
 
 
 SYMBOL = "BTC/USDT"
