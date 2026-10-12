@@ -691,3 +691,361 @@ def test_horizon_activation_pointer_rejects_escape_and_reports_invalid_pointer(
     pointer.write_text('{"format_version":2,"artifact":"mlp.joblib"}', encoding="utf-8")
     with pytest.raises(ValueError, match="invalid horizon model activation pointer"):
         HorizonMLPExpert.activation_pointer(path)
+
+
+def test_learning_store_records_inline_and_deferred_training_failures(tmp_path, monkeypatch):
+    store = HorizonLearningStore(tmp_path / "state")
+    root = tmp_path / "models"
+    horizons = [{"id": 0, "seconds": 30, "models": ["mlp"]}]
+    store.observe_event(
+        event_id="inline-first",
+        symbol="BTC/USDT",
+        event_ts=100.0,
+        close=100.0,
+        features={"price": 100.0, "volume": 1.0},
+        horizons=horizons,
+        model_root=root,
+        defer_training=True,
+    )
+
+    def fail_update(self, features, matured_return, *, sample_id=None):
+        raise RuntimeError("deliberate model update failure")
+
+    monkeypatch.setattr(HorizonMLPExpert, "partial_fit", fail_update)
+    inline = store.observe_event(
+        event_id="inline-maturity",
+        symbol="BTC/USDT",
+        event_ts=130.0,
+        close=101.0,
+        features={"price": 101.0, "volume": 1.0},
+        horizons=horizons,
+        model_root=root,
+        defer_training=False,
+    )
+    assert inline["matured"] == 1
+    assert inline["rejected"] == 1
+
+    deferred_store = HorizonLearningStore(tmp_path / "deferred-state")
+    deferred_root = tmp_path / "deferred-models"
+    deferred_store.observe_event(
+        event_id="deferred-first",
+        symbol="BTC/USDT",
+        event_ts=100.0,
+        close=100.0,
+        features={"price": 100.0, "volume": 1.0},
+        horizons=horizons,
+        model_root=deferred_root,
+        defer_training=True,
+    )
+    deferred_store.observe_event(
+        event_id="deferred-maturity",
+        symbol="BTC/USDT",
+        event_ts=130.0,
+        close=101.0,
+        features={"price": 101.0, "volume": 1.0},
+        horizons=horizons,
+        model_root=deferred_root,
+        defer_training=True,
+    )
+    batch = deferred_store.train_pending(
+        symbol="BTC/USDT",
+        horizons=horizons,
+        model_root=deferred_root,
+    )
+    assert batch == {"updated": 0, "rejected": 1, "attempted": 1}
+    assert "deliberate model update failure" in deferred_store.stats("BTC/USDT")[0]["last_error"]
+
+
+def test_candidate_evaluation_rejects_invalid_limits_and_empty_evidence(tmp_path):
+    store = HorizonLearningStore(tmp_path / "state")
+    with pytest.raises(ValueError, match="limits must be positive"):
+        store.evaluate_candidate(
+            symbol="BTC/USDT",
+            horizon_id=0,
+            source_timeframe="1m",
+            minimum_samples=0,
+        )
+    empty = store.evaluate_candidate(
+        symbol="BTC/USDT",
+        horizon_id=0,
+        source_timeframe="1m",
+        minimum_samples=1,
+        now=100.0,
+    )
+    assert not empty["eligible"]
+    assert empty["paired_samples"] == 0
+
+
+def test_horizon_mlp_rejects_empty_and_duplicate_feature_names():
+    with pytest.raises(ValueError, match="non-empty unique"):
+        HorizonMLPExpert(())
+    with pytest.raises(ValueError, match="non-empty unique"):
+        HorizonMLPExpert(("price", "price"))
+
+
+def test_horizon_mlp_reuses_an_existing_content_addressed_version(tmp_path):
+    expert = HorizonMLPExpert(("price",), seed=17, horizon_id=0)
+    expert.partial_fit({"price": 100.0}, 0.01, sample_id="same-sample")
+    artifact = tmp_path / "models" / "mlp.joblib"
+    expert.save(artifact)
+    expert.save(artifact)
+    restored = HorizonMLPExpert.load(artifact)
+    assert restored.n_samples == 1
+    assert restored.artifact_sha256 == expert.artifact_sha256
+
+
+def test_horizon_mlp_load_rejects_corrupt_provenance_and_metadata(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import src.models.horizon_mlp as mlp_module
+    import src.models.provenance as provenance
+
+    expert = HorizonMLPExpert(("price",), seed=19, horizon_id=2, instrument_hash="instrument")
+    expert.partial_fit({"price": 100.0}, 0.02, sample_id="sample")
+    path = tmp_path / "models" / "mlp.joblib"
+    expert.save(path)
+    artifact_path = HorizonMLPExpert.active_artifact_path(path)
+    original_payload = mlp_module.joblib.load(artifact_path)
+    manifest = provenance.read_manifest(artifact_path)
+    real_hash = provenance.hash_artifact
+    real_read_provenance = provenance.read_provenance
+    real_joblib_load = mlp_module.joblib.load
+
+    with monkeypatch.context() as patch:
+        patch.setattr(provenance, "hash_artifact", lambda payload: "incorrect")
+        with pytest.raises(ValueError, match="checksum mismatch"):
+            HorizonMLPExpert.load(path)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(provenance, "read_provenance", lambda artifact: None)
+        with pytest.raises(ValueError, match="provenance is incomplete"):
+            HorizonMLPExpert.load(path)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            provenance,
+            "read_provenance",
+            lambda artifact: SimpleNamespace(
+                is_complete=True,
+                artifact_sha256="incorrect",
+                feature_schema_hash=expert.schema_hash,
+            ),
+        )
+        with pytest.raises(ValueError, match="provenance checksum mismatch"):
+            HorizonMLPExpert.load(path)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            mlp_module.joblib,
+            "load",
+            lambda artifact: {**original_payload, "format_version": 2},
+        )
+        with pytest.raises(ValueError, match="unsupported horizon model artifact"):
+            HorizonMLPExpert.load(path)
+
+    with pytest.raises(ValueError, match="different horizon"):
+        HorizonMLPExpert.load(path, expected_horizon_id=99)
+    with pytest.raises(ValueError, match="different instrument"):
+        HorizonMLPExpert.load(path, expected_instrument_hash="different")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            mlp_module.joblib,
+            "load",
+            lambda artifact: {**original_payload, "schema_hash": "incorrect"},
+        )
+        with pytest.raises(ValueError, match="invalid feature schema hash"):
+            HorizonMLPExpert.load(path)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            provenance,
+            "read_provenance",
+            lambda artifact: SimpleNamespace(
+                is_complete=True,
+                artifact_sha256=manifest["sha256"],
+                feature_schema_hash="incorrect",
+            ),
+        )
+        with pytest.raises(ValueError, match="provenance feature schema mismatch"):
+            HorizonMLPExpert.load(path)
+
+    with pytest.raises(ValueError, match="feature schema mismatch"):
+        HorizonMLPExpert.load(path, expected_schema_hash="incorrect")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            mlp_module.joblib,
+            "load",
+            lambda artifact: {**original_payload, "n_samples": 0},
+        )
+        with pytest.raises(ValueError, match="no training samples"):
+            HorizonMLPExpert.load(path)
+
+    assert (
+        real_hash is not None and real_read_provenance is not None and real_joblib_load is not None
+    )
+
+
+def test_horizon_mlp_active_pointer_rejects_missing_versioned_artifact(tmp_path):
+    path = tmp_path / "instrument" / "mlp.joblib"
+    path.parent.mkdir(parents=True)
+    versions = path.parent / f".{path.name}.versions"
+    versions.mkdir()
+    pointer = path.with_suffix(path.suffix + ".active.json")
+    pointer.write_text(
+        '{"format_version":1,"artifact":".mlp.joblib.versions/missing.joblib"}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="active horizon model artifact is missing"):
+        HorizonMLPExpert.active_artifact_path(path)
+    assert not HorizonMLPExpert.artifact_available(path)
+
+
+def test_horizon_learning_store_migrates_legacy_event_and_sample_tables(tmp_path):
+    import sqlite3
+
+    root = tmp_path / "legacy"
+    root.mkdir()
+    database = root / "horizon_learning.sqlite3"
+    with sqlite3.connect(database) as db:
+        db.execute(
+            """CREATE TABLE horizon_samples (
+                sample_id TEXT PRIMARY KEY,
+                event_id TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                horizon_id INTEGER NOT NULL,
+                event_ts REAL NOT NULL,
+                due_ts REAL NOT NULL,
+                entry_price REAL NOT NULL,
+                features_json TEXT NOT NULL,
+                schema_hash TEXT NOT NULL,
+                outcome REAL,
+                matured_at REAL,
+                trained INTEGER NOT NULL DEFAULT 0,
+                error TEXT
+            )"""
+        )
+        db.execute(
+            """CREATE TABLE horizon_events (
+                event_id TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                event_ts REAL NOT NULL,
+                receive_ts REAL NOT NULL,
+                close REAL NOT NULL
+            )"""
+        )
+
+    store = HorizonLearningStore(root)
+    with store._connect() as db:
+        sample_columns = {row[1] for row in db.execute("PRAGMA table_info(horizon_samples)")}
+        event_columns = {row[1] for row in db.execute("PRAGMA table_info(horizon_events)")}
+    assert "trained_at" in sample_columns
+    assert "candidate_prediction_return" in sample_columns
+    assert "provider" in event_columns
+    assert "source_timeframe" in event_columns
+
+
+def test_horizon_event_replay_is_idempotent(tmp_path):
+    store = HorizonLearningStore(tmp_path / "state")
+    args = {
+        "event_id": "same-source-event",
+        "symbol": "BTC/USDT",
+        "event_ts": 100.0,
+        "close": 100.0,
+        "features": {"price": 100.0, "volume": 1.0},
+        "horizons": [{"id": 0, "seconds": 60, "models": ["mlp"]}],
+        "model_root": tmp_path / "models",
+        "defer_training": True,
+    }
+    first = store.observe_event(**args)
+    duplicate = store.observe_event(**args)
+    assert first["duplicate"] == 0
+    assert duplicate["duplicate"] == 1
+
+
+def test_horizon_learning_trains_inline_and_in_batches(tmp_path):
+    horizons = [{"id": 0, "seconds": 30, "models": ["mlp"]}]
+    inline_store = HorizonLearningStore(tmp_path / "inline-state")
+    inline_root = tmp_path / "inline-models"
+    inline_store.observe_event(
+        event_id="inline-start",
+        symbol="BTC/USDT",
+        event_ts=100.0,
+        close=100.0,
+        features={"price": 100.0, "volume": 1.0},
+        horizons=horizons,
+        model_root=inline_root,
+        defer_training=True,
+    )
+    inline = inline_store.observe_event(
+        event_id="inline-label",
+        symbol="BTC/USDT",
+        event_ts=130.0,
+        close=101.0,
+        features={"price": 101.0, "volume": 1.0},
+        horizons=horizons,
+        model_root=inline_root,
+        defer_training=False,
+    )
+    assert inline["matured"] == 1
+    assert inline["updated"] == 1
+    assert inline["rejected"] == 0
+
+    batch_store = HorizonLearningStore(tmp_path / "batch-state")
+    batch_root = tmp_path / "batch-models"
+    for event_id, timestamp, close in (
+        ("batch-start", 100.0, 100.0),
+        ("batch-label", 130.0, 101.0),
+    ):
+        batch_store.observe_event(
+            event_id=event_id,
+            symbol="BTC/USDT",
+            event_ts=timestamp,
+            close=close,
+            features={"price": close, "volume": 1.0},
+            horizons=horizons,
+            model_root=batch_root,
+            defer_training=True,
+        )
+    batch = batch_store.train_pending(
+        symbol="BTC/USDT",
+        horizons=horizons,
+        model_root=batch_root,
+        shadow_minimum_training_samples=1,
+    )
+    instrument = hashlib.sha256(b"BTC/USDT").hexdigest()[:16]
+    candidate = batch_root / "h1" / instrument / "candidate" / "mlp.joblib"
+    shadow = batch_root / "h1" / instrument / "shadow" / "mlp.joblib"
+    assert batch == {"updated": 1, "rejected": 0, "attempted": 1}
+    assert HorizonMLPExpert.artifact_available(candidate)
+    assert HorizonMLPExpert.artifact_available(shadow)
+
+
+def test_horizon_learning_skips_training_for_non_mlp_horizons(tmp_path):
+    store = HorizonLearningStore(tmp_path / "state")
+    root = tmp_path / "models"
+    horizons = [{"id": 0, "seconds": 30, "models": ["xgboost"]}]
+    store.observe_event(
+        event_id="non-mlp-start",
+        symbol="BTC/USDT",
+        event_ts=100.0,
+        close=100.0,
+        features={"price": 100.0, "volume": 1.0},
+        horizons=horizons,
+        model_root=root,
+        defer_training=True,
+    )
+    result = store.observe_event(
+        event_id="non-mlp-label",
+        symbol="BTC/USDT",
+        event_ts=130.0,
+        close=101.0,
+        features={"price": 101.0, "volume": 1.0},
+        horizons=horizons,
+        model_root=root,
+        defer_training=False,
+    )
+    assert result["matured"] == 1
+    assert result["updated"] == 0
+    assert result["rejected"] == 0

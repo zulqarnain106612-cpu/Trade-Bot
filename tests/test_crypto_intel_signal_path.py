@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -51,7 +52,21 @@ def _result(
         model_version=f"version-{horizon_id}" if status != "UNTRAINED" else None,
         prediction_ts=time.time(),
         oos_score=0.75 if status != "UNTRAINED" else None,
+        oos_sample_count=100 if status != "UNTRAINED" else 0,
+        confidence_calibrated=status != "UNTRAINED",
+        uncertainty_calibrated=status != "UNTRAINED",
     )
+
+
+def _risk_context() -> dict[str, float]:
+    return {
+        "atr": 500.0,
+        "cvar": 0.02,
+        "drawdown": 0.0,
+        "daily_loss": 0.0,
+        "odds": 2.0,
+        "as_of_ts": time.time(),
+    }
 
 
 @pytest.fixture
@@ -166,20 +181,237 @@ def test_on_bar_returns_none_when_horizons_resolve_to_flat(intel):
     assert asyncio.run(intel.on_bar("BTC/USDT", _ohlcv())) is None
 
 
-def test_on_bar_returns_none_when_the_circuit_breaker_trips(intel):
+def test_horizon_status_exposes_stale_predictions_and_unpromoted_candidates(intel, monkeypatch):
+    from src.models.horizon_mlp import HorizonMLPExpert
+
+    intel._last_horizon_symbol = "BTC/USDT"
+    intel._source_timeframe = "1m"
+    intel._started = True
+    intel._cfg["max_prediction_age_seconds"] = 20.0
+    intel._last_horizon_results[0] = (_result(0, status="PROMOTED"), time.time() - 100.0)
+    monkeypatch.setattr(
+        intel._learning_store,
+        "stats",
+        lambda **kwargs: {0: {"training_samples": 1}},
+    )
+    monkeypatch.setattr(
+        intel._learning_store,
+        "latest_candidate_evaluation",
+        lambda **kwargs: {"eligible": False, "reason": "stale evidence"},
+    )
+
+    def artifact_available(path):
+        if "candidate" in path.parts or "shadow" in path.parts:
+            return True
+        return "h1" in path.parts
+
+    monkeypatch.setattr(HorizonMLPExpert, "artifact_available", staticmethod(artifact_available))
+    monkeypatch.setattr(HorizonMLPExpert, "activation_state", staticmethod(lambda path: "PROMOTED"))
+
+    rows = intel.horizon_status()
+    by_id = {row["id"]: row for row in rows}
+    assert by_id[0]["status"] == "STALE"
+    assert by_id[0]["active_lifecycle_state"] == "PROMOTED"
+    assert by_id[0]["candidate_evaluation"]["reason"] == "stale evidence"
+    assert by_id[1]["status"] == "DATA_PENDING"
+    assert by_id[1]["lifecycle_state"] == "CANDIDATE_UNPROMOTED"
+
+
+def test_constructor_logs_recovered_horizon_promotions(tmp_path, monkeypatch):
+    from src.intel import CryptoIntelligence
+    from src.models.horizon_learning import HorizonLearningStore
+
+    horizons = tmp_path / "horizons.yaml"
+    horizons.write_text(
+        "horizons:\n"
+        "  short: {id: 0, label: 30s, seconds: 30, models: [mlp]}\n"
+        "  medium: {id: 1, label: 2m, seconds: 120, models: [mlp]}\n"
+        "  long: {id: 2, label: 5m, seconds: 300, models: [mlp]}\n"
+    )
+    monkeypatch.setattr("src.intel._HORIZONS_CONFIG", horizons)
+    monkeypatch.setattr(
+        HorizonLearningStore, "recover_promotions", lambda self, root: ["recovered-component"]
+    )
+    config = tmp_path / "recovery-intelligence.yaml"
+    config.write_text(
+        f"n_workers: 1\n"
+        f"duckdb_path: {tmp_path / 'recovery.duckdb'}\n"
+        f"checkpoint_dir: {tmp_path / 'recovery-models'}\n"
+    )
+    intel = CryptoIntelligence(config_path=config)
+    try:
+        assert intel.checkpoint_dir.exists()
+    finally:
+        intel.close()
+
+
+def test_on_bar_returns_none_when_the_circuit_breaker_trips(intel, monkeypatch):
     results = [_result(i, status="PROMOTED") for i in range(3)]
     _deliver_results(intel, results)
+    monkeypatch.setattr(
+        intel._learning_store,
+        "stats",
+        lambda symbol, source_timeframe: {
+            horizon_id: {"oos_by_regime": {2: {"directional_accuracy": 0.75, "samples": 100}}}
+            for horizon_id in range(3)
+        },
+    )
+    intel._risk_gate.size = lambda **kwargs: SimpleNamespace(
+        suppressed=False, size_pct=0.01, reason=None
+    )
     intel._risk_gate.circuit_breaker = lambda drawdown, daily_loss: True
 
-    assert asyncio.run(intel.on_bar("BTC/USDT", _ohlcv())) is None
+    assert (
+        asyncio.run(intel.on_bar("BTC/USDT", _ohlcv(), regime_id=2, risk_context=_risk_context()))
+        is None
+    )
+    assert "circuit breaker" in intel.last_decision["abstain_reason"]
 
 
-def test_on_bar_returns_none_when_the_risk_gate_suppresses_the_size(intel):
-    # confidence below the gate's threshold -> suppressed, no signal
+def test_on_bar_returns_none_when_the_risk_gate_suppresses_the_size(intel, monkeypatch):
     results = [_result(i, confidence=0.01, status="PROMOTED") for i in range(3)]
     _deliver_results(intel, results)
+    monkeypatch.setattr(
+        intel._learning_store,
+        "stats",
+        lambda symbol, source_timeframe: {
+            horizon_id: {"oos_by_regime": {2: {"directional_accuracy": 0.75, "samples": 100}}}
+            for horizon_id in range(3)
+        },
+    )
+    intel._risk_gate.size = lambda **kwargs: SimpleNamespace(
+        suppressed=True, size_pct=0.0, reason="test size suppression"
+    )
 
-    assert asyncio.run(intel.on_bar("BTC/USDT", _ohlcv())) is None
+    assert (
+        asyncio.run(intel.on_bar("BTC/USDT", _ohlcv(), regime_id=2, risk_context=_risk_context()))
+        is None
+    )
+    assert "risk sizing suppressed" in intel.last_decision["abstain_reason"]
+
+
+def test_on_bar_abstains_when_risk_context_is_missing_or_stale(intel, monkeypatch):
+    _deliver_results(intel, [_result(i, status="PROMOTED") for i in range(3)])
+    monkeypatch.setattr(
+        intel._learning_store,
+        "stats",
+        lambda symbol, source_timeframe: {
+            horizon_id: {"oos_by_regime": {2: {"directional_accuracy": 0.75, "samples": 100}}}
+            for horizon_id in range(3)
+        },
+    )
+    missing = asyncio.run(intel.on_bar("BTC/USDT", _ohlcv(), regime_id=2))
+    assert missing is None
+    assert "risk context unavailable" in intel.last_decision["abstain_reason"]
+
+    stale = {**_risk_context(), "as_of_ts": time.time() - 1000.0}
+    _deliver_results(intel, [_result(i, status="PROMOTED") for i in range(3)])
+    result = asyncio.run(intel.on_bar("BTC/USDT", _ohlcv(), regime_id=2, risk_context=stale))
+    assert result is None
+    assert "stale or outside valid bounds" in intel.last_decision["abstain_reason"]
+
+
+def test_on_bar_persists_timestamped_learning_and_emits_only_after_risk_gate(intel, monkeypatch):
+    results = [_result(i, status="PROMOTED") for i in range(3)]
+    _deliver_results(intel, results)
+    store = intel._learning_store
+    scheduled = []
+    writes = []
+    calls = []
+    monkeypatch.setattr(store, "source_cadence_seconds", lambda symbol, timeframe: 60.0)
+    monkeypatch.setattr(
+        store,
+        "observe_event",
+        lambda **kwargs: {"updated": 1, "matured": 0, "rejected": 0},
+    )
+    monkeypatch.setattr(
+        store,
+        "stats",
+        lambda symbol, source_timeframe: {
+            horizon_id: {"oos_by_regime": {2: {"directional_accuracy": 0.75, "samples": 100}}}
+            for horizon_id in range(3)
+        },
+    )
+    monkeypatch.setattr(store, "record_predictions", lambda **kwargs: calls.append("record"))
+    monkeypatch.setattr(store, "evaluate_candidate", lambda **kwargs: calls.append("evaluate"))
+    monkeypatch.setattr(intel, "_schedule_training", lambda symbol, specs: scheduled.append(symbol))
+    intel._risk_gate.size = lambda **kwargs: SimpleNamespace(
+        suppressed=False, size_pct=0.02, reason=None
+    )
+    intel._risk_gate.circuit_breaker = lambda drawdown, daily_loss: False
+    intel._risk_gate.check_drift = lambda *args: None
+    intel._duckdb.write_horizon_metric = lambda **kwargs: writes.append(kwargs)
+
+    signal = asyncio.run(
+        intel.on_bar(
+            "BTC/USDT",
+            _ohlcv(),
+            regime_id=2,
+            event_ts=1_700_000_000.0,
+            event_id="coverage-event-1",
+            source_timeframe="1m",
+            risk_context=_risk_context(),
+        )
+    )
+
+    assert signal is not None
+    assert signal.direction == 1
+    assert signal.regime_id == 2
+    assert intel.learning_status["updated"] == 1
+    assert intel.last_horizon_symbol == "BTC/USDT"
+    assert intel.last_horizon_ts is not None
+    assert intel.checkpoint_dir == intel._checkpoint_dir
+    assert intel.worker_pool is intel._orchestrator
+    assert intel.upgrade_registry is intel._registry
+    assert calls == ["record", "evaluate", "evaluate", "evaluate"]
+    assert scheduled == ["BTC/USDT"]
+    assert len(writes) == 1
+
+
+def test_on_bar_invalid_event_timestamp_does_not_schedule_a_label(intel):
+    results = [_result(i) for i in range(3)]
+    _deliver_results(intel, results)
+
+    assert asyncio.run(intel.on_bar("BTC/USDT", _ohlcv(), event_ts=float("nan"))) is None
+    assert "invalid source event timestamp" in intel.learning_status["last_error"]
+
+
+def test_on_bar_learning_store_error_is_reported_and_does_not_emit_a_signal(intel, monkeypatch):
+    results = [_result(i) for i in range(3)]
+    _deliver_results(intel, results)
+
+    def fail_observe(**kwargs):
+        raise ValueError("source event rejected")
+
+    monkeypatch.setattr(intel._learning_store, "source_cadence_seconds", lambda *_: 60.0)
+    monkeypatch.setattr(intel._learning_store, "observe_event", fail_observe)
+    monkeypatch.setattr(intel._learning_store, "record_predictions", lambda **kwargs: 0)
+    monkeypatch.setattr(intel._learning_store, "evaluate_candidate", lambda **kwargs: None)
+    monkeypatch.setattr(intel, "_schedule_training", lambda *_: None)
+
+    assert (
+        asyncio.run(
+            intel.on_bar(
+                "BTC/USDT",
+                _ohlcv(),
+                event_ts=1_700_000_000.0,
+                event_id="coverage-event-error",
+                source_timeframe="1m",
+            )
+        )
+        is None
+    )
+    assert intel.learning_status["last_error"] == "source event rejected"
+
+
+def test_on_bar_worker_submission_failure_is_an_explicit_abstention(intel):
+    def fail_submit(task):
+        raise RuntimeError("worker unavailable")
+
+    intel._orchestrator.submit = fail_submit
+    result = asyncio.run(intel.on_bar("BTC/USDT", _ohlcv(), regime_id=2))
+    assert result is None
+    assert intel.last_decision["action"] == "ABSTAIN"
 
 
 class TestDrainOne:
@@ -213,11 +445,123 @@ class TestDrainOne:
         assert intel._drain_one(timeout=0.0) is None
 
 
+def test_on_bar_ignores_unmatched_worker_results_until_deadline(intel, monkeypatch):
+    _deliver_results(intel, [])
+    intel._cfg["inference_timeout_seconds"] = 0.05
+    stale = _result(99)
+    stale.task_id = "old-batch-task"
+    calls = {"count": 0}
+
+    def drain_one(timeout):
+        calls["count"] += 1
+        return stale if calls["count"] == 1 else None
+
+    monkeypatch.setattr(intel, "_drain_one", drain_one)
+    assert asyncio.run(intel.on_bar("BTC/USDT", _ohlcv(), regime_id=2)) is None
+    assert calls["count"] >= 1
+    assert intel.last_decision["action"] == "ABSTAIN"
+
+
+def test_on_bar_reports_prediction_persistence_and_evaluation_errors(intel, monkeypatch):
+    _deliver_results(intel, [_result(i) for i in range(3)])
+    store = intel._learning_store
+    monkeypatch.setattr(store, "source_cadence_seconds", lambda *_: 60.0)
+    monkeypatch.setattr(
+        store, "observe_event", lambda **kwargs: {"updated": 0, "matured": 0, "rejected": 0}
+    )
+
+    def fail_record(**kwargs):
+        raise RuntimeError("prediction write failed")
+
+    def fail_evaluation(**kwargs):
+        raise RuntimeError("candidate evaluation failed")
+
+    monkeypatch.setattr(store, "record_predictions", fail_record)
+    monkeypatch.setattr(store, "evaluate_candidate", fail_evaluation)
+    monkeypatch.setattr(intel, "_schedule_training", lambda *_: None)
+
+    assert (
+        asyncio.run(
+            intel.on_bar(
+                "BTC/USDT",
+                _ohlcv(),
+                event_ts=1_700_000_000.0,
+                event_id="coverage-persistence-error",
+                source_timeframe="1m",
+            )
+        )
+        is None
+    )
+    assert intel.learning_status["last_error"] == "candidate evaluation failed"
+
+
+def test_learning_status_collects_successful_and_failed_background_training(intel):
+    class Completed:
+        def done(self):
+            return True
+
+        def result(self):
+            return {"updated": 2, "rejected": 1}
+
+    class Failed:
+        def done(self):
+            return True
+
+        def result(self):
+            raise RuntimeError("background trainer failed")
+
+    intel._training_future = Completed()
+    status = intel.learning_status
+    assert status["updated"] == 2
+    assert status["rejected"] == 1
+    assert status["training_active"] is False
+    assert status["last_update"] is not None
+
+    intel._training_future = Failed()
+    status = intel.learning_status
+    assert status["last_error"] == "background trainer failed"
+    assert status["training_active"] is False
+
+
+def test_schedule_training_submits_only_when_no_training_is_active(intel, monkeypatch):
+    class Pending:
+        def done(self):
+            return False
+
+    sentinel = Pending()
+    submissions = []
+    monkeypatch.setattr(
+        intel._training_executor,
+        "submit",
+        lambda *args, **kwargs: submissions.append((args, kwargs)) or sentinel,
+    )
+    specs = {"short": {"id": 0, "seconds": 30, "models": ["mlp"]}}
+    intel._schedule_training("BTC/USDT", specs)
+    assert intel._training_future is sentinel
+    assert len(submissions) == 1
+
+    intel._schedule_training("BTC/USDT", specs)
+    assert len(submissions) == 1
+
+
 def test_collect_ecc_drops_a_stale_worker_result_from_a_previous_bar(intel):
     intel._orchestrator.collect = lambda timeout: _result(4)
     intel._ecc_state = {"cluster_flow_score": 0.4}
 
     assert intel._collect_ecc() == {"cluster_flow_score": 0.4}
+
+
+def test_collect_ecc_marks_every_feature_invalid_when_the_snapshot_is_stale(intel, monkeypatch):
+    intel._ecc_state = {
+        "_validity": {"cluster": True, "mempool": True},
+        "_observed_at": time.time() - 1000.0,
+        "cluster_flow_score": 0.9,
+    }
+    monkeypatch.setattr(intel, "_ecc_max_age", 1.0)
+
+    result = intel._collect_ecc()
+
+    assert result["_validity"] == {"cluster": False, "mempool": False}
 
 
 def test_close_survives_a_duckdb_that_fails_to_close(intel):

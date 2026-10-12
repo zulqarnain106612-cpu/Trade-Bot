@@ -243,3 +243,15 @@ def test_complete_promotion_requires_live_intelligence_and_records_completion(
     assert any(name == "complete_promotion" for name, _ in intelligence._learning_store.calls)
     with pytest.raises(ActionRefusedError, match="unavailable"):
         HorizonModelRuntime(lambda: None).complete_promotion(make_component())
+
+
+def test_activation_and_rollback_double_failure_is_logged_and_reraised(tmp_path, intelligence):
+    runtime = HorizonModelRuntime(lambda: intelligence)
+    component = make_component()
+    intelligence._learning_store.fail_activate = True
+    intelligence._learning_store.fail_rollback = True
+
+    with pytest.raises(RuntimeError, match="activation failed"):
+        runtime.perform(component, LifecycleAction.ACTIVATE, None)
+
+    assert any(name == "rollback_promotion" for name, _ in intelligence._learning_store.calls)

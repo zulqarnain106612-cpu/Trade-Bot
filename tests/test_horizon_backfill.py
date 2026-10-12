@@ -141,3 +141,99 @@ def test_warm_start_rejects_unsafe_roots_timeframes_and_resume_state(
         warm_start(
             database, occupied, symbol="BTC/USDT", timeframe="1m", horizons=horizons, resume=True
         )
+
+
+def test_warm_start_counts_invalid_events_and_returns_training_summary(tmp_path, monkeypatch):
+    import src.models.horizon_backfill as backfill
+
+    bars = [
+        {
+            "timestamp_ms": 1_700_000_000_000.0,
+            "open": 100.0,
+            "high": 102.0,
+            "low": 99.0,
+            "close": 101.0,
+            "volume": 2.0,
+        },
+        {
+            "timestamp_ms": 1_700_000_060_000.0,
+            "open": 101.0,
+            "high": 103.0,
+            "low": 100.0,
+            "close": 102.0,
+            "volume": 3.0,
+        },
+    ]
+
+    class Store:
+        def __init__(self, root):
+            self.root = root
+            self.seen = 0
+            self.training_calls = 0
+
+        def observe_event(self, **kwargs):
+            self.seen += 1
+            if self.seen == 1:
+                raise ValueError("bad persisted row")
+
+        def train_pending(self, **kwargs):
+            self.training_calls += 1
+            return {"attempted": 0, "updated": 0, "rejected": 0}
+
+        def stats(self, **kwargs):
+            return {0: {"matured_samples": 1}}
+
+    monkeypatch.setattr(backfill, "iter_market_bars", lambda *args, **kwargs: iter(bars))
+    monkeypatch.setattr(backfill, "HorizonLearningStore", Store)
+    result = backfill.warm_start(
+        tmp_path / "source.db",
+        tmp_path / "isolated-models",
+        symbol="BTC/USDT",
+        timeframe="1m",
+        horizons=[{"id": 0, "seconds": 60, "models": ["mlp"]}],
+    )
+    assert result["events_ingested_or_replayed"] == 1
+    assert result["invalid_rows"] == 1
+    assert result["horizons"] == {0: {"matured_samples": 1}}
+    assert result["activation"].startswith("not requested")
+
+
+def test_backfill_cli_serializes_the_warm_start_result(tmp_path, monkeypatch, capsys):
+    import json
+    import sys
+
+    import src.models.horizon_backfill as backfill
+    import src.models.horizon_config as horizon_config
+
+    source = tmp_path / "source.db"
+    root = tmp_path / "isolated-models"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "horizon_backfill",
+            "--database",
+            str(source),
+            "--artifact-root",
+            str(root),
+            "--symbol",
+            "ETH/USDT",
+            "--timeframe",
+            "15m",
+            "--page-size",
+            "10",
+            "--update-batch-size",
+            "4",
+            "--resume",
+        ],
+    )
+    monkeypatch.setattr(horizon_config, "load_horizon_specs", lambda: {"short": {"id": 0}})
+    monkeypatch.setattr(
+        backfill,
+        "warm_start",
+        lambda *args, **kwargs: {"symbol": kwargs["symbol"], "resume": kwargs["resume"]},
+    )
+
+    backfill.main()
+
+    assert json.loads(capsys.readouterr().out) == {"symbol": "ETH/USDT", "resume": True}

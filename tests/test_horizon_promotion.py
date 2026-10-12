@@ -6,6 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from src.models.horizon_learning import HorizonLearningStore
 from src.models.horizon_mlp import HorizonMLPExpert
 
@@ -197,3 +199,56 @@ def test_concurrent_horizon_promotions_allow_only_one_activation(tmp_path: Path)
     with ThreadPoolExecutor(max_workers=2) as executor:
         outcomes = list(executor.map(activate, ("model:horizon/a", "model:horizon/b")))
     assert sorted(outcomes) == ["activated", "refused"]
+
+
+def test_recovery_completes_a_promoted_pointer_and_ignores_unmatched_pointer(tmp_path):
+    store, root, symbol, candidate_version, _ = _promotion_fixture(tmp_path)
+    component_id = "model:horizon/recovery-promoted"
+    instrument = hashlib.sha256(symbol.encode()).hexdigest()[:16]
+    active_path = root / "h2" / instrument / "mlp.joblib"
+    store.activate_candidate(
+        component_id=component_id,
+        symbol=symbol,
+        horizon_id=1,
+        candidate_version=candidate_version,
+        model_root=root,
+    )
+    store.complete_promotion(component_id=component_id, model_root=root)
+    with store._connect() as db:
+        db.execute(
+            "INSERT INTO horizon_promotions "
+            "(component_id, symbol, horizon_id, candidate_version, previous_pointer_json, state, updated_at) "
+            "VALUES (?, ?, ?, ?, NULL, 'PROMOTED', ?)",
+            ("model:horizon/unmatched", symbol, 1, "not-the-active-version", time.time()),
+        )
+    assert store.recover_promotions(root) == [component_id]
+    assert HorizonMLPExpert.activation_state(active_path) == "PROMOTED"
+
+
+def test_rollback_without_a_recorded_promotion_is_refused(tmp_path):
+    store = HorizonLearningStore(tmp_path / "state")
+    with pytest.raises(ValueError, match="no reversible horizon promotion"):
+        store.rollback_promotion(component_id="missing", model_root=tmp_path / "models")
+
+
+def test_rollback_removes_the_candidate_pointer_when_no_incumbent_existed(tmp_path):
+    store, root, symbol, candidate_version, _ = _promotion_fixture(tmp_path)
+    instrument = hashlib.sha256(symbol.encode()).hexdigest()[:16]
+    active_path = root / "h2" / instrument / "mlp.joblib"
+    active_pointer = active_path.with_suffix(active_path.suffix + ".active.json")
+    active_pointer.unlink()
+
+    component_id = "model:horizon/no-incumbent"
+    store.activate_candidate(
+        component_id=component_id,
+        symbol=symbol,
+        horizon_id=1,
+        candidate_version=candidate_version,
+        model_root=root,
+    )
+    assert HorizonMLPExpert.activation_state(active_path) == "PROBATION"
+
+    store.rollback_promotion(component_id=component_id, model_root=root)
+
+    assert not active_pointer.exists()
+    assert HorizonMLPExpert.activation_state(active_path) == "UNPROMOTED"

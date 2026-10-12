@@ -79,3 +79,71 @@ def test_fusion_abstains_when_valid_experts_conflict() -> None:
     assert decision.action == "ABSTAIN"
     assert decision.conflict
     assert decision.abstain_reason == "expert disagreement"
+
+
+def test_fusion_serializes_a_complete_decision() -> None:
+    specs = {"short": {"id": 0, "seconds": 30}}
+    decision = fuse_horizon_predictions(
+        [_prediction(0)],
+        specs,
+        now=101.0,
+        regime_id=2,
+    )
+    rendered = decision.to_dict()
+    assert rendered["action"] == "BUY"
+    assert rendered["direction"] == 1
+    assert rendered["regime_id"] == 2
+    assert rendered["model_versions"] == {0: "v-0"}
+    assert rendered["freshness_seconds"] == {0: 1.0}
+
+
+def test_fusion_rejects_each_unusable_forecast_shape() -> None:
+    specs = {"short": {"id": 0, "seconds": 30}}
+    mutations = (
+        {"model_id": None},
+        {"model_version": None},
+        {"error": "worker failed"},
+        {"confidence_calibrated": False},
+        {"uncertainty_calibrated": False},
+        {"prediction_ts": None},
+        {"oos_score": None},
+        {"oos_sample_count": 99},
+        {"oos_score": float("nan")},
+        {"prediction_ts": 101.0},
+        {"prediction_ts": 1.0},
+        {"oos_score": 0.5},
+        {"magnitude_sigma": 0.0},
+        {"magnitude_sigma": float("inf")},
+        {"magnitude_mu": float("nan")},
+        {"magnitude_sigma": 1e-320},
+    )
+    for changes in mutations:
+        prediction = _prediction(0)
+        for key, value in changes.items():
+            setattr(prediction, key, value)
+        decision = fuse_horizon_predictions(
+            [prediction],
+            specs,
+            now=100.0,
+            max_age_seconds=20.0,
+            regime_id=2,
+        )
+        assert decision.action == "ABSTAIN", changes
+        assert decision.to_dict()["abstain_reason"] == "no fresh OOS-validated experts"
+
+
+def test_fusion_abstains_when_regime_or_horizon_is_unavailable() -> None:
+    prediction = _prediction(0)
+    no_regime = fuse_horizon_predictions(
+        [prediction],
+        {"short": {"id": 0, "seconds": 30}},
+        now=100.0,
+        regime_id=None,
+    )
+    no_horizon = fuse_horizon_predictions(
+        [prediction],
+        {"other": {"id": 1, "seconds": 120}},
+        now=100.0,
+        regime_id=2,
+    )
+    assert no_regime.action == no_horizon.action == "ABSTAIN"
