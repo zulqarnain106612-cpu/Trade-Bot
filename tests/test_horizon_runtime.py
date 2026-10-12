@@ -273,3 +273,9 @@ def test_probe_treats_promoted_active_artifact_as_healthy(intelligence, monkeypa
     report = runtime.probe(component)
 
     assert report.state is HealthState.HEALTHY
+    monkeypatch.setattr(
+        HorizonMLPExpert,
+        "activation_pointer",
+        lambda path: {"sha256": CANDIDATE, "lifecycle_status": "UNPROMOTED"},
+    )
+    assert runtime.probe(component).state is HealthState.UNKNOWN

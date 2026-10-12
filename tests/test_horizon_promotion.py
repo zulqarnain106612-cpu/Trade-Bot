@@ -123,6 +123,21 @@ def test_horizon_activation_requires_paired_evaluation_and_is_reversible(tmp_pat
 
     store.complete_promotion(component_id=component_id, model_root=root)
     assert HorizonMLPExpert.activation_state(active_path) == "PROMOTED"
+
+    # A second component can reuse the already materialized content-addressed
+    # version instead of copying the same artifact directory again.
+    repeated_component = f"{component_id}/reuse"
+    store.activate_candidate(
+        component_id=repeated_component,
+        symbol=symbol,
+        horizon_id=1,
+        candidate_version=candidate_version,
+        model_root=root,
+    )
+    assert HorizonMLPExpert.activation_state(active_path) == "PROBATION"
+    store.rollback_promotion(component_id=repeated_component, model_root=root)
+    assert HorizonMLPExpert.activation_state(active_path) == "PROMOTED"
+
     store.rollback_promotion(component_id=component_id, model_root=root)
     assert HorizonMLPExpert.load(active_path).artifact_sha256 == incumbent_version
     assert HorizonMLPExpert.activation_state(active_path) == "PROMOTED"

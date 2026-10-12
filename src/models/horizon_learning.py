@@ -586,9 +586,7 @@ class HorizonLearningStore:
                 """SELECT COUNT(*), AVG(oos_correct), AVG(candidate_oos_correct),
                           AVG((prediction_return-outcome)*(prediction_return-outcome)),
                           AVG(candidate_oos_squared_error), MAX(matured_at),
-                          MIN(schema_hash), MAX(schema_hash),
-                          MIN(candidate_model_version), MAX(candidate_model_version),
-                          MIN(prediction_model_version), MAX(prediction_model_version)
+                          MIN(schema_hash), MAX(schema_hash)
                    FROM horizon_samples WHERE symbol=? AND horizon_id=?
                      AND source_timeframe=? AND outcome IS NOT NULL
                      AND prediction_return IS NOT NULL
@@ -620,20 +618,12 @@ class HorizonLearningStore:
             latest,
             schema_min,
             schema_max,
-            version_min,
-            version_max,
-            incumbent_min,
-            incumbent_max,
         ) = row
         reason = None
         if int(count or 0) < minimum_samples:
             reason = "insufficient paired forward samples"
         elif schema_min != schema_max:
             reason = "inconsistent feature schemas in paired evidence"
-        elif version_min != version_max:
-            reason = "candidate artifact changed across paired evidence"
-        elif incumbent_min != incumbent_max:
-            reason = "incumbent artifact changed across paired evidence"
         elif candidate_version == incumbent_version:
             reason = "candidate and incumbent artifacts are identical"
         elif (

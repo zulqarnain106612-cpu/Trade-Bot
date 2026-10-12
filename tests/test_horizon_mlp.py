@@ -964,6 +964,39 @@ def test_horizon_event_replay_is_idempotent(tmp_path):
     assert duplicate["duplicate"] == 1
 
 
+def test_horizon_event_insert_race_is_reported_as_duplicate(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    store = HorizonLearningStore(tmp_path / "state")
+    real_connect = store._connect
+
+    @contextmanager
+    def competing_insert():
+        with real_connect() as connection:
+
+            class ConnectionProxy:
+                def execute(self, sql, parameters=()):
+                    if "INSERT OR IGNORE INTO horizon_events" in sql:
+                        return SimpleNamespace(rowcount=0)
+                    return connection.execute(sql, parameters)
+
+            yield ConnectionProxy()
+
+    monkeypatch.setattr(store, "_connect", competing_insert)
+    result = store.observe_event(
+        event_id="concurrent-source-event",
+        symbol="BTC/USDT",
+        event_ts=100.0,
+        close=100.0,
+        features={"price": 100.0, "volume": 1.0},
+        horizons=[],
+        model_root=tmp_path / "models",
+        defer_training=True,
+    )
+    assert result == {"duplicate": 1, "matured": 0, "updated": 0, "rejected": 0}
+
+
 def test_horizon_learning_trains_inline_and_in_batches(tmp_path):
     horizons = [{"id": 0, "seconds": 30, "models": ["mlp"]}]
     inline_store = HorizonLearningStore(tmp_path / "inline-state")

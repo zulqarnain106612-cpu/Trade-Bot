@@ -533,7 +533,10 @@ def test_on_bar_ignores_unmatched_worker_results_until_deadline(intel, monkeypat
         return stale if calls["count"] == 1 else None
 
     monkeypatch.setattr(intel, "_drain_one", drain_one)
-    assert asyncio.run(intel.on_bar("BTC/USDT", _ohlcv(), regime_id=2)) is None
+    assert (
+        asyncio.run(intel.on_bar("BTC/USDT", _ohlcv(), regime_id=2, risk_context=_risk_context()))
+        is None
+    )
     assert calls["count"] >= 1
     assert intel.last_decision["action"] == "ABSTAIN"
 
