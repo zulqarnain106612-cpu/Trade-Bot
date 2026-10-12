@@ -157,7 +157,7 @@ def test_cli_run_route_is_disabled_even_if_a_failure_was_recorded():
 
 
 def test_the_script_can_import_the_repository_package(monkeypatch):
-    module = load_module()
+    load_module()
     monkeypatch.setattr(sys, "path", [p for p in sys.path if Path(p or ".").resolve() != ROOT])
     load_module()
     assert str(ROOT) in sys.path

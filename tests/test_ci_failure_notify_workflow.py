@@ -235,6 +235,11 @@ class TestCommentBody:
         assert "const SIGNAL = [" in script
         assert "const NOISE = [" in script
 
+    def test_lint_notice_extracts_rule_and_file_not_advisory_noise(self, script):
+        assert "const diagnostics = [];" in script
+        assert "diagnostics.slice(0, count ? MAX_MSG_LINES - 1 : MAX_MSG_LINES)" in script
+        assert "match[1] + " in script
+
     def test_failing_step_output_precedes_advisory_gate_noise(self, script):
         tail = script.index("const failingStepOutput = stepOutputTail(raw);")
         signals = script.index("for (const re of SIGNAL)", tail)
