@@ -1364,16 +1364,11 @@ def test_schema_migration_tolerates_concurrent_duplicate_column():
             self.raced = False
 
         def execute(self, statement, *args):
-            target = (
-                "ALTER TABLE horizon_samples "
-                "ADD COLUMN candidate_oos_squared_error REAL"
-            )
+            target = "ALTER TABLE horizon_samples ADD COLUMN candidate_oos_squared_error REAL"
             if statement == target and not self.raced:
                 self.wrapped.execute(statement, *args)
                 self.raced = True
-                raise sqlite3.OperationalError(
-                    "duplicate column name: candidate_oos_squared_error"
-                )
+                raise sqlite3.OperationalError("duplicate column name: candidate_oos_squared_error")
             return self.wrapped.execute(statement, *args)
 
     _ensure_column(
