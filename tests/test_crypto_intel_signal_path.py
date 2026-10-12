@@ -426,7 +426,9 @@ def test_on_bar_keeps_the_final_regime_guard_even_after_a_decision(intel, monkey
         abstain_reason=None,
         regime_id=None,
     )
-    monkeypatch.setattr("src.intel.fuse_horizon_predictions", lambda *args, **kwargs: decision)
+    monkeypatch.setattr(
+        "src.fusion.horizon_decision.fuse_horizon_predictions", lambda *args, **kwargs: decision
+    )
     intel._risk_gate.size = lambda **kwargs: SimpleNamespace(
         suppressed=False, size_pct=0.02, reason=None
     )
