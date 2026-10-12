@@ -191,6 +191,12 @@ class TestCommentBody:
         )
         assert policy["bounded_output"]["max_declared_lines"] >= 20
 
+    def test_workflow_run_resolves_the_current_pr_head_before_polling(self, script):
+        assert "let headSha =" in script
+        assert "headSha = candidate.data.head.sha;" in script
+        assert script.index("headSha = candidate.data.head.sha;") < script.index("for (let poll = 0;")
+        assert "head: context.repo.owner + ':' + trigger.head_branch" in script
+
     def test_workflow_run_uses_the_pr_head_not_the_synthetic_merge_sha(self, script):
         assert "const triggerPR = event.pull_request" in script
         assert "trigger.head_sha" in script

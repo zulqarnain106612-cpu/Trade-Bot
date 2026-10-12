@@ -83,7 +83,7 @@ jobs:
             // merge commit. Bind notices to the PR branch HEAD instead.
             const triggerPR = event.pull_request ||
               (trigger.pull_requests || []).find(pr => pr.head && pr.head.sha);
-            const headSha = (triggerPR && triggerPR.head && triggerPR.head.sha) ||
+            let headSha = (triggerPR && triggerPR.head && triggerPR.head.sha) ||
               trigger.head_sha;
 
             // Workflows that must have reported before a verdict is posted.
@@ -105,19 +105,36 @@ jobs:
             // can return nothing because the search index may not associate
             // the SHA with its pull request yet.
             let prNumbers = (trigger.pull_requests || []).map(pr => pr.number);
-            if (prNumbers.length === 0) {
-              const associated =
-                await github.rest.repos.listPullRequestsAssociatedWithCommit({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  commit_sha: headSha,
-                });
-              prNumbers = associated.data
-                .filter(pr => pr.state === 'open')
-                .map(pr => pr.number);
+            if (prNumbers.length === 0 && trigger.head_branch) {
+              const byBranch = await github.rest.pulls.list({
+                ...context.repo,
+                state: 'open',
+                head: context.repo.owner + ':' + trigger.head_branch,
+                per_page: 100,
+              });
+              prNumbers = byBranch.data.map(pr => pr.number);
             }
             if (prNumbers.length === 0) {
-              core.info(`No pull request for ${headSha}; nothing to notify.`);
+              core.info('No pull request for ' + headSha + '; nothing to notify.');
+              return;
+            }
+
+            // Resolve the current PR head before polling. A workflow_run may
+            // identify GitHub's synthetic merge SHA, so its SHA must not be
+            // compared directly with the branch head or used as the notice key.
+            let currentHead = null;
+            for (const number of prNumbers) {
+              const candidate = await github.rest.pulls.get({
+                ...context.repo, pull_number: number,
+              });
+              if (candidate.data.state !== 'open') continue;
+              if (trigger.head_branch && candidate.data.head.ref !== trigger.head_branch) continue;
+              currentHead = candidate.data;
+              headSha = candidate.data.head.sha;
+              break;
+            }
+            if (!currentHead) {
+              core.info('No open PR matches this workflow event; nothing to notify.');
               return;
             }
 
