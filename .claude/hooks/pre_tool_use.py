@@ -435,9 +435,9 @@ sys.path.insert(0, str(PROJECT_DIR))
 try:
     from common.command_schema import (
         CI_LOG_REFUSAL,
+        LOCAL_CHECK_PATTERNS,
         classify,
         is_ci_log_access,
-        LOCAL_CHECK_PATTERNS,
     )
 except Exception:  # pragma: no cover
     CI_LOG_REFUSAL = (

@@ -18,7 +18,6 @@ from src.runtime.contracts import (
 from src.runtime.horizon_models import HorizonModelRuntime
 from src.runtime.supervisor import ActionRefusedError
 
-
 SYMBOL = "BTC/USDT"
 INSTRUMENT = hashlib.sha256(SYMBOL.encode()).hexdigest()[:16]
 CANDIDATE = "candidate-sha"
