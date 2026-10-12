@@ -3433,7 +3433,7 @@
         }
       ],
       "depends_on": [],
-      "notes": "One mutable comment is the subscription surface. Its hidden SHA marker binds the notice to the current PR head; failure comments name one actionable check, success is reported only after all watched workflows finish green, and merge updates the same comment."
+      "notes": "One mutable comment is the subscription surface. Its hidden SHA marker binds the notice to the current PR head; failure comments name one actionable check, success is reported only after all watched workflows finish green, and merge updates the same comment. layer: test-suite"
     },
     {
       "id": "SEC-0006",
@@ -4263,7 +4263,7 @@
           "test_type": "regression"
         }
       ],
-      "notes": "Prepare is a read-only, SHA-bound notice subscription. The run subcommand is disabled in the CLI and function; tests, builds, lint, security scans, and quality gates are validated only by GitHub Actions."
+      "notes": "Prepare is a read-only, SHA-bound notice subscription. The run subcommand is disabled in the CLI and function; tests, builds, lint, security scans, and quality gates are validated only by GitHub Actions. layer: test-suite"
     },
     {
       "id": "REG-0025",

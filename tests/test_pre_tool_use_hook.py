@@ -5,6 +5,7 @@ Decides:
   - GOV-012 — live CI monitoring is refused
   - GOV-019 — CI run data is unreadable by every tool route
   - GOV-057 — every authorized tool observation crosses the repository boundary
+  - REG-0024 — local checks are CI-only and the prepare route exposes only the current HEAD notice
 """
 
 from __future__ import annotations

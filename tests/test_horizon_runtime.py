@@ -1,3 +1,9 @@
+"""Horizon artifact lifecycle tests.
+
+Decides:
+  - MODL-001 — model artifacts retain provenance and activation is reversible
+"""
+
 from __future__ import annotations
 
 import hashlib

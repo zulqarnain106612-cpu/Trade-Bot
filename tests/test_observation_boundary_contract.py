@@ -1,4 +1,9 @@
-"""Permanent contract for the universal observation boundary."""
+"""Permanent contract for the universal observation boundary.
+
+Decides:
+  - REG-0024 — local checks are CI-only and the prepare route exposes only the current HEAD notice
+  - GOV-057 — every model-visible tool observation crosses the repository boundary
+"""
 
 from __future__ import annotations
 
