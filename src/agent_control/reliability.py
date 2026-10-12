@@ -230,14 +230,14 @@ def record_ci_verdict(
 
 def record_ci_from_notice(*, sha: str, pr: int, notice: str) -> dict[str, Any]:
     lower = notice.lower()
-    if "all checks green" in lower:
+    if "workflow succeeded" in lower or "all checks green" in lower:
         return record_ci_verdict(sha=sha, pr=pr, status="green", notice=notice)
-    if "no verdict" in lower or "still running" in lower:
+    if "still running" in lower:
         return record_ci_verdict(sha=sha, pr=pr, status="pending", notice=notice)
     failed = [
         f"{match.group(1)} / {match.group(2)}"
         for match in re.finditer(
-            r"^\*\*(.+?) / (.+?)\*\* — (?:failure|cancelled|timed_out|neutral|action_required|stale|no verdict)",
+            r"^\*\*(.+?) / (.+?)\*\* — (?:failure|cancelled|timed_out|neutral|skipped|action_required|stale|no verdict)",
             notice,
             re.MULTILINE,
         )

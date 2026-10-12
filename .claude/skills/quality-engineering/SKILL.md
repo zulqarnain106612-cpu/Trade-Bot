@@ -66,20 +66,12 @@ test can decide, and writing the entry is what forces the difference.
 dogma — but a test written against code that exists tends to assert what the
 code does, and a test written against a statement asserts what it should do.
 
-**CI decides, not your machine.** The full suite runs in GitHub Actions. Local
-runs prove nothing about the gate that merges the change, and they are slow
-enough that people skip them. The exception is this skill's own gates: they
-read files, take seconds, and catch the malformed registry before the push
-rather than three round trips later.
-
-```bash
-python3 .claude/skills/quality-engineering/scripts/qe_gate.py
-```
-
-Run it before every push. It checks the registry against its schema, that
-every claimed test exists, that the traceability document is in sync, that
-every JSON file parses and the schema'd ones validate, and that every workflow
-that runs on a pull request ends in a gate needing all its jobs.
+**GitHub Actions decides, not your machine.** Tests, builds, lint, security
+scans, schema validation, registry checks, generated-document checks, and
+quality gates are not run locally. The PostToolUse quality hook is retained as
+a silent compatibility stub; it does not execute a local gate. Push the
+change, then use only the current HEAD's SHA-bound PR notice to learn the
+single actionable failure.
 
 ## Status is a claim about evidence
 
@@ -127,13 +119,9 @@ be handed the same id — three times in one session, caught by hand every time
 (REG-0010). `--local-only` restores the old behaviour for a tree with no refs
 to read. `git fetch` first if you want branches pushed since your last fetch
 to count; the scan reads the object store and never the network.
-
-`qe_gate.py --only registry-id-collision` is the same check as a gate: it
-reports an id this branch adds that another live branch already holds. It is
-advisory, because a stale branch nobody will finish can hold an id hostage and
-that is a conversation rather than a block. The blocking half is
-`registry-loader`, which refuses a duplicate id once both entries are in one
-file — correct, but only after the merge that created the problem.
+The registry-collision and registry-loader gates run in GitHub Actions only.
+Do not invoke qe_gate.py locally; inspect the single current-head PR notice
+if the CI gate reports a problem.
 
 ## When a gate fails
 

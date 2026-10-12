@@ -120,8 +120,14 @@
     "max_success_lines": 3,
     "max_success_chars": 1200,
     "max_read_lines": 30,
-    "native_read_tools": ["Read"],
-    "mcp_read_tool_patterns": ["read_file$", "read_process_output$", "read_terminal$"],
+    "native_read_tools": [
+      "Read"
+    ],
+    "mcp_read_tool_patterns": [
+      "read_file$",
+      "read_process_output$",
+      "read_terminal$"
+    ],
     "read_refusal_message": "Read operations must declare a bounded range of at most 30 lines. Use a targeted search first, then request the smallest exact range needed. The returned model observation is additionally compacted to at most three useful lines.",
     "_note": "This is a model-context boundary, not a filesystem access control. PostToolUse compacts every successful tool result; PreToolUse prevents unbounded native source reads and direct CI run-data access."
   },
@@ -147,7 +153,7 @@
   "ci_observability": {
     "enabled": true,
     "_note": "Permanent, not situational. CI live-monitoring -- following a run, watching checks, or a poll loop -- streams an unbounded and open-ended amount of build output into context, and no per-call line bound can cap something that never ends. Bulk retrieval is no longer a bounded alternative either: see ci_log_access, which refuses it outright.",
-    "message": "CI live monitoring and direct CI run-data retrieval are permanently disabled as model-observation routes. Use the pull-request CI notice comment for the compact failure status and exact failing lines.",
+    "message": "CI live monitoring and direct CI run-data retrieval are permanently disabled as model-observation routes. Use only python3 scripts/local_checks.py prepare to retrieve the single current-head CI notice.",
     "live_patterns": [
       "\\bgh\\s+run\\s+watch\\b",
       "\\bgh\\s+(run|pr)\\b[^|]*--watch\\b",
@@ -166,19 +172,16 @@
   },
   "ci_log_access": {
     "enabled": true,
-    "_note": "Permanent and unconditional, in every case. No CI log, job record, step annotation, artifact, cache entry or check result may be fetched, and neither may a run be dispatched or re-run in order to read what it prints. This is not an output-size rule, so no line bound, filter or redaction makes it allowed -- raising a bound is exactly the loophole that made the previous 'minimum number of lines' wording decay into paging logs. The run that already knows why it failed does the summarising: .github/workflows/ci-failure-notify.yml extracts the failing assertion server-side and leaves one comment per commit on the pull request carrying the status and the exact error lines. Fetching is therefore not a cheaper route to the same answer, it is a worse one that also costs context.",
-    "message": "CI logs, job records, annotations, artifacts and check results are permanently unreadable from here, in every condition -- there is no line bound that makes this allowed. The pull-request comment posted by the CI failure notice is the only channel: it already carries the status and the exact failing lines. Read it with `gh pr view <n> --json comments`.",
-    "_hard_deny_note": "Checked BEFORE allowed_patterns and not excusable by them. `gh pr view --json statusCheckRollup` is one flag away from `gh pr view --json comments`; check results are CI data whatever verb fetched them.",
+    "_note": "CI records are never read by an agent. The workflow .github/workflows/ci-failure-notify.yml summarizes one actionable non-green check in one mutable PR comment, bound to the exact head SHA. The only agent-facing subscription is local_checks.py prepare, which returns only that current SHA-bound notice.",
+    "message": "CI logs, job records, annotations, artifacts, check results and arbitrary PR comments are blocked. Use only python3 scripts/local_checks.py prepare, which returns the single CI notice whose hidden SHA marker matches HEAD.",
+    "_hard_deny_note": "Check-result reads are blocked before any comment exception. Direct PR-comment reads are also blocked; only the exact SHA-filtered local_checks.py prepare command is allowed.",
     "hard_deny_patterns": [
       "\\bgh\\s+(pr|run|repo)\\b[^|]*--json\\b[^|]*\\b(statusCheckRollup|checkRuns|checkSuites|jobs|workflowRuns)\\b",
       "\\bgh\\s+pr\\s+checks\\b"
     ],
-    "_allowed_note": "The comment channel, checked first and winning over banned_patterns. Closing it would leave no way at all to learn why a run failed, and a guard with no remaining route is a guard someone switches off.",
+    "_allowed_note": "Only the exact local notice-preparation command is exempt; direct PR/comment API reads would expose unrelated comments and are blocked.",
     "allowed_patterns": [
-      "\\bgh\\s+pr\\s+(view|comment)\\b",
-      "\\bgh\\s+issue\\s+(view|comment)\\b",
-      "\\bgh\\s+api\\b[^|]*/issues/(comments|\\d+/comments)\\b",
-      "\\bgh\\s+api\\b[^|]*/pulls/\\d+/comments\\b"
+      "^\\s*(?:cd\\s+[^;&|]+\\s*&&\\s*)?(?:python|python3|\\.venv/bin/python|\\.venv/bin/python3)\\s+scripts/local_checks\\.py\\s+prepare\\s*$"
     ],
     "_banned_note": "Kept in step with CI_LOG_PATTERNS in common/command_schema.py, which is what the hook uses when the project is importable. These are the fallback for a bare session where it is not, so the block holds either way; tests/test_ci_log_access.py asserts the two agree.",
     "banned_patterns": [
@@ -194,29 +197,56 @@
       "\\bgh\\s+(pr|run)\\b[^|]*--json\\b[^|]*\\b(statusCheckRollup|checkRuns|jobs)\\b",
       "\\bcurl\\b[^|]*/actions/(runs|jobs|artifacts|workflows|caches)\\b",
       "\\bcurl\\b[^|]*/check-runs?\\b",
-      "\\bact\\b\\s+-"
+      "\\bact\\b\\s+-",
+      "\\bgh\\s+pr\\s+view\\b[^|]*(?:--comments\\b|--json\\b[^|]*\\bcomments\\b)",
+      "\\bgh\\s+issue\\s+view\\b[^|]*(?:--comments\\b|--json\\b[^|]*\\bcomments\\b)",
+      "\\bgh\\s+api\\b[^|]*/(?:issues/(?:comments|\\d+/comments)|pulls/\\d+/comments)\\b",
+      "\\bcurl\\b[^|]*/(?:issues/\\d+/comments|pulls/\\d+/comments)\\b",
+      "\\bgh\\s+api\\b[^|]*\\bgraphql\\b",
+      "\\bcurl\\b[^|]*/graphql\\b",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+-c\\b.*(?:api\\.github\\.com|issues/\\d+/comments|pulls/\\d+/comments|graphql)\\b",
+      "\\bnode\\s+-e\\b.*(?:api\\.github\\.com|issues/\\d+/comments|pulls/\\d+/comments|graphql)\\b"
     ]
   },
   "local_checks": {
     "enabled": true,
     "wrapper": "scripts/local_checks.py",
-    "run_marker": "TB_LOCAL_CHECKS=1",
     "prepare_command": "python3 scripts/local_checks.py prepare",
-    "run_command": "TB_LOCAL_CHECKS=1 python3 scripts/local_checks.py run <failed-check>",
-    "rule": "After a completed PR run, prepare records only non-green checks. If every tracked check is green, no local check may run. After a fix, run may execute only a recorded failed check. The test check also requires paths extracted from the CI failure notice and never runs a whole test suite.",
+    "run_command": "DISABLED: GitHub Actions is the sole test/build/check execution path.",
+    "rule": "GitHub Actions is the sole execution path for tests, builds, lint, security scans, workflow validation, and quality gates. The only local-check operation permitted is the exact read-only python3 scripts/local_checks.py prepare command, which retrieves only the current HEAD's SHA-bound CI notice. The run subcommand is disabled.",
     "blocked_patterns": [
-      "\\bpytest\\b",
-      "\\bpython(?:3)?\\s+-m\\s+pytest\\b",
+      "(?:^|[;&|]\\s*)(?:uv\\s+run\\s+)?(?:[^\\s;&|]+/)?pytest(?:\\s|$)",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+pytest\\b",
+      "\\b(?:python(?:3)?(?:\\.\\d+)?\\s+-m\\s+)?unittest\\b",
+      "\\b(?:tox|nox)\\b",
+      "\\bcoverage(?:\\s+(?:run|combine|report|html|xml|erase))?\\b",
       "\\bruff\\s+(?:check|format)\\b",
-      "\\bmypy\\b",
-      "\\bpyright\\b",
-      "\\bbandit\\b",
-      "\\bpip-audit\\b",
-      "\\bnpx\\s+(?:vitest|eslint)\\b",
-      "\\bnpm\\s+(?:test|run\\s+build)\\b",
-      "\\bactionlint\\b",
+      "\\b(?:mypy|pyright|flake8|pylint|black|isort)\\b",
+      "\\b(?:bandit|pip-audit|safety|semgrep|trivy)\\b",
+      "\\b(?:npx\\s+)?(?:vitest|jest|playwright|cypress)\\b",
+      "\\b(?:npm|pnpm|yarn)\\s+(?:test|run\\s+(?:test|build|lint|check)|build|lint|check)\\b",
+      "\\b(?:cargo\\s+(?:test|build|clippy)|go\\s+(?:test|build|vet))\\b",
+      "\\b(?:make|gmake)\\s+(?:test|build|lint|check|ci)\\b",
+      "\\b(?:cmake\\s+--build|ninja(?:\\s|$))",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+build\\b",
+      "\\bpre-commit\\s+run\\b",
+      "\\b(?:actionlint|shellcheck)\\b",
       "\\.claude/skills/quality-engineering/scripts/qe_gate\\.py\\b",
-      "\\bscripts/arch_gate\\.sh\\b"
-    ]
-  }
+      "\\bscripts/arch_gate\\.sh\\b",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+(?:-m\\s+)?tests?/[^ \\t;&|]*\\.py\\b",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+tests?(?:\\.|\\s)",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+compileall\\b",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+scripts/generate_(?:math|quality)_docs\\.py\\s+--check\\b",
+      "\\b(?:bash|sh)\\s+[^;&|]*(?:test|tests|testing|build|lint|check|quality[-_]gate|security[-_]scan)[^;&|]*\\.sh\\b",
+      "\\bnode\\s+[^;&|]*(?:test|tests|testing|build|lint|check)[^;&|]*\\.(?:js|mjs|cjs|ts)\\b",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+(?:[^\\s;&|]+/)?(?!local_checks\\.py\\b)[^\\s;&|]*(?:test|tests|build|lint|check|quality_gate|security_scan)[^\\s;&|]*\\.py\\b",
+      "\\b(?:docker\\s+(?:compose\\s+)?build|podman\\s+build)\\b",
+      "\\b(?:cargo\\s+fmt|go\\s+fmt)\\b",
+      "\\b(?:eslint|prettier|tsc)\\b",
+      "\\bgit\\s+diff\\b[^;&|]*--check\\b",
+      "\\b(?:npm|pnpm|yarn)\\s+(?:run\\s+)?(?:typecheck|type-check|type-checks|lint:check)\\b"
+    ],
+    "github_only": true
+  },
+  "_gh_note": "gh is not exempt as a whole. CI run data and arbitrary PR comment reads are blocked; the only permitted comment route is the SHA-filtered local_checks.py prepare command. Ordinary PR metadata and PR comment writes remain separately governed."
 }

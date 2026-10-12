@@ -14,28 +14,11 @@ Environment differences handled automatically:
   - Timeout: process group killed on SIGKILL after timeout (works in both envs)
   - jsonschema: stdlib-only fallback if package absent (no hard import failure)
 
-Usage:
-    from common.shell_exec import run
-
-    result = run({
-        "command": "pytest tests/ -q",
-        "output_policy": {
-            "max_lines": 40,
-            "stream": "both",
-            "filter_mode": "tail",
-        },
-        "retry_policy": {
-            "max_attempts": 2,
-            "retry_on": ["nonzero_exit"],
-            "delay_s": 1,
-        },
-    })
-
-    # result["filtered_output"]  — capped, filtered text (only this enters context)
-    # result["exit_code"]        — final attempt exit code
-    # result["truncated"]        — True if lines were dropped by cap
-    # result["attempt_count"]    — how many runs were made
-    # result["error"]            — None on success, str on unrecoverable failure
+Execution policy:
+    GitHub Actions is the sole execution path for tests, builds, lint, security
+    scans and quality gates. The runtime refuses local check commands before
+    execution. The only permitted local-check command is the SHA-filtered
+    scripts/local_checks.py prepare notice reader.
 """
 
 from __future__ import annotations
@@ -55,9 +38,11 @@ from typing import Any
 from common.command_schema import (
     CI_LOG_REFUSAL,
     COMMAND_EXEC_SCHEMA,
+    LOCAL_CHECK_REFUSAL,
     build_env,
     classify,
     is_ci_log_access,
+    is_local_check_execution,
     rank,
     redact,
 )
@@ -330,7 +315,7 @@ def run(declaration: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
     Args:
         declaration: dict conforming to COMMAND_EXEC_SCHEMA.
         timeout:     Per-attempt timeout in seconds. Default 120.
-                     Increase for slow commands (long test suites, builds).
+                     Increase only for permitted non-check commands; tests and builds are GitHub-only.
 
     Returns:
         {
@@ -366,6 +351,8 @@ def run(declaration: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
     # to run anything -- is not a way around the hook.
     if is_ci_log_access(cmd):
         return _refused(cmd, declared, CI_LOG_REFUSAL)
+    if is_local_check_execution(cmd):
+        return _refused(cmd, declared, LOCAL_CHECK_REFUSAL)
     if rank(detected) > rank(declared):
         return _refused(
             cmd,

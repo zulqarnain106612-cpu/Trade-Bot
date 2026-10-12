@@ -329,9 +329,31 @@ ALTER TABLE regime_snapshots
     updated_ms    BIGINT  NOT NULL
 );""",
     ),
+    # v10 — parity with SQLite: persist unified V6 decisions and provenance.
+    (
+        10,
+        "persist V6 unified intelligence decisions with round-trip fields",
+        """ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS direction_v6 INTEGER;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS size_pct_v6 DOUBLE PRECISION;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS confidence_v6 DOUBLE PRECISION;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS horizon_idx_v6 INTEGER;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS ecc_anomaly_v6 DOUBLE PRECISION;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS conflict_v6 INTEGER;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS regime_id_v6 INTEGER;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS agreement_ratio_v6 DOUBLE PRECISION;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS kyle_lambda_v6 DOUBLE PRECISION;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS ofi_v6 DOUBLE PRECISION;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS vpin_v6 DOUBLE PRECISION;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS expected_return_v6 DOUBLE PRECISION;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS uncertainty_v6 DOUBLE PRECISION;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS algo_v6 TEXT;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS horizon_contributions_v6 TEXT;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS model_versions_v6 TEXT;
+ALTER TABLE intelligence_features_history ADD COLUMN IF NOT EXISTS freshness_seconds_v6 TEXT;""",
+    ),
 ]
 
-_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 9
+_PG_SCHEMA_VERSION: Final[int] = len(_PG_MIGRATIONS)  # = 10
 
 # Intelligence feature columns (order matters — shared by store/fetch/coverage).
 _INTEL_COLUMNS: Final[tuple[str, ...]] = (

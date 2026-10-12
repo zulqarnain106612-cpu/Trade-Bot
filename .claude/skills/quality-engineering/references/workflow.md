@@ -47,7 +47,7 @@ crosses it through an unrealised move is refused as well — that last case is
 the one an implementation written from the description tends to miss.
 
 **Implementation**, then flip the entry to `verified` with the test named.
-Regenerate the traceability document. Run `qe_gate.py`. Push; CI decides.
+Regenerate the traceability document from the registry source. Do not run qe_gate.py locally; push and let GitHub Actions validate.
 
 ## Worked example — a production bug
 

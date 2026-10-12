@@ -426,9 +426,11 @@ The registry entry and deciding test belong in the same commit as the behavior.
 `qe_gate.py` runs in CI, not from a session: `config/command_policy.json` lists
 `.claude/skills/quality-engineering/scripts/qe_gate.py` among the blocked local
 checks, so an instruction to run it before pushing would order a command the
-pre-tool boundary refuses. Route a local run through
-`TB_LOCAL_CHECKS=1 python3 scripts/local_checks.py run <failed-check>`, which
-only permits checks that were non-green on the last completed PR run.
+pre-tool boundary refuses. No local test, build, lint, security scan, or quality-gate run is permitted,
+even for a previously failing check. The only local exception is the
+read-only command python3 scripts/local_checks.py prepare, which returns only
+the current HEAD's SHA-bound CI notice. Push changes and use GitHub Actions for
+every test, build, lint, security scan, and quality gate.
 
 The gate validates:
 

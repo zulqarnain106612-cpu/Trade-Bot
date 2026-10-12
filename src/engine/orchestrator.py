@@ -18,6 +18,7 @@ Authority:
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -283,6 +284,10 @@ class Orchestrator:
         # already covers every timeframe in that case.
         self._non_primary_executor: PaperExecutor | None = None
         self._engines: dict[str, SignalEngine] = {}
+        self._intelligence_adapter: Any | None = None
+        self._last_intelligence_bar_ts: int | None = None
+        self._intelligence_bar_lock = asyncio.Lock()
+        self._intelligence_task: asyncio.Task[None] | None = None
         self._detectors: dict[str, RegimeDetector] = {}
         self._trainers: dict[str, ModelTrainer] = {}
         # Track active retrain tasks per timeframe — prevents overlapping retrains
@@ -1041,7 +1046,10 @@ class Orchestrator:
 
     def background_tasks(self) -> tuple[asyncio.Task[Any], ...]:
         """The loops run() started (providers excepted) and in-flight retrains."""
-        return (*self._run_tasks, *self._retrain_tasks.values())
+        tasks = (*self._run_tasks, *self._retrain_tasks.values())
+        if self._intelligence_task is not None:
+            tasks += (self._intelligence_task,)
+        return tasks
 
     def provider_tasks(self) -> dict[str, tuple[asyncio.Task[None], ...]]:
         """Crypto-Box provider loops by provider-cache key; empty when Crypto-Box is off."""
@@ -1068,6 +1076,9 @@ class Orchestrator:
 
     async def shutdown(self) -> None:
         """Flush state, close all subsystems, and shut down training executor."""
+        if self._intelligence_task is not None and not self._intelligence_task.done():
+            self._intelligence_task.cancel()
+            await asyncio.gather(self._intelligence_task, return_exceptions=True)
         for executor in self._all_executors():
             await executor.shutdown()
         await get_monitor().stop()  # Patch B: clean monitor shutdown
@@ -1342,6 +1353,25 @@ class Orchestrator:
             # otherwise hold None for the life of the process.
             drift_detector=self._drift_detector,
         )
+
+        # V6 consumes the supported persisted 1m feed after the signal cycle.
+        # Its prediction horizons remain independent of execution schedules.
+        if tf == Timeframe.SCALPING and (
+            self._intelligence_task is None or self._intelligence_task.done()
+        ):
+            self._intelligence_task = asyncio.create_task(
+                self._process_intelligence_bar(
+                    tf,
+                    regime_id=result.regime.state if result.regime is not None else None,
+                ),
+                name="intelligence_source_bar",
+            )
+
+        # When V6 is enabled, its fused horizon decision is an additional
+        # veto inside the existing order path. It can never create an order
+        # or change sizing, and the three timeframe loops cannot submit the
+        # same horizon decision independently.
+        result = await self._apply_intelligence_order_gate(result, tf)
 
         # Crypto-Box augmentation — blends 18-engine ensemble into Kelly sizing.
         # Only active when CRYPTO_BOX=true; fails open to unmodified result.
@@ -2388,6 +2418,130 @@ class Orchestrator:
                 self._log.warning(
                     "orchestrator.kill_switch_registration_failed",
                     strategy_id=strategy.strategy_id,
+                    error=str(exc),
+                    exc_info=True,
+                )
+
+    def set_intelligence_adapter(self, adapter: Any | None) -> None:
+        """Attach the optional intelligence observer after API initialization."""
+        self._intelligence_adapter = adapter
+
+    async def _apply_intelligence_order_gate(
+        self, result: SignalResult, tf: Timeframe
+    ) -> SignalResult:
+        """Require a fresh, aligned horizon decision without creating orders."""
+        if os.environ.get("INTEL_ENABLED", "false").lower() != "true":
+            return result
+        if not result.tradeable:
+            return result
+        if tf != self._primary_tf:
+            self._log.info(
+                "orchestrator.horizon_order_suppressed",
+                timeframe=tf.value,
+                reason="unified horizon decision is primary-timeframe only",
+            )
+            return _dc_replace(
+                result,
+                tradeable=False,
+                kelly_result=None,
+                skip_reason="horizon_primary_timeframe_only",
+            )
+
+        timeout = 1.0
+        adapter = self._intelligence_adapter
+        intelligence = getattr(adapter, "_intel", None) if adapter is not None else None
+        if intelligence is not None:
+            timeout = max(0.05, float(intelligence._cfg.get("inference_timeout_seconds", 1.0)))
+        task = self._intelligence_task
+        if task is not None and not task.done():
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+            except TimeoutError:
+                return _dc_replace(
+                    result,
+                    tradeable=False,
+                    kelly_result=None,
+                    skip_reason="horizon_inference_timeout",
+                )
+
+        decision = getattr(intelligence, "last_decision", None)
+        observed_at = getattr(intelligence, "last_horizon_ts", None)
+        if not isinstance(decision, dict) or observed_at is None:
+            reason = "horizon_intelligence_unavailable"
+        elif time.time() - float(observed_at) > timeout:
+            reason = "horizon_decision_stale"
+        elif decision.get("action") not in {"BUY", "SELL"}:
+            reason = str(decision.get("abstain_reason") or "horizon_decision_abstained")
+        else:
+            horizon_direction = 1 if decision["action"] == "BUY" else -1
+            signal_direction = 1 if result.direction == 1 else -1
+            if horizon_direction == signal_direction:
+                return result
+            reason = "horizon_direction_disagrees_with_signal_engine"
+
+        self._log.info(
+            "orchestrator.horizon_order_suppressed",
+            timeframe=tf.value,
+            reason=reason,
+        )
+        return _dc_replace(
+            result,
+            tradeable=False,
+            kelly_result=None,
+            skip_reason=f"horizon_{reason}",
+        )
+
+    async def _process_intelligence_bar(self, tf: Timeframe, regime_id: int | None = None) -> None:
+        adapter = self._intelligence_adapter
+        if adapter is None:
+            return
+        # Horizon learning uses the verified persisted 1m OHLCV stream. The
+        # execution schedules (1m/15m/4h) are independent of prediction
+        # horizons; using the primary 15m schedule here would misstate source
+        # cadence and mature short labels against a different feed.
+        source_tf = Timeframe.SCALPING
+        async with self._intelligence_bar_lock:
+            try:
+                latest_ts = await self._storage.latest_bar_ts(self._symbol, source_tf.value)
+                if latest_ts is None or latest_ts == self._last_intelligence_bar_ts:
+                    return
+                # Drain persisted bars in order after a slow inference cycle or
+                # temporary outage. The bounded page size limits catch-up work;
+                # the next scheduler tick continues from the last successful bar.
+                since_ts = (
+                    int(self._last_intelligence_bar_ts) + 1
+                    if self._last_intelligence_bar_ts is not None
+                    else int(latest_ts)
+                )
+                bars = await self._storage.fetch_bars(
+                    self._symbol, source_tf.value, since_ts=since_ts, limit=256
+                )
+                for bar in bars:
+                    await adapter.on_bar(
+                        symbol=self._symbol,
+                        timeframe=source_tf.value,
+                        bar_ts_ms=int(bar.ts),
+                        ohlcv={
+                            "timestamp": int(bar.ts),
+                            "open": bar.open,
+                            "high": bar.high,
+                            "low": bar.low,
+                            "close": bar.close,
+                            "volume": bar.volume,
+                        },
+                        regime_id=regime_id if int(bar.ts) == int(latest_ts) else None,
+                    )
+                    self._last_intelligence_bar_ts = int(bar.ts)
+                if len(bars) == 256:
+                    self._log.warning(
+                        "orchestrator.intelligence_backlog_page_full",
+                        timeframe=source_tf.value,
+                        last_bar_ts=self._last_intelligence_bar_ts,
+                    )
+            except Exception as exc:
+                self._log.warning(
+                    "orchestrator.intelligence_bar_failed",
+                    timeframe=tf.value,
                     error=str(exc),
                     exc_info=True,
                 )

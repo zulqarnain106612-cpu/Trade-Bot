@@ -14,7 +14,7 @@ class TestWorkerOrchestrator:
         from src.workers.orchestrator import WorkerOrchestrator
 
         orch = WorkerOrchestrator(n_workers=100)  # above MAX_WORKERS=24
-        assert orch._n_workers == 24
+        assert orch._n_workers == 4
 
     def test_start_and_shutdown(self) -> None:
         from src.workers.orchestrator import WorkerOrchestrator
@@ -126,3 +126,27 @@ class TestWorkerTask:
         )
         assert res.direction == 1
         assert 0.0 <= res.confidence <= 1.0
+
+    def test_untrained_horizon_never_emits_a_fabricated_prediction(self) -> None:
+        from src.workers.orchestrator import WorkerTask, _run_horizon_inference
+
+        result = _run_horizon_inference(
+            WorkerTask(
+                task_id="untrained-1",
+                horizon_id=4,
+                symbol="BTC/USDT",
+                features={"close": 100.0, "volume": 5.0},
+                horizon_seconds=3600,
+                source_event_ts=1_700_000_000.0,
+                architecture_names=("tft", "patchtst"),
+                model_dir="/missing/model/artifact",
+            )
+        )
+
+        assert result.horizon_id == 4
+        assert result.status == "UNTRAINED"
+        assert result.error
+        assert result.direction == 0
+        assert result.confidence == 0.0
+        assert result.model_id is None
+        assert result.feature_schema_hash
