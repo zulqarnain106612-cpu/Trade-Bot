@@ -238,6 +238,7 @@ def test_resolved_mismatch_clears_stale_alert_state() -> None:
     reconciler.reconcile_once(suppress_repeats=True)
     assert "worker:w" in reconciler._alerted
 
-    p.changes.request_desired("worker:w", S.ACTIVE, REQUESTER, "restore observed state")
+    observed = p.registry.get("worker:w").state
+    p.changes.request_desired("worker:w", observed, REQUESTER, "restore observed state")
     assert reconciler.reconcile_once(suppress_repeats=True) == []
     assert "worker:w" not in reconciler._alerted
