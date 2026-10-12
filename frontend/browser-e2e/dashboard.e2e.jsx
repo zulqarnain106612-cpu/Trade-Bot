@@ -47,7 +47,11 @@ vi.mock('../src/hooks/useApi.js', () => {
   const apiFetch = async (path) => ({
     ok: true,
     status: 200,
-    json: async () => (path === '/venues' ? venueBody : {}),
+    json: async () => {
+      if (path === '/venues') return venueBody;
+      if (path === '/controls') return { controls: [], counts: { live: 0, protected: 0 } };
+      return {};
+    },
   });
   const emptyAction = async () => ({ ok: true });
   const usePolling = (path) => {
@@ -219,9 +223,8 @@ describe('dashboard in a real Chromium browser', () => {
   it('drags a real dashboard panel and persists the new grid placement', async () => {
     render(<App />);
 
-    const title = screen.getByText('Positions', { exact: true });
-    const handle = title.closest('.ws-drag-handle');
-    const item = title.closest('[data-ws-id]');
+    const item = document.querySelector('[data-ws-id="positions"]');
+    const handle = item?.querySelector('.ws-drag-handle');
     expect(handle).toBeTruthy();
     expect(item).toBeTruthy();
     await waitFor(() => expect(localStorage.getItem(WORKSPACE_STORAGE_KEY)).toBeTruthy());
