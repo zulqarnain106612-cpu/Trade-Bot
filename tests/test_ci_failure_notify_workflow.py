@@ -235,6 +235,12 @@ class TestCommentBody:
         assert "const SIGNAL = [" in script
         assert "const NOISE = [" in script
 
+    def test_failing_step_output_precedes_advisory_gate_noise(self, script):
+        tail = script.index("const failingStepOutput = stepOutputTail(raw);")
+        signals = script.index("for (const re of SIGNAL)", tail)
+        assert tail < signals
+        assert "Earlier" in script[tail - 200 : tail + 250]
+
     def test_the_runners_exit_code_is_not_treated_as_an_error_message(self, script):
         """
         The failure this test exists for, observed on PR #313: the notice's

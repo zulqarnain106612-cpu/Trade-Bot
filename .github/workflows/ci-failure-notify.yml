@@ -239,12 +239,18 @@ jobs:
                   const selected = [...new Set(pathish)].slice(-MAX_MSG_LINES);
                   if (selected.length) return selected;
                 }
+                // Prefer the output bounded to the actual failing step. Earlier
+                // advisory gates can print "[FAIL]" while exiting successfully;
+                // scanning the entire job first can mislabel that as the cause
+                // of a later lint/test failure.
+                const failingStepOutput = stepOutputTail(raw);
+                if (failingStepOutput.length) return failingStepOutput;
                 for (const re of SIGNAL) {
                   const hits = lines.filter(l => re.test(l));
-                  // The last ones: pytest prints what actually failed at the end.
+                  // Fallback only when the runner did not expose a bounded step tail.
                   if (hits.length) return hits.slice(-MAX_MSG_LINES);
                 }
-                return stepOutputTail(raw);
+                return [];
               } catch (e) {
                 core.info(`log unavailable for ${job.name}: ${e.message}`);
                 return [];
