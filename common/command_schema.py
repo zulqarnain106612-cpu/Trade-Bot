@@ -127,30 +127,30 @@ CI_COMMENT_ALLOW_PATTERNS: tuple[str, ...] = (
 )
 
 LOCAL_CHECK_PATTERNS: tuple[str, ...] = (
-    '\\bpytest\\b',
-    '\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+pytest\\b',
-    '\\b(?:python(?:3)?(?:\\.\\d+)?\\s+-m\\s+)?unittest\\b',
-    '\\b(?:tox|nox)\\b',
-    '\\bcoverage(?:\\s+(?:run|combine|report|html|xml|erase))?\\b',
-    '\\bruff\\s+(?:check|format)\\b',
-    '\\b(?:mypy|pyright|flake8|pylint|black|isort)\\b',
-    '\\b(?:bandit|pip-audit|safety|semgrep|trivy)\\b',
-    '\\b(?:npx\\s+)?(?:vitest|jest|playwright|cypress)\\b',
-    '\\b(?:npm|pnpm|yarn)\\s+(?:test|run\\s+(?:test|build|lint|check)|build|lint|check)\\b',
-    '\\b(?:cargo\\s+(?:test|build|clippy)|go\\s+(?:test|build|vet))\\b',
-    '\\b(?:make|gmake)\\s+(?:test|build|lint|check|ci)\\b',
-    '\\b(?:cmake\\s+--build|ninja(?:\\s|$))',
-    '\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+build\\b',
-    '\\bpre-commit\\s+run\\b',
-    '\\b(?:actionlint|shellcheck)\\b',
-    '\\.claude/skills/quality-engineering/scripts/qe_gate\\.py\\b',
-    '\\bscripts/arch_gate\\.sh\\b',
-    '\\bpython(?:3)?(?:\\.\\d+)?\\s+(?:-m\\s+)?tests?/[^ \\t;&|]*\\.py\\b',
-    '\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+tests?(?:\\.|\\s)',
-    '\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+compileall\\b',
-    '\\bpython(?:3)?(?:\\.\\d+)?\\s+scripts/generate_(?:math|quality)_docs\\.py\\s+--check\\b',
-    '\\b(?:bash|sh)\\s+[^;&|]*(?:test|tests|testing|build|lint|check|quality[-_]gate|security[-_]scan)[^;&|]*\\.sh\\b',
-    '\\bnode\\s+[^;&|]*(?:test|tests|testing|build|lint|check)[^;&|]*\\.(?:js|mjs|cjs|ts)\\b',
+    "\\bpytest\\b",
+    "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+pytest\\b",
+    "\\b(?:python(?:3)?(?:\\.\\d+)?\\s+-m\\s+)?unittest\\b",
+    "\\b(?:tox|nox)\\b",
+    "\\bcoverage(?:\\s+(?:run|combine|report|html|xml|erase))?\\b",
+    "\\bruff\\s+(?:check|format)\\b",
+    "\\b(?:mypy|pyright|flake8|pylint|black|isort)\\b",
+    "\\b(?:bandit|pip-audit|safety|semgrep|trivy)\\b",
+    "\\b(?:npx\\s+)?(?:vitest|jest|playwright|cypress)\\b",
+    "\\b(?:npm|pnpm|yarn)\\s+(?:test|run\\s+(?:test|build|lint|check)|build|lint|check)\\b",
+    "\\b(?:cargo\\s+(?:test|build|clippy)|go\\s+(?:test|build|vet))\\b",
+    "\\b(?:make|gmake)\\s+(?:test|build|lint|check|ci)\\b",
+    "\\b(?:cmake\\s+--build|ninja(?:\\s|$))",
+    "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+build\\b",
+    "\\bpre-commit\\s+run\\b",
+    "\\b(?:actionlint|shellcheck)\\b",
+    "\\.claude/skills/quality-engineering/scripts/qe_gate\\.py\\b",
+    "\\bscripts/arch_gate\\.sh\\b",
+    "\\bpython(?:3)?(?:\\.\\d+)?\\s+(?:-m\\s+)?tests?/[^ \\t;&|]*\\.py\\b",
+    "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+tests?(?:\\.|\\s)",
+    "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+compileall\\b",
+    "\\bpython(?:3)?(?:\\.\\d+)?\\s+scripts/generate_(?:math|quality)_docs\\.py\\s+--check\\b",
+    "\\b(?:bash|sh)\\s+[^;&|]*(?:test|tests|testing|build|lint|check|quality[-_]gate|security[-_]scan)[^;&|]*\\.sh\\b",
+    "\\bnode\\s+[^;&|]*(?:test|tests|testing|build|lint|check)[^;&|]*\\.(?:js|mjs|cjs|ts)\\b",
     r"\bpython(?:3)?(?:\.\d+)?\s+(?:[^\s;&|]+/)?(?!local_checks\.py\b)[^\s;&|]*(?:test|tests|build|lint|check|quality_gate|security_scan)[^\s;&|]*\.py\b",
     r"\b(?:docker\s+(?:compose\s+)?build|podman\s+build)\b",
     r"\b(?:cargo\s+fmt|go\s+fmt)\b",
@@ -175,8 +175,6 @@ def is_local_check_execution(command: str) -> bool:
     if "scripts/local_checks.py" in command:
         return _LOCAL_PREPARE_RE.fullmatch(command.strip()) is None
     return any(pattern.search(command) for pattern in _LOCAL_CHECK_RE)
-
-
 
 
 # Secrets that must never reach an LLM context. Each pattern captures the

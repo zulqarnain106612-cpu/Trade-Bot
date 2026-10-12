@@ -568,9 +568,7 @@ class ChangeManager:
                 and pending.classification is ChangeClass.SHADOW_REQUIRED
                 and horizon_lifecycle is None
             ):
-                raise RuntimeLifecycleUnavailableError(
-                    "horizon model lifecycle is unavailable"
-                )
+                raise RuntimeLifecycleUnavailableError("horizon model lifecycle is unavailable")
             result = self.approve(change_id, actor)
             if is_horizon_model and result.classification is ChangeClass.SHADOW_REQUIRED:
                 # The adapter was checked and captured before approval.
@@ -599,9 +597,7 @@ class ChangeManager:
             is_horizon_model = component.version.configuration.get("horizon_id") is not None
             horizon_lifecycle = self._horizon_models
             if is_horizon_model and horizon_lifecycle is None:
-                raise RuntimeLifecycleUnavailableError(
-                    "horizon model lifecycle is unavailable"
-                )
+                raise RuntimeLifecycleUnavailableError("horizon model lifecycle is unavailable")
             result = (
                 current
                 if is_horizon_model and current.status is ChangeStatus.PROMOTED

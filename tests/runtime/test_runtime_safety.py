@@ -211,9 +211,7 @@ def test_change_manager_refuses_horizon_approval_without_lifecycle_service() -> 
         )
     )
     with pytest.raises(RuntimeLifecycleUnavailableError, match="lifecycle is unavailable"):
-        platform.changes.decide_lifecycle(
-            change.change_id, "approve", HUMAN, system_actor=SYSTEM
-        )
+        platform.changes.decide_lifecycle(change.change_id, "approve", HUMAN, system_actor=SYSTEM)
     # The refusal happens before approval is committed, so retry cannot find a
     # half-approved change with no available evaluator.
     assert platform.changes.get(change.change_id).status.value == "AWAITING_APPROVAL"
@@ -232,9 +230,7 @@ def test_change_manager_refuses_horizon_approval_without_lifecycle_service() -> 
     assert executed.status.value == "EXECUTED"
     platform.changes._horizon_models = None
     with pytest.raises(RuntimeLifecycleUnavailableError, match="lifecycle is unavailable"):
-        platform.changes.decide_lifecycle(
-            change.change_id, "promote", HUMAN, system_actor=SYSTEM
-        )
+        platform.changes.decide_lifecycle(change.change_id, "promote", HUMAN, system_actor=SYSTEM)
     assert platform.changes.get(change.change_id).status.value == "EXECUTED"
 
     platform.changes._horizon_models = HorizonLifecycle()
@@ -244,9 +240,7 @@ def test_change_manager_refuses_horizon_approval_without_lifecycle_service() -> 
 
     platform.changes._registry.find = missing_component
     with pytest.raises(ChangeError, match="unknown component"):
-        platform.changes.decide_lifecycle(
-            change.change_id, "approve", HUMAN, system_actor=SYSTEM
-        )
+        platform.changes.decide_lifecycle(change.change_id, "approve", HUMAN, system_actor=SYSTEM)
     assert platform.changes.get(change.change_id).status.value == "EXECUTED"
 
 
@@ -288,10 +282,7 @@ def test_change_manager_routes_simple_decisions_and_refuses_unknown_verbs() -> N
     )
     assert cancelled.status is ChangeStatus.CANCELLED
     with pytest.raises(ChangeError, match="unknown decision"):
-        platform.changes.decide_lifecycle(
-            second.change_id, "delete", HUMAN, system_actor=SYSTEM
-        )
-
+        platform.changes.decide_lifecycle(second.change_id, "delete", HUMAN, system_actor=SYSTEM)
 
 
 def test_change_manager_routes_execute_rollback_and_non_horizon_model_stage() -> None:

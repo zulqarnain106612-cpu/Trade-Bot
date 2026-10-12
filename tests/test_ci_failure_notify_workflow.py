@@ -70,8 +70,7 @@ class TestTrigger:
         assert triggers["pull_request"]["types"] == ["opened", "synchronize", "reopened", "closed"]
         assert "github.event.action != 'closed'" in spec["jobs"]["notify"]["if"]
         assert "event.pull_request.head.sha" in "\n".join(
-            step.get("with", {}).get("script", "")
-            for step in spec["jobs"]["notify"]["steps"]
+            step.get("with", {}).get("script", "") for step in spec["jobs"]["notify"]["steps"]
         )
 
     def test_every_completed_run_is_inspected(self, spec):
@@ -194,7 +193,9 @@ class TestCommentBody:
     def test_workflow_run_resolves_the_current_pr_head_before_polling(self, script):
         assert "let headSha =" in script
         assert "headSha = candidate.data.head.sha;" in script
-        assert script.index("headSha = candidate.data.head.sha;") < script.index("for (let poll = 0;")
+        assert script.index("headSha = candidate.data.head.sha;") < script.index(
+            "for (let poll = 0;"
+        )
         assert "head: context.repo.owner + ':' + trigger.head_branch" in script
 
     def test_workflow_run_uses_the_pr_head_not_the_synthetic_merge_sha(self, script):

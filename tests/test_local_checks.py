@@ -5,6 +5,7 @@ HEAD's single SHA-bound CI notice may be read through prepare.
 Decides:
   - REG-0024 — the agent receives only the exact new notice and cannot run checks locally
 """
+
 from __future__ import annotations
 
 import importlib.util

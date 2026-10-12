@@ -68,8 +68,7 @@ def api(path: str) -> Any:
 def current_pr(sha: str) -> dict[str, Any]:
     prs = api(f"repos/{repo_slug()}/commits/{sha}/pulls")
     matches = [
-        pr for pr in prs
-        if pr.get("state") == "open" and pr.get("head", {}).get("sha") == sha
+        pr for pr in prs if pr.get("state") == "open" and pr.get("head", {}).get("sha") == sha
     ]
     if not matches:
         die(f"{sha[:12]} is not the head of an open PR")
@@ -77,12 +76,15 @@ def current_pr(sha: str) -> dict[str, Any]:
 
 
 def latest_notice(pr_number: int, sha: str) -> str:
-    comments = api(f"repos/{repo_slug()}/issues/{pr_number}/comments?per_page=100&sort=updated&direction=desc")
+    comments = api(
+        f"repos/{repo_slug()}/issues/{pr_number}/comments?per_page=100&sort=updated&direction=desc"
+    )
     marker = "<!-- ci-notice -->"
     sha_marker = f"<!-- ci-notice-sha:{sha} -->"
     # Only the notice for the exact current HEAD is exposed to the agent.
     matches = [
-        item for item in comments
+        item
+        for item in comments
         if item.get("user", {}).get("login") == "github-actions[bot]"
         and marker in item.get("body", "")
         and sha_marker in item.get("body", "")
@@ -112,8 +114,7 @@ def prepare() -> int:
 
     record = record_ci_from_notice(sha=sha, pr=int(pr["number"]), notice=notice)
     visible_notice = "\n".join(
-        line for line in notice.splitlines()
-        if not line.startswith("<!-- ci-notice")
+        line for line in notice.splitlines() if not line.startswith("<!-- ci-notice")
     )
     if record["status"] == "green":
         PLAN.unlink(missing_ok=True)
@@ -156,7 +157,9 @@ def main(argv: list[str]) -> int:
     sub.add_parser("run", help="disabled: checks execute only in GitHub Actions")
     args = parser.parse_args(argv)
     if args.action == "run":
-        die("local check execution is disabled by repository policy; GitHub Actions is the sole test/build/check execution path")
+        die(
+            "local check execution is disabled by repository policy; GitHub Actions is the sole test/build/check execution path"
+        )
     return prepare()
 
 

@@ -218,8 +218,7 @@ def _save_expert(root: Path, *, feature_names: tuple[str, ...] = ("price", "volu
     )
     for index in range(5):
         features = {
-            name: float(index + 1 if name != "price" else 90 + index * 3)
-            for name in feature_names
+            name: float(index + 1 if name != "price" else 90 + index * 3) for name in feature_names
         }
         expert.partial_fit(
             features,
@@ -252,9 +251,7 @@ def test_trained_artifact_rejects_missing_feature_fields(tmp_path: Path) -> None
     instrument = hashlib.sha256(b"BTC/USDT").hexdigest()[:16]
     model_dir = tmp_path / "h1" / instrument
     _save_expert(model_dir)
-    result = _run_horizon_inference(
-        _task(features={"price": 101.0}, model_dir=model_dir)
-    )
+    result = _run_horizon_inference(_task(features={"price": 101.0}, model_dir=model_dir))
     assert result.status == "FAILED"
     assert result.direction == 0
     assert "missing fields from the model feature schema" in (result.error or "")
@@ -425,4 +422,3 @@ def test_scale_down_queues_shutdown_and_joins_removed_workers() -> None:
     assert orchestrator._workers == workers[:2]
     for worker in workers[2:]:
         worker.join.assert_called_once_with(timeout=5)
-

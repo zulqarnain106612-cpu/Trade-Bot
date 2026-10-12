@@ -536,7 +536,8 @@ def _local_check_violation(command: str, policy: dict[str, Any]) -> str:
             and re.fullmatch(
                 r"(?:python|python3|\.venv/bin/python|\.venv/bin/python3)\s+scripts/local_checks\.py\s+prepare",
                 parts[-1],
-            ) is not None
+            )
+            is not None
         )
         if not allowed:
             return "Local check execution is disabled by repository policy; only the exact local_checks.py prepare operation may read the current SHA-bound PR notice."

@@ -26,7 +26,11 @@ ACTIVE = "active-sha"
 
 class LearningStore:
     def __init__(self):
-        self.evaluation = {"eligible": True, "candidate_model_version": CANDIDATE, "evaluation_id": "paired"}
+        self.evaluation = {
+            "eligible": True,
+            "candidate_model_version": CANDIDATE,
+            "evaluation_id": "paired",
+        }
         self.latest = {"eligible": True, "evaluation_id": "paired"}
         self.calls = []
         self.fail_activate = False
@@ -60,13 +64,15 @@ class Intelligence:
         self.last_horizon_symbol = SYMBOL
         self._cfg = {"candidate_minimum_oos_samples": 7}
         self._learning_store = LearningStore()
-        self.rows = [{
-            "id": 1,
-            "source_timeframe": "1m",
-            "last_prediction": {"candidate_model_version": CANDIDATE},
-            "candidate_evaluation": {"eligible": True, "candidate_model_version": CANDIDATE},
-            "shadow_artifact_available": True,
-        }]
+        self.rows = [
+            {
+                "id": 1,
+                "source_timeframe": "1m",
+                "last_prediction": {"candidate_model_version": CANDIDATE},
+                "candidate_evaluation": {"eligible": True, "candidate_model_version": CANDIDATE},
+                "shadow_artifact_available": True,
+            }
+        ]
 
     def horizon_status(self):
         return self.rows
@@ -89,14 +95,18 @@ def make_component(config=None):
 @pytest.fixture
 def intelligence(tmp_path, monkeypatch):
     intel = Intelligence(tmp_path / "models")
+
     def load(path, **kwargs):
         return SimpleNamespace(artifact_sha256=CANDIDATE)
+
     monkeypatch.setattr(HorizonMLPExpert, "load", load)
     monkeypatch.setattr(HorizonMLPExpert, "activation_pointer", lambda path: None)
     return intel
 
 
-def test_discoveries_expose_only_current_passing_candidate_and_active_pointer(tmp_path, monkeypatch):
+def test_discoveries_expose_only_current_passing_candidate_and_active_pointer(
+    tmp_path, monkeypatch
+):
     intel = Intelligence(tmp_path / "models")
     assert HorizonModelRuntime(lambda: None).discoveries() == []
     runtime = HorizonModelRuntime(lambda: intel)
@@ -108,9 +118,11 @@ def test_discoveries_expose_only_current_passing_candidate_and_active_pointer(tm
     assert rows[0].spec.component_type is ComponentType.MODEL
     assert LifecycleAction.ACTIVATE in rows[0].spec.capabilities.actions
 
-    monkeypatch.setattr(HorizonMLPExpert, "activation_pointer", lambda path: {
-        "sha256": ACTIVE, "lifecycle_status": "PROMOTED"
-    })
+    monkeypatch.setattr(
+        HorizonMLPExpert,
+        "activation_pointer",
+        lambda path: {"sha256": ACTIVE, "lifecycle_status": "PROMOTED"},
+    )
     intel.rows[0]["last_prediction"]["candidate_model_version"] = ACTIVE
     rows = runtime.discoveries()
     assert len(rows) == 1
@@ -130,9 +142,11 @@ def test_discovery_rejects_missing_symbol_and_stale_or_ineligible_candidate(tmp_
     intel.rows[0]["candidate_evaluation"]["candidate_model_version"] = CANDIDATE
     intel.rows[0]["candidate_evaluation"]["eligible"] = False
     assert runtime.discoveries() == []
-    monkeypatch.setattr(HorizonMLPExpert, "activation_pointer", lambda path: {
-        "sha256": ACTIVE, "lifecycle_status": "PROBATION"
-    })
+    monkeypatch.setattr(
+        HorizonMLPExpert,
+        "activation_pointer",
+        lambda path: {"sha256": ACTIVE, "lifecycle_status": "PROBATION"},
+    )
     rows = runtime.discoveries()
     assert len(rows) == 1
     assert rows[0].health.state is HealthState.DEGRADED
@@ -147,10 +161,17 @@ def test_context_and_candidate_evaluation_fail_closed(tmp_path, monkeypatch, int
     with pytest.raises(ActionRefusedError, match="identity changed"):
         runtime._context(bad)
     assert runtime._evaluation_passes(make_component().version.configuration)
-    monkeypatch.setattr(HorizonMLPExpert, "load", lambda path, **kwargs: SimpleNamespace(artifact_sha256="other"))
+    monkeypatch.setattr(
+        HorizonMLPExpert, "load", lambda path, **kwargs: SimpleNamespace(artifact_sha256="other")
+    )
     assert not runtime._evaluation_passes(make_component().version.configuration)
-    monkeypatch.setattr(HorizonMLPExpert, "load", lambda path, **kwargs: SimpleNamespace(artifact_sha256=CANDIDATE))
-    intelligence._learning_store.evaluation = {"eligible": False, "candidate_model_version": CANDIDATE}
+    monkeypatch.setattr(
+        HorizonMLPExpert, "load", lambda path, **kwargs: SimpleNamespace(artifact_sha256=CANDIDATE)
+    )
+    intelligence._learning_store.evaluation = {
+        "eligible": False,
+        "candidate_model_version": CANDIDATE,
+    }
     assert not runtime._evaluation_passes(make_component().version.configuration)
 
 
@@ -167,7 +188,9 @@ def test_activate_and_deactivate_are_gated_and_reversible(tmp_path, intelligence
     runtime = HorizonModelRuntime(lambda: intelligence)
     component = make_component()
     with pytest.raises(ActionRefusedError, match="replacement version"):
-        runtime.perform(component, LifecycleAction.ACTIVATE, ComponentVersion.create("other", "model", {}))
+        runtime.perform(
+            component, LifecycleAction.ACTIVATE, ComponentVersion.create("other", "model", {})
+        )
     with pytest.raises(ActionRefusedError, match="failed or became stale"):
         intelligence._learning_store.evaluation["eligible"] = False
         runtime.perform(component, LifecycleAction.ACTIVATE, None)
@@ -180,7 +203,9 @@ def test_activate_and_deactivate_are_gated_and_reversible(tmp_path, intelligence
         runtime.perform(component, LifecycleAction.STOP, None)
 
 
-def test_activation_failure_attempts_rollback_and_probe_reports_state(tmp_path, intelligence, monkeypatch):
+def test_activation_failure_attempts_rollback_and_probe_reports_state(
+    tmp_path, intelligence, monkeypatch
+):
     runtime = HorizonModelRuntime(lambda: intelligence)
     component = make_component()
     intelligence._learning_store.fail_activate = True
@@ -188,19 +213,25 @@ def test_activation_failure_attempts_rollback_and_probe_reports_state(tmp_path, 
         runtime.perform(component, LifecycleAction.ACTIVATE, None)
     assert any(name == "rollback_promotion" for name, _ in intelligence._learning_store.calls)
 
-    monkeypatch.setattr(HorizonMLPExpert, "activation_pointer", lambda path: {
-        "sha256": CANDIDATE, "lifecycle_status": "PROBATION"
-    })
+    monkeypatch.setattr(
+        HorizonMLPExpert,
+        "activation_pointer",
+        lambda path: {"sha256": CANDIDATE, "lifecycle_status": "PROBATION"},
+    )
     assert runtime.probe(component).state is HealthState.HEALTHY
-    monkeypatch.setattr(HorizonMLPExpert, "activation_pointer", lambda path: {
-        "sha256": "different", "lifecycle_status": "PROMOTED"
-    })
+    monkeypatch.setattr(
+        HorizonMLPExpert,
+        "activation_pointer",
+        lambda path: {"sha256": "different", "lifecycle_status": "PROMOTED"},
+    )
     assert runtime.probe(component).state is HealthState.UNKNOWN
     broken = HorizonModelRuntime(lambda: None)
     assert broken.probe(component).state is HealthState.UNHEALTHY
 
 
-def test_complete_promotion_requires_live_intelligence_and_records_completion(tmp_path, intelligence):
+def test_complete_promotion_requires_live_intelligence_and_records_completion(
+    tmp_path, intelligence
+):
     runtime = HorizonModelRuntime(lambda: intelligence)
     runtime.complete_promotion(make_component())
     assert any(name == "complete_promotion" for name, _ in intelligence._learning_store.calls)

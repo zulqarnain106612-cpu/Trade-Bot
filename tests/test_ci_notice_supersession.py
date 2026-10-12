@@ -5,6 +5,7 @@ consolidated list of failures and cancellation fallout.
 Decides:
   - REG-0018 — fail fast, cancel sibling workflows, and keep one current notice
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,7 +13,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "ci-failure-notify.yml"
+WORKFLOW = (
+    Path(__file__).resolve().parent.parent / ".github" / "workflows" / "ci-failure-notify.yml"
+)
 
 
 @pytest.fixture(scope="module")

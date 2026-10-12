@@ -93,7 +93,7 @@ BLOCKED = [
     "gh api repos/o/r/issues/313/comments",
     "gh api repos/o/r/issues/comments/99",
     "gh api repos/o/r/pulls/313/comments",
-    "gh api graphql -f query='{ repository(owner: \"o\", name: \"r\") { issue(number: 313) { comments(first: 100) { nodes { body } } } } }'",
+    'gh api graphql -f query=\'{ repository(owner: "o", name: "r") { issue(number: 313) { comments(first: 100) { nodes { body } } } } }\'',
     "curl -s https://api.github.com/graphql",
     "python3 -c 'import urllib.request; urllib.request.urlopen(\"https://api.github.com/repos/o/r/issues/313/comments\")'",
     "gh run view 9 --json jobs",

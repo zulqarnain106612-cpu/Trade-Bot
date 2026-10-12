@@ -80,7 +80,6 @@ def test_warm_start_is_causal_isolated_and_resumable(tmp_path: Path) -> None:
     assert resumed["horizons"][1]["training_samples"] == 2
 
 
-
 def test_iter_market_bars_rejects_missing_database_and_missing_table(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         list(iter_market_bars(tmp_path / "missing.db", symbol="BTC/USDT", timeframe="1m"))
@@ -111,7 +110,9 @@ def test_iter_market_bars_filters_invalid_rows_and_clamps_page_size(tmp_path: Pa
     assert rows[0]["volume"] == 0.0
 
 
-def test_warm_start_rejects_unsafe_roots_timeframes_and_resume_state(tmp_path: Path, monkeypatch) -> None:
+def test_warm_start_rejects_unsafe_roots_timeframes_and_resume_state(
+    tmp_path: Path, monkeypatch
+) -> None:
     database = tmp_path / "bars.db"
     with sqlite3.connect(database) as connection:
         connection.execute(
@@ -120,13 +121,23 @@ def test_warm_start_rejects_unsafe_roots_timeframes_and_resume_state(tmp_path: P
     horizons = [{"id": 1, "seconds": 120, "models": ["mlp"]}]
     repo_root = Path.cwd()
     with pytest.raises(ValueError, match="outside the repository"):
-        warm_start(database, repo_root / ".tmp-warm-start", symbol="BTC/USDT", timeframe="1m", horizons=horizons)
+        warm_start(
+            database,
+            repo_root / ".tmp-warm-start",
+            symbol="BTC/USDT",
+            timeframe="1m",
+            horizons=horizons,
+        )
     with pytest.raises(ValueError, match="unsupported"):
-        warm_start(database, tmp_path / "unsupported", symbol="BTC/USDT", timeframe="5m", horizons=horizons)
+        warm_start(
+            database, tmp_path / "unsupported", symbol="BTC/USDT", timeframe="5m", horizons=horizons
+        )
     occupied = tmp_path / "occupied"
     occupied.mkdir()
     (occupied / "unrelated.txt").write_text("do not overwrite", encoding="utf-8")
     with pytest.raises(FileExistsError, match="resume=True"):
         warm_start(database, occupied, symbol="BTC/USDT", timeframe="1m", horizons=horizons)
     with pytest.raises(ValueError, match="does not contain"):
-        warm_start(database, occupied, symbol="BTC/USDT", timeframe="1m", horizons=horizons, resume=True)
+        warm_start(
+            database, occupied, symbol="BTC/USDT", timeframe="1m", horizons=horizons, resume=True
+        )

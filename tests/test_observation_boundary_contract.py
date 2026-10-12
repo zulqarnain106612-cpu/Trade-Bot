@@ -174,12 +174,15 @@ def test_default_deny_route_gate_is_code_owned_and_independent_of_policy_mode():
 
 def test_route_gate_allows_only_the_exact_pr_notice_subscription():
     pre = load_module(PRE, "pre_boundary_notice_subscription")
-    assert pre._github_route_violation(
-        {
-            "tool_name": "Bash",
-            "tool_input": {"command": "python3 scripts/local_checks.py prepare"},
-        }
-    ) == ""
+    assert (
+        pre._github_route_violation(
+            {
+                "tool_name": "Bash",
+                "tool_input": {"command": "python3 scripts/local_checks.py prepare"},
+            }
+        )
+        == ""
+    )
     for command in (
         "gh pr view 439 --json comments",
         "cd /repo && python3 scripts/local_checks.py prepare && gh pr view 439 --json comments",
