@@ -10,7 +10,7 @@ stays inside the same line budget the command policy enforces, and replaces its
 own prior comment instead of stacking new ones.
 
 Decides:
-  - GOV-013 — CI failure is pushed to the pull request, never polled for
+  - GOV-013 — CI failure is pushed to the pull request; a bounded watcher cancels sibling runs
   - GOV-020 — One comment per commit carries the status and the exact failing lines
   - REG-0020 — The CI notice names the error of a failure no pattern recognises
   - REG-0021 — The CI notice resolves no pull request and posts nothing
@@ -43,11 +43,11 @@ def script(spec: dict) -> str:
 
 
 class TestTrigger:
-    def test_it_runs_on_workflow_run_completion(self, spec):
+    def test_it_runs_for_workflow_run_lifecycle_events(self, spec):
         # PyYAML parses a bare `on:` key as the boolean True.
         triggers = spec.get("on") or spec.get(True)
         assert "workflow_run" in triggers
-        assert triggers["workflow_run"]["types"] == ["completed"]
+        assert triggers["workflow_run"]["types"] == ["requested", "in_progress", "completed"]
 
     def test_it_watches_every_workflow_that_gates_a_pull_request(self, spec):
         triggers = spec.get("on") or spec.get(True)
@@ -67,18 +67,14 @@ class TestTrigger:
 
     def test_every_completed_run_is_inspected(self, spec):
         """
-        The job carries no `if:` on purpose.
-
-        A run's own conclusion does not tell you whether a job inside it was
-        skipped or neutral -- a run whose jobs all skipped concludes
-        `success`. That is exactly how #292 merged with four unrun gates. So
-        the filtering happens per job, inside the script, not on the job.
+        The notifier handles workflow_run events only. It inspects jobs because
+        a workflow can conclude success while a required job was skipped.
         """
-        assert "if" not in spec["jobs"]["notify"]
+        assert spec["jobs"]["notify"]["if"] == "github.event_name == 'workflow_run'"
 
     @pytest.mark.parametrize(
         "conclusion",
-        ["failure", "cancelled", "timed_out", "neutral", "action_required", "stale"],
+        ["failure", "cancelled", "timed_out", "neutral", "skipped", "action_required", "stale"],
     )
     def test_every_not_green_conclusion_is_reported(self, script, conclusion):
         """
@@ -88,41 +84,23 @@ class TestTrigger:
         `success` is reported -- so a conclusion GitHub adds tomorrow is
         covered the day it appears rather than the day someone notices.
         """
-        assert "if (j.conclusion === 'success') return false;" in script
+        assert "const isBad = (j) => j.conclusion !== 'success';" in script
         # The comment on the fall-through names each conclusion it covers, so
         # a new one cannot be added to GitHub's vocabulary and quietly ignored.
         assert conclusion in script
 
     def test_an_unexpected_skip_is_reported(self, script):
         """
-        A skipped required check satisfies branch protection without having
-        verified anything. Only the skips assert_jobs_green.py excuses are
-        excused here, and the two lists must name the same jobs.
+        A skipped job is never excused. Every conclusion other than success
+        is actionable, including skipped jobs that branch protection might
+        otherwise treat as satisfied.
         """
-        assert "ALLOW_SKIPPED" in script
-        assert "'retry'" in script
+        assert "const isBad = (j) => j.conclusion !== 'success';" in script
+        assert "conclusion === 'skipped'" not in script
 
-        # assert_jobs_green.py reads its allowlist from the ALLOW_SKIPPED
-        # environment variable, so the authority on which job is excused is
-        # the workflow that sets it -- today, exactly one.
-        allowed = set()
-        for path in (PROJECT_ROOT / ".github" / "workflows").glob("*.yml"):
-            wf = yaml.safe_load(path.read_text(encoding="utf-8"))
-            for job in (wf.get("jobs") or {}).values():
-                for step in job.get("steps") or []:
-                    value = (step.get("env") or {}).get("ALLOW_SKIPPED")
-                    if value:
-                        allowed |= {v.strip() for v in value.split(",") if v.strip()}
-                value = (job.get("env") or {}).get("ALLOW_SKIPPED")
-                if value:
-                    allowed |= {v.strip() for v in value.split(",") if v.strip()}
+        # Skipped checks are never excused in the notification policy.
 
-        for job_name in allowed:
-            assert f"'{job_name}'" in script, (
-                f"{job_name} is excused in a gate but not in the failure notice"
-            )
-
-    def test_it_waits_for_every_watched_workflow_before_posting(self, script):
+    def test_success_notice_waits_for_every_watched_workflow_before_posting(self, script):
         """
         Replaces `test_a_green_run_is_silent`, deliberately.
 
@@ -137,9 +115,10 @@ class TestTrigger:
         notice saying "all green" while a workflow is still in flight is worse
         than fatigue: it is wrong, and it is the only thing anyone can read.
         """
-        assert "status !== 'completed'" in script
-        assert "Not posting yet" in script
-        assert "return;" in script
+        assert "poll < 90" in script
+        assert "setTimeout(resolve, 10000)" in script
+        assert "latest.size >= WATCHED.length" in script
+        assert "cancelWorkflowRun" in script
 
     def test_the_verdict_covers_every_watched_workflow(self, script, spec):
         """
@@ -158,15 +137,25 @@ class TestTrigger:
 
     def test_green_is_reported_not_suppressed(self, script):
         """The only channel must be able to say 'nothing is wrong'."""
-        assert "all checks green" in script
+        assert "workflow Succeeded" in script
 
 
 class TestPermissions:
+    def test_merge_replaces_the_notice_with_the_exact_word(self, spec):
+        script = next(
+            step["with"]["script"]
+            for step in spec["jobs"]["merged-comment"]["steps"]
+            if "script" in step.get("with", {})
+        )
+        assert "'merged'" in script
+        assert "ci-notice-sha:" in script
+        assert "c.user.login === 'github-actions[bot]'" in script
+
     def test_it_can_comment_but_not_write_code(self, spec):
         perms = spec["permissions"]
         assert perms["pull-requests"] == "write"
         assert perms["contents"] == "read"
-        assert perms["actions"] == "read"
+        assert perms["actions"] == "write"
 
 
 class TestCommentBody:
@@ -176,18 +165,12 @@ class TestCommentBody:
         budget as every other read: bounded, and bounded by a constant that
         cannot silently grow past the policy limit.
         """
-        assert "const MAX_JOBS = 6" in script
         assert "const MAX_MSG_LINES = 8" in script
-        assert "slice(0, MAX_JOBS)" in script
-
-        # Worst case, with the consolidated shape: MAX_JOBS entries, each a
-        # heading line plus a fenced block of at most MAX_MSG_LINES, plus the
-        # status heading, a blank and the overflow line. MAX_JOBS rose from 4
-        # to 6 because one comment now covers five workflows instead of one --
-        # the budget is per comment, and there is only one comment, so the cap
-        # had to cover the same failures it used to spread across five.
-        worst_case = 6 * (1 + 2 + 4) + 3
-        assert worst_case <= 48, worst_case
+        assert "const selected = failing[0] || null;" in script
+        assert "failing.slice(0, MAX_JOBS)" not in script
+        assert "const shaMarker = '<!-- ci-notice-sha:' + headSha + ' -->';" in script
+        assert "failing.sort" in script
+        assert "cancelWorkflowRun" in script
         # No footer: the comment is the status and the errors, nothing else.
         assert "Do not fetch the run log" not in script
 
@@ -195,6 +178,18 @@ class TestCommentBody:
             (PROJECT_ROOT / "config" / "command_policy.json").read_text(encoding="utf-8")
         )
         assert policy["bounded_output"]["max_declared_lines"] >= 20
+
+    def test_notice_is_bound_to_exact_head_and_stale_heads_are_ignored(self, script):
+        assert "ci-notice-sha:" in script
+        assert "currentPr.data.head.sha !== headSha" in script
+        assert "Ignoring stale CI notice" in script
+        assert "const isBad = (j) => j.conclusion !== 'success';" in script
+        assert "cancelWorkflowRun" in script
+
+    def test_only_the_actions_bot_notice_is_updated(self, script):
+        assert "c.user.login === 'github-actions[bot]'" in script
+        assert "const shaMarker = '<!-- ci-notice-sha:' + headSha + ' -->';" in script
+        assert "currentPr.data.head.sha !== headSha" in script
 
     def test_it_updates_its_prior_notice_rather_than_stacking(self, script):
         assert "updateComment" in script

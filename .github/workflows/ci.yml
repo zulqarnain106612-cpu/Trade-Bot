@@ -105,7 +105,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         # Six, not three. Shard-level parallelism is the only kind this suite
         # currently tolerates (see the xdist note on the test step), and each

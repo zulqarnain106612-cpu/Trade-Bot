@@ -9,10 +9,10 @@ name: CI failure notice
 #
 # Three rules follow from being the only channel, and all three are load-bearing:
 #
-#   1. ONE comment per commit. Not one per workflow, not one per check. Five
-#      workflows reporting separately is five comments to read and four chances
-#      to read a stale one; the notice waits until every workflow for the
-#      commit has finished and then posts a single consolidated status.
+#   1. ONE mutable comment per PR head. A non-green check cancels other
+#      in-flight watched workflows and updates the comment with one actionable
+#      check. The success phrase appears only after every watched workflow has
+#      been observed and completed green.
 #
 #   2. Status and exact errors, nothing else. No advice, no instructions, no
 #      "consider checking" prose. The comment is read into an agent's context,
@@ -39,31 +39,32 @@ on:
       - "CodeQL"
       - "Workflow lint"
       - "Security"
-    types: [completed]
+    types: [requested, in_progress, completed]
+  pull_request:
+    types: [closed]
 
 permissions:
   contents: read
-  actions: read
+  actions: write
   checks: read
   pull-requests: write
 
 concurrency:
-  # Keyed on the COMMIT, not the run: every workflow finishing for one commit
-  # funnels into the same concurrency group, so the last one to finish is the
-  # one that posts and the earlier partial pictures are cancelled rather than
-  # racing each other to rewrite the same comment.
-  group: ci-notice-${{ github.event.workflow_run.head_sha }}
+  # One serialized notifier per PR head. Never cancel an active notice write;
+  # a newer queued event replaces an older queued event, and each execution
+  # re-reads the latest watched workflow state before updating the one comment.
+  group: ci-notice-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
   cancel-in-progress: true
 
 jobs:
   notify:
-    # No `if:` on the job. Every completed run is inspected, because a run's
-    # own conclusion does not say whether a job inside it skipped or came back
-    # neutral -- a run whose jobs all skipped concludes `success`.
+    if: github.event_name == 'workflow_run'
+    # All workflow_run activity types are inspected. A workflow can conclude
+    # success while a required job inside it was skipped or neutral.
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - name: Post one consolidated status comment for this commit
+      - name: Poll CI and post the first non-green check for this PR head
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -81,14 +82,6 @@ jobs:
               'Workflow lint',
               'Security',
             ];
-
-            // Jobs legitimately allowed to skip: the union of every
-            // ALLOW_SKIPPED set in .github/workflows, with a test asserting
-            // the two stay equal. Excusing a job in a gate without excusing it
-            // here would bury the notice under noise nobody reads.
-            const ALLOW_SKIPPED = new Set([
-              'retry', 'dependency-review', 'promote', 'rollback',
-            ]);
 
             // ---- which pull request -------------------------------------
             // workflow_run.pull_requests is empty for push-triggered runs,
@@ -113,50 +106,12 @@ jobs:
               return;
             }
 
-            // ---- every run for this commit ------------------------------
-            const allRuns = await github.paginate(
-              github.rest.actions.listWorkflowRunsForRepo,
-              { ...context.repo, head_sha: headSha, per_page: 100 },
-            );
+            // Poll the live workflow/job state instead of waiting for a
+            // workflow_run=completed event. GitHub emits no workflow_run event
+            // when an individual job fails, so a one-shot notifier cannot
+            // terminate sibling jobs promptly.
+            const isBad = (j) => j.conclusion !== 'success';
 
-            // Latest attempt per workflow name, so a re-run supersedes rather
-            // than both being counted.
-            const latest = new Map();
-            for (const r of allRuns) {
-              if (!WATCHED.includes(r.name)) continue;
-              const prior = latest.get(r.name);
-              if (!prior || r.run_number > prior.run_number ||
-                  (r.run_number === prior.run_number && r.run_attempt > prior.run_attempt)) {
-                latest.set(r.name, r);
-              }
-            }
-
-            // Rule 1: stay silent until the picture is complete. A workflow
-            // that has not started at all for this commit is not pending --
-            // path filters mean some never run -- so only in-flight ones hold
-            // the notice back.
-            const pending = [...latest.values()].filter(r => r.status !== 'completed');
-            if (pending.length > 0) {
-              core.info(`Still running: ${pending.map(r => r.name).join(', ')}. Not posting yet.`);
-              return;
-            }
-            if (latest.size === 0) {
-              core.info('No watched runs completed for this commit.');
-              return;
-            }
-
-            // ---- collect what is not green ------------------------------
-            const isBad = (j) => {
-              if (!j.conclusion) return true;   // completed run, job with no verdict
-              if (j.conclusion === 'success') return false;
-              if (j.conclusion === 'skipped') return !ALLOW_SKIPPED.has(j.name);
-              return true;  // failure, cancelled, timed_out, neutral, action_required, stale
-            };
-
-            // Rule 3: the runner's own epilogue is not an error message.
-            // "Process completed with exit code 1" was the entire content of
-            // the previous notice on a failing test shard, which is why these
-            // are dropped before anything is chosen.
             const NOISE = [
               /^Process completed with exit code \d+\.?$/i,
               /^The (job|operation) was canceled/i,
@@ -286,75 +241,119 @@ jobs:
               }
             }
 
-            const MAX_JOBS = 6;
-            const failing = [];
-            for (const run of latest.values()) {
-              const jobs = await github.paginate(
-                github.rest.actions.listJobsForWorkflowRun,
-                { ...context.repo, run_id: run.id, per_page: 100 },
+            let latest = new Map();
+            let pending = [];
+            let failing = [];
+            const severity = {
+              failure: 0, timed_out: 1, neutral: 2, action_required: 3,
+              stale: 4, skipped: 5, cancelled: 6,
+            };
+            const isSummaryGate = (job) => /gate|all jobs green/i.test(job.name);
+
+            for (let poll = 0; poll < 90; poll++) {
+              const allRuns = await github.paginate(
+                github.rest.actions.listWorkflowRunsForRepo,
+                { ...context.repo, head_sha: headSha, per_page: 100 },
               );
-              for (const j of jobs.filter(isBad)) {
-                failing.push({ workflow: run.name, job: j });
-              }
-            }
-
-            // ---- build the comment: status, then exact errors -----------
-            const marker = '<!-- ci-notice -->';
-            const short = headSha.slice(0, 7);
-            const body = [];
-            body.push(marker);
-
-            // A cancelled job reached no verdict. Counting it as "not green"
-            // inflates every notice posted for a commit that a newer push
-            // replaced -- the eleven-job notice this rule exists to prevent
-            // was two real failures and nine runs cancelled by their own
-            // successor. Cancellations are partitioned out of the count and
-            // named once at the end, because they are also never evidence of
-            // green: a commit whose jobs were cancelled proved nothing.
-            const cancelled = failing.filter(f => f.job.conclusion === 'cancelled');
-            const failures = failing.filter(f => f.job.conclusion !== 'cancelled');
-            const cancelledNote = cancelled.length
-              ? `_${cancelled.length} job(s) cancelled — superseded by a newer commit, no verdict_`
-              : null;
-
-            if (failures.length === 0 && cancelled.length === 0) {
-              body.push(`### CI \`${short}\` — all checks green`);
-            } else if (failures.length === 0) {
-              body.push(`### CI \`${short}\` — no verdict`);
-              body.push('');
-              body.push(cancelledNote);
-            } else {
-              body.push(`### CI \`${short}\` — ${failures.length} not green`);
-              body.push('');
-              for (const { workflow, job } of failures.slice(0, MAX_JOBS)) {
-                const step = (job.steps || []).find(
-                  s => s.conclusion && s.conclusion !== 'success' && s.conclusion !== 'skipped');
-                const where = step ? ` · \`${step.name}\`` : '';
-                body.push(`**${workflow} / ${job.name}** — ${job.conclusion || 'no verdict'}${where}`);
-                const msgs = await messagesFor(job);
-                if (msgs.length) {
-                  body.push('```');
-                  for (const m of msgs) body.push(m.slice(0, 300));
-                  body.push('```');
+              latest = new Map();
+              for (const r of allRuns) {
+                if (!WATCHED.includes(r.name)) continue;
+                const prior = latest.get(r.name);
+                if (!prior || r.run_number > prior.run_number ||
+                    (r.run_number === prior.run_number && r.run_attempt > prior.run_attempt)) {
+                  latest.set(r.name, r);
                 }
               }
-              if (failures.length > MAX_JOBS) {
-                body.push(`_and ${failures.length - MAX_JOBS} more not green_`);
+              pending = [...latest.values()].filter(r => r.status !== 'completed');
+              failing = [];
+              for (const run of latest.values()) {
+                const jobs = await github.paginate(
+                  github.rest.actions.listJobsForWorkflowRun,
+                  { ...context.repo, run_id: run.id, per_page: 100 },
+                );
+                for (const job of jobs) {
+                  // A completed job with skipped/neutral/no conclusion is
+                  // non-green even while other jobs in its workflow continue.
+                  if (!job.conclusion && run.status !== 'completed') continue;
+                  if (isBad(job)) failing.push({ workflow: run.name, run_id: run.id, job });
+                }
               }
-              if (cancelledNote) body.push(cancelledNote);
+
+              if (failing.length > 0) break;
+              if (pending.length === 0 && latest.size >= WATCHED.length) break;
+              if (poll < 89) await new Promise(resolve => setTimeout(resolve, 10000));
+            }
+
+            failing.sort((a, b) =>
+              Number(b.run_id === trigger.id) - Number(a.run_id === trigger.id) ||
+              Number(isSummaryGate(a.job)) - Number(isSummaryGate(b.job)) ||
+              (severity[a.job.conclusion] ?? 99) - (severity[b.job.conclusion] ?? 99));
+            const actionable = failing;
+            if (actionable.length > 0) {
+              for (const run of pending) {
+                try {
+                  await github.rest.actions.cancelWorkflowRun({
+                    ...context.repo, run_id: run.id,
+                  });
+                } catch (e) {
+                  core.warning('Could not cancel ' + run.name + ': ' + e.message);
+                }
+              }
+              failing.splice(0, failing.length, actionable[0]);
+            } else if (pending.length > 0 || latest.size < WATCHED.length) {
+              const missing = WATCHED.filter(name => !latest.has(name));
+              core.info('Waiting for all watched workflows to finish. Pending: ' +
+                pending.map(r => r.name).join(', ') + '; not yet observed: ' + missing.join(', '));
+              return;
+            }
+
+            // ---- build a single-check notice -----------------------------
+            const marker = '<!-- ci-notice -->';
+            const shaMarker = '<!-- ci-notice-sha:' + headSha + ' -->';
+            const body = [marker, shaMarker];
+            const selected = failing[0] || null;
+            if (!selected) {
+              body.push('workflow Succeeded');
+            } else {
+              const workflow = selected.workflow;
+              const job = selected.job;
+              const step = (job.steps || []).find(
+                s => s.conclusion && s.conclusion !== 'success' && s.conclusion !== 'skipped');
+              const where = step ? ' · ' + step.name : '';
+              body.push('**' + workflow + ' / ' + job.name + '** — ' +
+                (job.conclusion || 'no verdict') + where);
+              const msgs = ['skipped', 'neutral', 'cancelled'].includes(job.conclusion)
+                ? [] : await messagesFor(job);
+              if (msgs.length) {
+                body.push(String.fromCharCode(96).repeat(3));
+                for (const m of msgs) body.push(m.slice(0, 300));
+                body.push(String.fromCharCode(96).repeat(3));
+              }
             }
             // Rule 2 ends the comment here. No footer, no advice, no links to
             // a log nobody is allowed to open.
             const text = body.join('\n');
 
             for (const number of prNumbers) {
+              const currentPr = await github.rest.pulls.get({
+                ...context.repo, pull_number: number,
+              });
+              if (currentPr.data.state !== 'open' || currentPr.data.head.sha !== headSha) {
+                core.info('Ignoring stale CI notice for a superseded or closed PR head.');
+                continue;
+              }
               // One comment, edited in place. A PR that fails five times
               // carries one current comment, not five stale ones.
               const existing = await github.paginate(
                 github.rest.issues.listComments,
                 { ...context.repo, issue_number: number, per_page: 100 },
               );
-              const prior = existing.find(c => c.body && c.body.includes(marker));
+              const notices = existing.filter(c =>
+                c.user && c.user.login === 'github-actions[bot]' &&
+                c.body && c.body.includes(marker));
+              notices.sort((a, b) =>
+                (b.updated_at || '').localeCompare(a.updated_at || ''));
+              const prior = notices[0];
               if (prior) {
                 if (prior.body.trim() !== text.trim()) {
                   await github.rest.issues.updateComment({
@@ -371,6 +370,40 @@ jobs:
               }
             }
 
-# No `gate` job here on purpose. The project's gate law covers workflows that
-# run on `pull_request`, where a missing check silently satisfies branch
-# protection. This one runs on `workflow_run` and is never a required check.
+# This workflow is a notifier, not a required status check. The merged-comment
+# job only replaces the same bot-owned notice after the pull request is merged.
+
+  merged-comment:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Replace the CI notice with the merge outcome
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const number = context.payload.pull_request.number;
+            const marker = '<!-- ci-notice -->';
+            const shaMarker = '<!-- ci-notice-sha:' + context.payload.pull_request.head.sha + ' -->';
+            const body = [marker, shaMarker, 'merged'].join('\n');
+            const comments = await github.paginate(
+              github.rest.issues.listComments,
+              { ...context.repo, issue_number: number, per_page: 100 },
+            );
+            const notices = comments.filter(c =>
+              c.user && c.user.login === 'github-actions[bot]' &&
+              c.body && c.body.includes(marker));
+            notices.sort((a, b) =>
+              (b.updated_at || '').localeCompare(a.updated_at || ''));
+            const prior = notices[0];
+            if (prior) {
+              await github.rest.issues.updateComment({
+                ...context.repo, comment_id: prior.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                ...context.repo, issue_number: number, body,
+              });
+            }

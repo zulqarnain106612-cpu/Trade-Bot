@@ -119,10 +119,17 @@ class TestApprovedGithubRoute:
         )
         assert decision["permissionDecision"] == "allow"
 
-    def test_pull_request_notice_comment_route_remains_allowed(self) -> None:
+    def test_arbitrary_pull_request_comment_reads_are_denied(self) -> None:
         decision = decide(
             "mcp__GitHub__fetch_pr_comments",
-            {"repo_full_name": REPO, "pr_number": 435},
+            {"repo_full_name": REPO, "pr_number": 439},
+        )
+        assert decision["permissionDecision"] == "deny"
+
+    def test_exact_sha_filtered_notice_subscription_is_allowed(self) -> None:
+        decision = decide(
+            "Bash",
+            {"command": "python3 scripts/local_checks.py prepare"},
         )
         assert decision["permissionDecision"] == "allow"
 
@@ -215,13 +222,16 @@ class TestCIBoundary:
             contains="endpoint is not allowlisted",
         )
 
-    def test_pull_request_notice_comment_remains_the_ci_diagnostic_channel(self) -> None:
-        assert (
-            decide(
-                "mcp__GitHub__fetch_pr_comments",
-                {"repo_full_name": REPO, "pr_number": 435},
-            )["permissionDecision"]
-            == "allow"
+    def test_generic_fetch_cannot_read_pr_comment_api(self) -> None:
+        assert_denied(
+            "mcp__GitHub__fetch",
+            {
+                "url": (
+                    "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/"
+                    "issues/439/comments"
+                )
+            },
+            contains="Arbitrary PR-comment",
         )
 
 

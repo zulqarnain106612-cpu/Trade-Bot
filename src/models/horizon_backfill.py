@@ -10,6 +10,7 @@ import statistics
 import sys
 from collections import deque
 from collections.abc import Iterator
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -85,11 +86,9 @@ def warm_start(
     """Replay OHLCV chronologically into a separate, non-production model root."""
     root = artifact_root.resolve()
     repo_root = Path.cwd().resolve()
-    try:
+    with suppress(ValueError):
         root.relative_to(repo_root)
-    except ValueError:
-        pass
-    else:
+    if root.is_relative_to(repo_root):
         raise ValueError("warm-start artifact root must be outside the repository")
     learning_db = root / "horizon_learning.sqlite3"
     if root.exists() and any(root.iterdir()):

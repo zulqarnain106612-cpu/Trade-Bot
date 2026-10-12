@@ -138,7 +138,7 @@ def test_the_api_reaches_runtime_only_through_the_change_manager() -> None:
 def test_change_manager_owns_horizon_shadow_activation_and_promotion() -> None:
     from dataclasses import replace
 
-    from src.runtime.changes import ChangeRequest, ChangeStatus, RuntimeLifecycleUnavailableError
+    from src.runtime.changes import ChangeRequest, ChangeStatus
     from src.runtime.contracts import ComponentType, LifecycleAction, LifecycleState
     from ._support import HUMAN, REQUESTER, SYSTEM, spec, version, build_platform
 

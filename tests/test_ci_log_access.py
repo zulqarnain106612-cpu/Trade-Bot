@@ -87,6 +87,15 @@ BLOCKED = [
     "gh pr view 9 --json statusCheckRollup",
     "gh pr view 9 --json number,statusCheckRollup,title",
     "gh pr view 9 --json checkRuns",
+    "gh pr view 313 --json comments",
+    "gh pr view 313 --json comments --jq '.comments[-1].body'",
+    "gh issue view 42 --json comments",
+    "gh api repos/o/r/issues/313/comments",
+    "gh api repos/o/r/issues/comments/99",
+    "gh api repos/o/r/pulls/313/comments",
+    "gh api graphql -f query='{ repository(owner: \"o\", name: \"r\") { issue(number: 313) { comments(first: 100) { nodes { body } } } } }'",
+    "curl -s https://api.github.com/graphql",
+    "python3 -c 'import urllib.request; urllib.request.urlopen(\"https://api.github.com/repos/o/r/issues/313/comments\")'",
     "gh run view 9 --json jobs",
     "curl -s https://api.github.com/repos/o/r/actions/runs/1/logs",
     "curl https://api.github.com/repos/o/r/actions/jobs/2/logs -o log.zip",
@@ -97,15 +106,11 @@ BLOCKED = [
 # The sanctioned channel, plus ordinary pull-request work that must not be
 # swept up by a broad `gh api` rule.
 ALLOWED = [
-    "gh pr view 313 --json comments",
-    "gh pr view 313 --json comments --jq '.comments[-1].body'",
     "gh pr comment 313 --body 'pushed a fix'",
     "gh issue view 42",
     "gh issue comment 42 --body hi",
-    "gh api repos/o/r/issues/313/comments",
-    "gh api repos/o/r/issues/comments/99",
-    "gh api repos/o/r/pulls/313/comments",
     "gh pr view 313 --json state,title,mergeStateStatus",
+    "python3 scripts/local_checks.py prepare",
     "gh pr merge 313 --squash --auto",
     "gh pr create --base main --title x --body y",
     "gh pr list --state open",
@@ -175,7 +180,7 @@ class TestTheCommentChannelStaysOpen:
         say where the answer actually is.
         """
         assert "comment" in CI_LOG_REFUSAL.lower()
-        assert "gh pr view" in CI_LOG_REFUSAL
+        assert "local_checks.py prepare" in CI_LOG_REFUSAL
         # And it must not suggest a smaller read would work.
         assert "30 lines" not in CI_LOG_REFUSAL
 
@@ -192,22 +197,17 @@ class TestTheRuntimeRefusesToo:
         result = run({"command": command, "output_policy": {"max_lines": 1}})
         assert result["exit_code"] == -1
         assert result["attempt_count"] == 0, "the command must not have run"
-        assert "permanently unreadable" in (result["error"] or "")
+        assert "blocked" in (result["error"] or "").lower()
 
-    def test_run_still_allows_reading_a_comment(self) -> None:
-        """
-        Not executed for real -- `gh` may be absent and this must not touch the
-        network. What is asserted is that the declaration is not *refused*:
-        attempt_count of 1 means the guard let it reach execution.
-        """
+    def test_run_refuses_arbitrary_comment_fetches(self) -> None:
         result = run(
             {
-                "command": "true gh pr view 1 --json comments",
+                "command": "gh pr view 1 --json comments",
                 "output_policy": {"max_lines": 1},
             }
         )
-        assert result["attempt_count"] == 1
-        assert "permanently unreadable" not in (result["error"] or "")
+        assert result["exit_code"] == -1
+        assert result["attempt_count"] == 0
 
 
 class TestEnforcementPointsAgree:
@@ -224,6 +224,11 @@ class TestEnforcementPointsAgree:
 
     def test_the_policy_is_enabled(self, policy: dict) -> None:
         assert policy["enabled"] is True
+
+    def test_only_current_notice_preparation_is_allowed(self) -> None:
+        assert not is_ci_log_access("python3 scripts/local_checks.py prepare")
+        assert is_ci_log_access("gh pr view 313 --json comments")
+        assert is_ci_log_access("gh api repos/o/r/issues/313/comments")
 
     def test_every_policy_pattern_compiles(self, policy: dict) -> None:
         """An invalid regex here fails open, silently allowing everything."""

@@ -338,7 +338,7 @@ def test_submit_queue_failure_increments_drop_counter_and_reraises() -> None:
     with pytest.raises(queue.Full):
         orchestrator.submit(_task())
     assert orchestrator.dropped_tasks == 1
-    assert orchestrator._started is True
+    assert orchestrator._started
 
 
 def test_health_snapshot_reports_queue_depth_and_worker_liveness() -> None:
@@ -402,7 +402,6 @@ def test_scale_same_worker_count_is_a_noop() -> None:
     orchestrator._workers[1].is_alive.return_value = True
     orchestrator.scale(2)
     assert len(orchestrator._workers) == 2
-
 
 
 def test_scale_down_queues_shutdown_and_joins_removed_workers() -> None:

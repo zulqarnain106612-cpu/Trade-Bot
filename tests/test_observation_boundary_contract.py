@@ -163,9 +163,32 @@ def test_default_deny_route_gate_is_code_owned_and_independent_of_policy_mode():
         "mcp__Desktop_Commander__start_process",
         "mcp__unknown__read_file",
         "mcp__github__new_future_tool",
+        "mcp__github__fetch_pr_comments",
+        "mcp__github__fetch_pr",
+        "mcp__github__list_pull_request_reviews",
+        "mcp__github__list_pull_request_review_threads",
     ):
         reason = pre._github_route_violation({"tool_name": tool, "tool_input": {}})
         assert reason and "denied" in reason.lower()
+
+
+def test_route_gate_allows_only_the_exact_pr_notice_subscription():
+    pre = load_module(PRE, "pre_boundary_notice_subscription")
+    assert pre._github_route_violation(
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": "python3 scripts/local_checks.py prepare"},
+        }
+    ) == ""
+    for command in (
+        "gh pr view 439 --json comments",
+        "cd /repo && python3 scripts/local_checks.py prepare && gh pr view 439 --json comments",
+        "python3 scripts/local_checks.py run tests",
+    ):
+        reason = pre._github_route_violation(
+            {"tool_name": "Bash", "tool_input": {"command": command}}
+        )
+        assert reason and "denied" in reason.lower(), command
 
 
 def test_route_gate_allows_only_scoped_github_operations():
@@ -211,6 +234,17 @@ def test_github_only_policy_blocks_all_local_checks_and_allows_notice_preparatio
     blocked = (
         "TB_LOCAL_CHECKS=1 python3 scripts/local_checks.py run tests",
         "pytest -q tests/test_example.py",
+        "python3 tests/test_example.py",
+        "python3 -m unittest",
+        "python3 -m build",
+        "cargo test",
+        "make test",
+        "python3 scripts/run_tests.py",
+        "docker compose build",
+        "git diff --check",
+        "npm run typecheck",
+        "uv run pytest tests/test_example.py",
+        "cargo fmt --check",
         "ruff check .",
         "npm run build",
         "python3 .claude/skills/quality-engineering/scripts/qe_gate.py",

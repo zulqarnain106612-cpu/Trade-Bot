@@ -182,10 +182,8 @@ class TestTheRegistryHasAPlaceForDefects:
         # stdout line instead -- "Event loop is closed", naming no test. The
         # notice is the only CI channel a session may read, and no test
         # asserted it stays legible when the summary is missing -- test-suite.
-        # REG-0024: local_checks prepare recorded CI display names while run
-        # accepts only alias keys, and as a script it could not import src/,
-        # so the one sanctioned local check could never reproduce a failure.
-        # Each half had a test; none ran prepare and then run -- test-suite.
+        # REG-0024: local checks are GitHub-only; prepare exposes only the
+        # newest bot notice for the exact open PR HEAD, never arbitrary comments.
         # REG-0025: tradebot-term attach closed its socket without waiting for
         # its detach to be answered, so Linux reset the daemon's end and the
         # keystrokes it had sent were dropped unread -- test-suite.

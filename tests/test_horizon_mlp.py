@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import torch
+import pytest
 
 from src.models.horizon_learning import HorizonLearningStore
 from src.models.horizon_mlp import HorizonMLPExpert
@@ -25,7 +26,10 @@ def test_horizon_mlp_trains_persists_and_is_used_by_its_worker(tmp_path: Path) -
     expert = HorizonMLPExpert(names, seed=11, horizon_id=3, instrument_hash=instrument_hash)
     assert isinstance(expert.encoder, MLPHead)
 
-    rows = [{"close_delta": float(index) / 10.0, "volume": float(index % 3)} for index in range(20)]
+    rows = [
+        {"close_delta": float(index) / 10.0, "volume": float(index % 3)}
+        for index in range(20)
+    ]
     for row in rows:
         expert.partial_fit(row, matured_return=row["close_delta"] * 0.02 - 0.01)
 
@@ -362,10 +366,12 @@ def test_forward_prediction_is_joined_to_its_matured_outcome(tmp_path: Path) -> 
         model_version="v1",
     )
     assert (
-        store.record_predictions(event_id="bar-a", symbol="BTC/USDT", predictions=[prediction]) == 1
+        store.record_predictions(event_id="bar-a", symbol="BTC/USDT", predictions=[prediction])
+        == 1
     )
     assert (
-        store.record_predictions(event_id="bar-a", symbol="BTC/USDT", predictions=[prediction]) == 0
+        store.record_predictions(event_id="bar-a", symbol="BTC/USDT", predictions=[prediction])
+        == 0
     )
     store.observe_event(
         event_id="bar-b",
@@ -513,3 +519,114 @@ def test_canonical_horizon_loader_rejects_architecture_without_online_trainer(
     monkeypatch.setattr(intel_module, "_HORIZONS_CONFIG", config)
     with pytest.raises(ValueError, match="without a compatible trainer"):
         intel_module.load_horizon_specs()
+
+
+def test_learning_store_rejects_invalid_features_events_and_out_of_order_source(tmp_path: Path) -> None:
+    store = HorizonLearningStore(tmp_path / "state")
+    with pytest.raises(ValueError, match="feature snapshot cannot be empty"):
+        store.observe_event(
+            event_id="empty", symbol="BTC/USDT", event_ts=1, close=100,
+            features={}, horizons=[], model_root=tmp_path / "models",
+        )
+    with pytest.raises(ValueError, match="invalid feature"):
+        store.observe_event(
+            event_id="nan", symbol="BTC/USDT", event_ts=1, close=100,
+            features={"price": float("nan")}, horizons=[], model_root=tmp_path / "models",
+        )
+    with pytest.raises(ValueError, match="positive close"):
+        store.observe_event(
+            event_id="bad-close", symbol="BTC/USDT", event_ts=2, close=0,
+            features={"price": 1}, horizons=[], model_root=tmp_path / "models",
+        )
+    store.observe_event(
+        event_id="later", symbol="BTC/USDT", event_ts=10, close=100,
+        features={"price": 100}, horizons=[], model_root=tmp_path / "models",
+    )
+    with pytest.raises(ValueError, match="out-of-order"):
+        store.observe_event(
+            event_id="earlier", symbol="BTC/USDT", event_ts=9, close=100,
+            features={"price": 100}, horizons=[], model_root=tmp_path / "models",
+        )
+
+
+def test_prediction_recording_filters_bad_forecasts_and_scores_matured_labels(tmp_path: Path) -> None:
+    store = HorizonLearningStore(tmp_path / "state")
+    root = tmp_path / "models"
+    horizons = [{"id": 0, "seconds": 30, "models": ["mlp"]}]
+    store.observe_event(
+        event_id="e1", symbol="BTC/USDT", event_ts=100, close=100,
+        features={"price": 100, "volume": 1}, horizons=horizons, model_root=root,
+        regime_id=2,
+    )
+    schema = hashlib.sha256(b"price\0volume").hexdigest()
+    bad = [
+        SimpleNamespace(status="FAILED", error=None, magnitude_mu=0.1, prediction_ts=100, horizon_id=0),
+        SimpleNamespace(status="TRAINED", error="bad", magnitude_mu=0.1, prediction_ts=100, horizon_id=0),
+        SimpleNamespace(status="TRAINED", error=None, magnitude_mu=float("nan"), prediction_ts=100, horizon_id=0),
+        SimpleNamespace(status="TRAINED", error=None, magnitude_mu=0.1, prediction_ts=0, horizon_id=0),
+    ]
+    assert store.record_predictions(event_id="e1", symbol="BTC/USDT", predictions=bad) == 0
+    good = SimpleNamespace(
+        status="TRAINED", error=None, magnitude_mu=0.02, prediction_ts=100,
+        horizon_id=0, model_version="incumbent", feature_schema_hash=schema,
+        candidate_magnitude_mu=0.03, candidate_model_version="candidate",
+        candidate_schema_hash=schema,
+    )
+    assert store.record_predictions(event_id="e1", symbol="BTC/USDT", predictions=[good]) == 1
+    assert store.record_predictions(event_id="e1", symbol="BTC/USDT", predictions=[good]) == 0
+    store.observe_event(
+        event_id="e2", symbol="BTC/USDT", event_ts=130, close=102,
+        features={"price": 102, "volume": 1}, horizons=horizons, model_root=root,
+        regime_id=2,
+    )
+    stats = store.stats("BTC/USDT")
+    assert stats[0]["oos_samples"] == 1
+    assert stats[0]["candidate_oos_samples"] == 1
+    assert 2 in stats[0]["oos_by_regime"]
+
+
+def test_deferred_training_rejects_horizons_without_online_mlp(tmp_path: Path) -> None:
+    store = HorizonLearningStore(tmp_path / "state")
+    root = tmp_path / "models"
+    mlp_horizons = [{"id": 0, "seconds": 10, "models": ["mlp"]}]
+    for event_id, ts, close in (("e1", 100, 100), ("e2", 110, 101)):
+        store.observe_event(
+            event_id=event_id, symbol="BTC/USDT", event_ts=ts, close=close,
+            features={"price": close}, horizons=mlp_horizons, model_root=root,
+            defer_training=True,
+        )
+    result = store.train_pending(
+        symbol="BTC/USDT",
+        horizons=[{"id": 0, "seconds": 10, "models": ["cnn"]}],
+        model_root=root,
+    )
+    assert result == {"updated": 0, "rejected": 1, "attempted": 1}
+
+
+def test_horizon_mlp_rejects_duplicate_nonfinite_and_mismatched_features(tmp_path: Path) -> None:
+    expert = HorizonMLPExpert(("price",), horizon_id=0)
+    with pytest.raises(RuntimeError, match="UNTRAINED"):
+        expert.predict({"price": 1})
+    with pytest.raises(ValueError, match="finite numeric"):
+        expert.partial_fit({"price": float("inf")}, 0.1)
+    with pytest.raises(ValueError, match="feature names"):
+        expert.partial_fit({"volume": 1}, 0.1)
+    with pytest.raises(ValueError, match="must be finite"):
+        expert.partial_fit({"price": 1}, float("nan"))
+    assert expert.partial_fit({"price": 1}, 0.1, sample_id="once")
+    assert not expert.partial_fit({"price": 1}, 0.1, sample_id="once")
+    assert expert.predictive_sigma >= 0.0
+    assert expert.oos_directional_accuracy is None or 0.0 <= expert.oos_directional_accuracy <= 1.0
+
+
+def test_horizon_activation_pointer_rejects_escape_and_reports_invalid_pointer(tmp_path: Path) -> None:
+    path = tmp_path / "h1" / "instrument" / "mlp.joblib"
+    path.parent.mkdir(parents=True)
+    pointer = path.with_suffix(path.suffix + ".active.json")
+    pointer.write_text('{"format_version":1,"artifact":"../../outside.joblib"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="escapes"):
+        HorizonMLPExpert.active_artifact_path(path)
+    assert not HorizonMLPExpert.artifact_available(path)
+    pointer.write_text('{"format_version":2,"artifact":"mlp.joblib"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid horizon model activation pointer"):
+        HorizonMLPExpert.activation_pointer(path)

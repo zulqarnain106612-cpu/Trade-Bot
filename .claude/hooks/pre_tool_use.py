@@ -69,14 +69,10 @@ ALLOWED_GITHUB_TOOL_NAMES = frozenset(
         "fetch_file",
         "fetch_blob",
         "fetch_commit",
-        "fetch_pr",
-        "fetch_pr_comments",
         "fetch_pr_file_patch",
         "get_pr_diff",
         "get_pr_info",
         "list_pr_changed_filenames",
-        "list_pull_request_reviews",
-        "list_pull_request_review_threads",
         "create_branch",
         "create_blob",
         "create_tree",
@@ -111,6 +107,9 @@ GITHUB_ALWAYS_DENIED_MARKERS = (
     "download",
     "delete",
     "merge",
+)
+GITHUB_COMMENT_URL_RE = re.compile(
+    r"(?i)(?:api\.github\.com/repos/[^/]+/[^/]+/(?:issues/(?:comments/\d+|\d+/comments)|pulls/\d+/(?:comments|reviews))|api\.github\.com/graphql)"
 )
 GITHUB_CI_URL_RE = re.compile(
     r"(?i)(?:/actions(?:/|\?|$)|/check-runs?(?:/|\?|$)|"
@@ -303,7 +302,7 @@ def _github_fetch_endpoint_allowed(url: str) -> bool:
         return suffix[0] == "compare"
 
     if host == "github.com":
-        return len(parts) >= 4 and parts[2].lower() in {"blob", "tree", "pull", "issues", "commit"}
+        return len(parts) >= 4 and parts[2].lower() in {"blob", "tree", "commit"}
 
     if host == "raw.githubusercontent.com":
         return len(parts) >= 4 and all(parts[:3])
@@ -319,14 +318,26 @@ def _github_route_violation(event: dict[str, Any]) -> str:
             "Use an approved GitHub MCP tool and retry."
         )
     if not tool.startswith(GITHUB_TOOL_PREFIX):
-        redirects = (
-            "Universal GitHub-only boundary: denied; use GitHub MCP only and retry with an approved tool.",
-            "Universal GitHub-only boundary: denied; nope—use GitHub MCP. Or suna, ab tabiyat kesi hy, "
-            "kaho to koi or intizaam kru. Try an approved GitHub MCP tool.",
-            "Universal GitHub-only boundary: denied; this route is closed. Retry with an approved GitHub MCP tool.",
+        # The one non-GitHub route is an exact read-only subscription to the
+        # current-head CI notice. Every other local or external tool stays denied.
+        if tool == "bash":
+            data = _hook_input(event)
+            command = data.get("command", "")
+            prepare = re.compile(
+                r"^\s*(?:cd\s+[^;&|]+\s*&&\s*)?(?:python|python3|\.venv/bin/python|\.venv/bin/python3)\s+scripts/local_checks\.py\s+prepare\s*$",
+                re.IGNORECASE,
+            )
+            if (
+                isinstance(command, str)
+                and prepare.fullmatch(command.strip())
+                and not is_ci_log_access(command)
+                and not _local_check_violation(command, _load_policy())
+            ):
+                return ""
+        return (
+            "Universal GitHub-only boundary: denied. The only local command exception "
+            "is the exact SHA-filtered scripts/local_checks.py prepare subscription."
         )
-        index = sum(ord(char) for char in tool) % len(redirects)
-        return redirects[index]
     tail = tool[len(GITHUB_TOOL_PREFIX) :]
     if tail not in ALLOWED_GITHUB_TOOL_NAMES:
         return (
@@ -342,6 +353,11 @@ def _github_route_violation(event: dict[str, Any]) -> str:
     data = _hook_input(event)
     for key in ("url", "raw_url", "html_url", "repository_url"):
         url = data.get(key)
+        if isinstance(url, str) and GITHUB_COMMENT_URL_RE.search(url):
+            return (
+                "Arbitrary PR-comment and review reads are denied. Use only the "
+                "SHA-filtered scripts/local_checks.py prepare subscription."
+            )
         if isinstance(url, str) and GITHUB_CI_URL_RE.search(url):
             return (
                 "CI logs, jobs, artifacts, checks, caches and statuses are denied "
@@ -417,12 +433,41 @@ def _fail_closed(note: str) -> None:
 sys.path.insert(0, str(PROJECT_DIR))
 
 try:
-    from common.command_schema import CI_LOG_REFUSAL, classify, is_ci_log_access
+    from common.command_schema import (
+        CI_LOG_REFUSAL, LOCAL_CHECK_PATTERNS, classify, is_ci_log_access,
+    )
 except Exception:  # pragma: no cover
     CI_LOG_REFUSAL = (
         "CI run data is not an allowed model-observation channel; use the PR notice comment."
     )
     classify = None  # type: ignore[assignment]
+
+    LOCAL_CHECK_PATTERNS = (
+        r"\bpytest\b",
+        r"\bpython(?:3)?(?:\.\d+)?\s+-m\s+pytest\b",
+        r"\b(?:python(?:3)?(?:\.\d+)?\s+-m\s+)?unittest\b",
+        r"\b(?:tox|nox)\b",
+        r"\\bcoverage(?:\\s+(?:run|combine|report|html|xml|erase))?\\b",
+        r"\\bruff\\s+(?:check|format)\\b",
+        r"\\b(?:mypy|pyright|flake8|pylint|black|isort)\\b",
+        r"\\b(?:bandit|pip-audit|safety|semgrep|trivy)\\b",
+        r"\\b(?:npx\\s+)?(?:vitest|jest|playwright|cypress)\\b",
+        r"\\b(?:npm|pnpm|yarn)\\s+(?:test|run\\s+(?:test|build|lint|check)|build|lint|check)\\b",
+        r"\\b(?:cargo\\s+(?:test|build|clippy)|go\\s+(?:test|build|vet))\\b",
+        r"\\b(?:make|gmake)\\s+(?:test|build|lint|check|ci)\\b",
+        r"\\b(?:cmake\\s+--build|ninja(?:\\s|$))",
+        r"\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+build\\b",
+        r"\\bpre-commit\\s+run\\b",
+        r"\\b(?:actionlint|shellcheck)\\b",
+        r"\\.claude/skills/quality-engineering/scripts/qe_gate\\.py\\b",
+        r"\\bscripts/arch_gate\\.sh\\b",
+        r"\\bpython(?:3)?(?:\\.\\d+)?\\s+(?:-m\\s+)?tests?/[^ \\t;&|]*\\.py\\b",
+        r"\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+tests?(?:\\.|\\s)",
+        r"\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+compileall\\b",
+        r"\\bpython(?:3)?(?:\\.\\d+)?\\s+scripts/generate_(?:math|quality)_docs\\.py\\s+--check\\b",
+        r"\\b(?:bash|sh)\\s+[^;&|]*(?:test|tests|testing|build|lint|check|quality[-_]gate|security[-_]scan)[^;&|]*\\.sh\\b",
+        r"\\bnode\\s+[^;&|]*(?:test|tests|testing|build|lint|check)[^;&|]*\\.(?:js|mjs|cjs|ts)\\b",
+    )
 
     def is_ci_log_access(command: str) -> bool:
         return False
@@ -479,29 +524,23 @@ def _enforcement(policy: dict[str, Any]) -> str:
 
 def _local_check_violation(command: str, policy: dict[str, Any]) -> str:
     cfg = policy.get("local_checks", {})
-    if not cfg.get("enabled", False):
-        return ""
     wrapper = str(cfg.get("wrapper", "scripts/local_checks.py"))
-    run_marker = str(cfg.get("run_marker", "TB_LOCAL_CHECKS=1"))
-    github_only = bool(cfg.get("github_only", False))
-    if github_only and wrapper in command and re.search(r"\brun\b", command):
-        return "Local check execution is disabled by repository policy; push the change and use GitHub Actions as the sole test/build/check execution path."
-    if github_only:
-        for pattern in cfg.get("blocked_patterns", []):
-            if re.search(pattern, command, re.IGNORECASE):
-                return "Local test/build/check execution is disabled by repository policy; push the change and use GitHub Actions as the sole execution path."
-        return ""
     if wrapper in command:
-        if re.search(r"\bprepare\b", command) or run_marker in command:
-            return ""
-        return f"Local CI checks must be invoked with the per-command marker {run_marker}."
-    for pattern in cfg.get("blocked_patterns", []):
+        parts = [part.strip() for part in re.split(r"&&|;|\|\|", command) if part.strip()]
+        allowed = (
+            len(parts) in {1, 2}
+            and all(part.startswith("cd ") for part in parts[:-1])
+            and re.fullmatch(
+                r"(?:python|python3|\.venv/bin/python|\.venv/bin/python3)\s+scripts/local_checks\.py\s+prepare",
+                parts[-1],
+            ) is not None
+        )
+        if not allowed:
+            return "Local check execution is disabled by repository policy; only the exact local_checks.py prepare operation may read the current SHA-bound PR notice."
+    patterns = set(LOCAL_CHECK_PATTERNS) | set(cfg.get("blocked_patterns", []))
+    for pattern in patterns:
         if re.search(pattern, command, re.IGNORECASE):
-            return (
-                "Direct local test/check execution is disabled. Use "
-                f"{run_marker} python3 {wrapper} run <failed-check> instead; "
-                "the wrapper permits only checks that were non-green on the last completed PR run."
-            )
+            return "Local test/build/check execution is disabled by repository policy; push the change and use GitHub Actions as the sole execution path."
     return ""
 
 
@@ -696,7 +735,13 @@ def main() -> None:
     reason = " ".join(dict.fromkeys(problems))
     hard = any(
         marker in reason
-        for marker in ("Protected observation-boundary", "Read operations", CI_LOG_REFUSAL)
+        for marker in (
+            "Protected observation-boundary",
+            "Read operations",
+            CI_LOG_REFUSAL,
+            "Local check execution is disabled by repository policy",
+            "Local test/build/check execution is disabled by repository policy",
+        )
     )
     if _enforcement(policy) == "warn" and not hard:
         print(f"[pre_tool_use] policy warning: {reason}", file=sys.stderr)
