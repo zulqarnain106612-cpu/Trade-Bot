@@ -61,8 +61,6 @@ class TestIntelligenceAdapter:
         storage.store_intelligence_features.assert_not_called()
 
     def test_on_bar_unsupported_signal_feature_contract_skips_storage(self) -> None:
-        from src.intelligence.intelligence_adapter import IntelligenceAdapter
-
         signal = MagicMock()
         signal.direction = "not-a-number"
         signal.size_pct = 0.02

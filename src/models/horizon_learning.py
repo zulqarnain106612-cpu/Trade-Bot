@@ -660,8 +660,8 @@ class HorizonLearningStore:
             "candidate_rmse": None if candidate_mse is None else math.sqrt(float(candidate_mse)),
             "last_matured_at": latest,
             "feature_schema_hash": schema_min if schema_min == schema_max else None,
-            "candidate_model_version": version_min if version_min == version_max else None,
-            "incumbent_model_version": incumbent_min if incumbent_min == incumbent_max else None,
+            "candidate_model_version": candidate_version,
+            "incumbent_model_version": incumbent_version,
         }
         metrics_json = json.dumps(evaluation, sort_keys=True, separators=(",", ":"))
         evaluation_id = hashlib.sha256(
