@@ -242,16 +242,16 @@ jobs:
                 if (/lint/i.test(job.name)) {
                   const diagnostics = [];
                   for (let i = 0; i < raw.length; i++) {
-                    const match = raw[i].match(/^([A-Z]\\d{3,4})\\s+(.*)$/);
+                    const match = raw[i].match(/^([A-Z]\d{3,4})\s+(.*)$/);
                     if (!match) continue;
                     const location = raw.slice(i + 1, i + 5)
-                      .map(line => line.match(/^-->\\s+(.+)$/))
+                      .map(line => line.match(/^-->\s+(.+)$/))
                       .find(Boolean);
                     diagnostics.push((location ? location[1] + " — " : "") +
                       match[1] + " " + match[2]);
                   }
                   if (diagnostics.length) {
-                    const count = raw.find(line => /^Found \\d+ errors?\\.?$/.test(line));
+                    const count = raw.find(line => /^Found \d+ errors?\.?$/.test(line));
                     return [...diagnostics.slice(0, count ? MAX_MSG_LINES - 1 : MAX_MSG_LINES),
                       ...(count ? [count] : [])];
                   }
