@@ -50,9 +50,10 @@ permissions:
   pull-requests: read
 
 concurrency:
-  # One notifier per exact PR head and event type. A newer same-event lifecycle
-  # event supersedes a stale watcher without letting workflow_run cancel the PR-head watcher.
-  group: ci-notice-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}-${{ github.event_name }}
+  # One watcher per PR branch, independent of event source. A new push, a
+  # workflow result, or a merge event supersedes stale work and cannot race
+  # another watcher while updating the single mutable PR notice.
+  group: ci-notice-${{ github.event.workflow_run.head_branch || github.event.pull_request.head.ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
