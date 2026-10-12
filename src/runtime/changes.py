@@ -572,15 +572,9 @@ class ChangeManager:
                     "horizon model lifecycle is unavailable"
                 )
             result = self.approve(change_id, actor)
-            component = self._registry.find(result.request.component_id)
-            if component is None:
-                raise ChangeError(f"unknown component {result.request.component_id}")
-            is_horizon_model = component.version.configuration.get("horizon_id") is not None
             if is_horizon_model and result.classification is ChangeClass.SHADOW_REQUIRED:
-                # The adapter is captured before approval, so a field change
-                # cannot substitute a different adapter during this operation.
-                if horizon_lifecycle is None:
-                    raise ChangeError("horizon lifecycle adapter changed during approval")
+                # The adapter was checked and captured before approval.
+                # ChangeManager classification is unchanged by approve().
                 detail = horizon_lifecycle.record_shadow_stage(component)
                 self.record_stage(
                     change_id,
@@ -614,8 +608,7 @@ class ChangeManager:
                 else self.promote(change_id, actor)
             )
             if result.status is ChangeStatus.PROMOTED and is_horizon_model:
-                if horizon_lifecycle is None:
-                    raise ChangeError("horizon lifecycle adapter changed during promotion")
+                # The adapter was checked before promote() could mutate state.
                 horizon_lifecycle.complete_promotion(component)
             return result
 

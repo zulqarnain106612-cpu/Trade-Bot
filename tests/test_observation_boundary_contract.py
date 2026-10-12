@@ -203,6 +203,24 @@ def test_route_gate_denies_generic_github_fetch_of_ci_data():
     )
     assert reason and "CI" in reason
 
+def test_github_only_policy_blocks_all_local_checks_and_allows_notice_preparation():
+    pre = load_module(PRE, "pre_boundary_github_only_checks")
+    policy = json.loads((ROOT / "config" / "command_policy.json").read_text(encoding="utf-8"))
+
+    blocked = (
+        "TB_LOCAL_CHECKS=1 python3 scripts/local_checks.py run tests",
+        "pytest -q tests/test_example.py",
+        "ruff check .",
+        "npm run build",
+        "python3 .claude/skills/quality-engineering/scripts/qe_gate.py",
+    )
+    for command in blocked:
+        reason = pre._local_check_violation(command, policy)
+        assert reason and "disabled" in reason.lower(), command
+
+    assert pre._local_check_violation("python3 scripts/local_checks.py prepare", policy) == ""
+    assert pre._local_check_violation("git status --short", policy) == ""
+
 
 def test_config_carries_single_universal_policy():
     config = json.loads(CONFIG.read_text())
