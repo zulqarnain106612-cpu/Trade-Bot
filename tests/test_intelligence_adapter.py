@@ -60,6 +60,23 @@ class TestIntelligenceAdapter:
         self._run(adapter.on_bar("BTC/USDT", "1h", 1000, {"close": 50000.0, "volume": 10.0}))
         storage.store_intelligence_features.assert_not_called()
 
+    def test_on_bar_unsupported_signal_feature_contract_skips_storage(self) -> None:
+        from src.intelligence.intelligence_adapter import IntelligenceAdapter
+
+        signal = MagicMock()
+        signal.direction = "not-a-number"
+        signal.size_pct = 0.02
+        signal.confidence = 0.75
+        signal.horizon_idx = 2
+        signal.ecc_anomaly = 0.3
+        signal.conflict = False
+        signal.regime_id = 1
+        signal.meta = {}
+
+        adapter, _intel, storage = self._make_adapter(signal=signal)
+        self._run(adapter.on_bar("BTC/USDT", "1h", 1000, {"close": 50000.0, "volume": 10.0}))
+        storage.store_intelligence_features.assert_not_called()
+
     def test_on_bar_storage_exception_does_not_crash(self) -> None:
         from src.intel import IntelSignal
 
