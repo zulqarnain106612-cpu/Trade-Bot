@@ -480,12 +480,13 @@ SOPR, NVT and MVRV are either genuinely computed or NaN; no on-chain metric retu
 A model artifact records model id, training-data hash, feature-schema hash, code commit, hyperparameters, seed, library versions, metrics, validation methodology and artifact hash.
 
 - **If violated:** A model in production cannot be traced to the data or code that made it.
-- **Owned by:** `src/models/provenance.py`, `src/models/trainer.py`
+- **Owned by:** `src/models/provenance.py`, `src/models/trainer.py`, `src/runtime/horizon_models.py`
 - **Verification:**
   - `tests/models/test_model_provenance.py` (model) — All ten fields, with each hash asserted to change when its subject changes and not to change when something irrelevant does.
   - `tests/models/test_model_artifacts.py` (model) — The manifest written by save() carries a complete record, and the legacy {file, sha256} keys still verify.
   - `tests/test_model_registry.py` (model)
   - `tests/test_horizon_mlp.py` (model) — The active artifact pointer resolves to a checksummed immutable bundle containing the trained horizon MLP and complete provenance.
+  - `tests/test_horizon_runtime.py` (model) — The runtime adapter exposes only a current passing shadow candidate and keeps activation, rollback, and promotion behind the existing human-approved lifecycle.
 
 #### `MODL-002` — A model never decides to bypass the risk gate
 
@@ -1856,18 +1857,18 @@ The production workflow can return to the previous trusted artifact, and a drill
 - **Verification:**
   - `tests/production/test_production_gate.py` (recovery) — A rollback job exists, is exercised by the drill input, verifies the running version changed, and is mutually exclusive with promotion.
 
-#### `REG-0018` — A cancelled job is not counted as a failing job in the CI notice
+#### `REG-0018` — the CI notice reports one actionable non-green check and cancels sibling workflows
 
 **VERIFIED** · medium · regression · source: OPS-2026-09-30
 
-ci-failure-notify.yml partitions jobs whose conclusion is 'cancelled' out of the not-green count and names them once as superseded. A commit with cancellations and no real failures reports 'no verdict', never 'all checks green'. The supersession and empty-artifact epilogues are classified as noise.
+The CI notice workflow observes requested, in-progress, and completed runs. Any job conclusion other than success, including failure, neutral, or skipped, is actionable. It cancels other in-flight watched workflows and updates one SHA-bound PR comment with one actionable check. A success comment is emitted only after every watched workflow has been observed and completed green; stale runs cannot overwrite a newer PR head; merge changes the same comment to merged.
 
-- **If violated:** This workflow is the only channel the project permits for CI failure information, so there is no fallback to reading logs and its precision is load-bearing. Counting cancellations as failures produced a notice reading '11 not green' for two real failures and nine runs cancelled by their own successor, quoting 'Canceling since a higher priority waiting request' and 'No files were found with the provided path: .coverage.shard-2' as if they were failure messages. A reader who learns to skim the notice has no second source. The opposite error is worse: dropping cancellations from the count without guarding the green branch would report a commit that proved nothing as passing.
-- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **If violated:** The previous notice consolidated multiple failed jobs and cancellation fallout into a large comment. Agents had to sift through irrelevant failures, and cancellation from a superseded commit could overwrite the current PR state. The fail-fast notice surfaces one actionable check, cancels sibling runs, and refuses to overwrite a newer head's comment.
+- **Owned by:** `.github/workflows/ci-failure-notify.yml`, `scripts/local_checks.py`
 - **Verification:**
   - `tests/test_ci_notice_supersession.py` (regression)
 
-> The notice workflow's classification had no test, so its only reader was a human skimming the comment it produced -- and the over-report is invisible to anyone who does not already know which jobs were superseded. layer: test-suite
+> One mutable comment is the subscription surface. Its hidden SHA marker binds the notice to the current PR head; failure comments name one actionable check, success is reported only after all watched workflows finish green, and merge updates the same comment.
 
 #### `REG-0020` — The CI notice names the error of a failure no pattern recognises
 
@@ -1908,18 +1909,21 @@ When a test worker dies, the CI notice reports the line that names the node id i
 
 > The crash lines rank above the summary line deliberately. When a run produces both, the crash is the one that explains the rest, and the summary is still reachable from the run itself. layer: test-suite
 
-#### `REG-0024` — a failed check recorded by local_checks prepare can be run by local_checks run
+#### `REG-0024` — local check execution is disabled; prepare exposes only the current HEAD's CI notice
 
 **VERIFIED** · medium · regression · source: OPS-2026-10-10
 
-local_checks.py prepare records each non-green check under the key that `run` accepts (lint, tests, ci-gate, ...), never the CI display name; the script imports the repository package when it is run as a script; and `run lint` checks every Python file the branch changes relative to main with the ruff exclusions CI applies, so the documented prepare-then-run sequence reproduces a recorded failure instead of refusing it or passing over it.
+GitHub Actions is the sole execution path for tests, builds, lint, security scans, workflow validation, registry/schema checks, generated-document checks, and quality gates. The local_checks.py run route refuses execution even for a recorded failure. The PostToolUse quality hook is a silent compatibility stub and invokes no local gate. The prepare route removes stale plan state first, requires an open PR whose head SHA exactly matches local HEAD, and exposes only the newest GitHub Actions bot comment with the hidden SHA marker for that HEAD; arbitrary PR comments and stale notices are not returned to the agent.
 
-- **If violated:** prepare stored 'Python tests (shard 2/6)' while `run` only accepts 'tests', so every recorded failure was refused as 'not non-green in the recorded PR run'; and run as a script, sys.path[0] is scripts/, so prepare's deferred `from src.agent_control ...` import raised ModuleNotFoundError before writing any plan. On PR 435 both held at once. Once those were fixed, `run lint` still formatted only the files changed since the failed commit, while CI runs `ruff format --check .`: three files the branch had committed earlier, never checked because CI's format step runs only after a passing lint step, passed locally and failed the next CI run. The directives make this wrapper the only sanctioned local check, and direct pytest and ruff are refused, so a fix could only be validated by another full CI round trip.
-- **Owned by:** `scripts/local_checks.py`
+- **If violated:** The previous policy allowed individual local test/check execution through a wrapper, despite the repository execution invariant requiring GitHub Actions as the only path. Direct PR comment reads also exposed arbitrary comments and stale CI notices. The route is now closed at the policy, hook, script, and shared shell executor layers.
+- **Owned by:** `scripts/local_checks.py`, `.claude/hooks/pre_tool_use.py`, `config/command_policy.json`, `common/command_schema.py`, `common/shell_exec.py`, `.claude/hooks/quality_gate.py`, `tests/quality/test_qe_skill.py`
 - **Verification:**
   - `tests/test_local_checks.py` (unit)
+  - `tests/test_pre_tool_use_hook.py` (unit)
+  - `tests/test_ci_log_access.py` (unit)
+  - `tests/test_observation_boundary_contract.py` (regression)
 
-> Each half had a test, and the two tests encoded the two incompatible forms: the prepare test asserted display names and the run test planted alias keys. Nothing exercised prepare followed by run. layer: test-suite
+> Prepare is a read-only, SHA-bound notice subscription. The run subcommand is disabled in the CLI and function; tests, builds, lint, security scans, and quality gates are validated only by GitHub Actions.
 
 ## Governance
 

@@ -41,34 +41,44 @@ on:
       - "Security"
     types: [requested, in_progress, completed]
   pull_request:
-    types: [closed]
+    types: [opened, synchronize, reopened, closed]
 
 permissions:
   contents: read
-  actions: write
+  actions: read
   checks: read
-  pull-requests: write
+  pull-requests: read
 
 concurrency:
-  # One serialized notifier per PR head. Never cancel an active notice write;
-  # a newer queued event replaces an older queued event, and each execution
-  # re-reads the latest watched workflow state before updating the one comment.
-  group: ci-notice-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}
+  # One notifier per exact PR head and event type. A newer same-event lifecycle
+  # event supersedes a stale watcher without letting workflow_run cancel the PR-head watcher.
+  group: ci-notice-${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha || github.sha }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
   notify:
-    if: github.event_name == 'workflow_run'
+    if: github.event_name == 'workflow_run' || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
     # All workflow_run activity types are inspected. A workflow can conclude
     # success while a required job inside it was skipped or neutral.
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: write
+      checks: read
+      pull-requests: write
     steps:
       - name: Poll CI and post the first non-green check for this PR head
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
-            const trigger = context.payload.workflow_run;
+            const event = context.payload;
+            const trigger = event.workflow_run || {
+              head_sha: event.pull_request.head.sha,
+              head_branch: event.pull_request.head.ref,
+              id: null,
+              pull_requests: [{ number: event.pull_request.number }],
+            };
             const headSha = trigger.head_sha;
 
             // Workflows that must have reported before a verdict is posted.
@@ -285,9 +295,9 @@ jobs:
             }
 
             failing.sort((a, b) =>
-              Number(b.run_id === trigger.id) - Number(a.run_id === trigger.id) ||
+              (severity[a.job.conclusion] ?? 99) - (severity[b.job.conclusion] ?? 99) ||
               Number(isSummaryGate(a.job)) - Number(isSummaryGate(b.job)) ||
-              (severity[a.job.conclusion] ?? 99) - (severity[b.job.conclusion] ?? 99));
+              Number(b.run_id === trigger.id) - Number(a.run_id === trigger.id));
             const actionable = failing;
             if (actionable.length > 0) {
               for (const run of pending) {

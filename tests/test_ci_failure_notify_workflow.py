@@ -65,6 +65,15 @@ class TestTrigger:
         missing = gating - watched
         assert not missing, f"pull-request workflows with no failure notice: {sorted(missing)}"
 
+    def test_pull_request_head_events_start_the_live_watcher(self, spec):
+        triggers = spec.get("on") or spec.get(True)
+        assert triggers["pull_request"]["types"] == ["opened", "synchronize", "reopened", "closed"]
+        assert "github.event.action != 'closed'" in spec["jobs"]["notify"]["if"]
+        assert "event.pull_request.head.sha" in "\n".join(
+            step.get("with", {}).get("script", "")
+            for step in spec["jobs"]["notify"]["steps"]
+        )
+
     def test_every_completed_run_is_inspected(self, spec):
         """
         The notifier handles workflow_run events only. It inspects jobs because
@@ -153,9 +162,12 @@ class TestPermissions:
 
     def test_it_can_comment_but_not_write_code(self, spec):
         perms = spec["permissions"]
-        assert perms["pull-requests"] == "write"
+        job_perms = spec["jobs"]["notify"]["permissions"]
+        assert perms["pull-requests"] == "read"
         assert perms["contents"] == "read"
-        assert perms["actions"] == "write"
+        assert perms["actions"] == "read"
+        assert job_perms["pull-requests"] == "write"
+        assert job_perms["actions"] == "write"
 
 
 class TestCommentBody:
