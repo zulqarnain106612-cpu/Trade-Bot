@@ -1868,7 +1868,7 @@ The CI notice workflow observes requested, in-progress, and completed runs. Any 
 - **Verification:**
   - `tests/test_ci_notice_supersession.py` (regression)
 
-> One mutable comment is the subscription surface. Its hidden SHA marker binds the notice to the current PR head; failure comments name one actionable check, success is reported only after all watched workflows finish green, and merge updates the same comment.
+> One mutable comment is the subscription surface. Its hidden SHA marker binds the notice to the current PR head; failure comments name one actionable check, success is reported only after all watched workflows finish green, and merge updates the same comment. layer: test-suite
 
 #### `REG-0020` — The CI notice names the error of a failure no pattern recognises
 
@@ -1923,7 +1923,7 @@ GitHub Actions is the sole execution path for tests, builds, lint, security scan
   - `tests/test_ci_log_access.py` (unit)
   - `tests/test_observation_boundary_contract.py` (regression)
 
-> Prepare is a read-only, SHA-bound notice subscription. The run subcommand is disabled in the CLI and function; tests, builds, lint, security scans, and quality gates are validated only by GitHub Actions.
+> Prepare is a read-only, SHA-bound notice subscription. The run subcommand is disabled in the CLI and function; tests, builds, lint, security scans, and quality gates are validated only by GitHub Actions. layer: test-suite
 
 ## Governance
 
