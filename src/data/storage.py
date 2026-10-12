@@ -224,7 +224,7 @@ ALTER TABLE intelligence_features_history ADD COLUMN freshness_seconds_v6 TEXT;"
     ),
 ]
 
-_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 9
+_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 10
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)

@@ -875,17 +875,20 @@ class TestSchemaMigrations:
             await backend.close()
 
     @pytest.mark.asyncio
-    async def test_migration_v6_adds_ensemble_columns(self, tmp_path: pathlib.Path) -> None:
-        """Simulate a v5 DB (no ensemble_point_estimate/ensemble_blend_weight
-        columns) being migrated to v6 (the ensemble-blend harness columns)."""
+    async def test_migration_v5_adds_ensemble_columns(self, tmp_path: pathlib.Path) -> None:
+        """Upgrade a valid v5 schema through current migrations, including ensemble columns."""
         import aiosqlite
 
-        from src.data.storage import _DDL, _SCHEMA_VERSION, StorageBackend
+        from src.data.storage import _DDL, _MIGRATIONS, _SCHEMA_VERSION, StorageBackend
 
-        db_path = tmp_path / "migrate_v6_test.db"
+        db_path = tmp_path / "migrate_v5_test.db"
         async with aiosqlite.connect(db_path) as conn:
             await conn.executescript(_DDL)
-            await conn.execute("PRAGMA user_version = 5")
+            # A v5 database already contains each schema object from migrations 1-5.
+            for version, _description, sql in _MIGRATIONS[:5]:
+                if sql.strip():
+                    await conn.executescript(sql)
+                await conn.execute(f"PRAGMA user_version = {version}")
             await conn.commit()
 
             row = await conn.execute("PRAGMA table_info(trades)")

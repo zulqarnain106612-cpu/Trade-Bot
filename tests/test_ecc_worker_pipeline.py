@@ -69,15 +69,21 @@ def _cycle(
 
 
 class TestFeatureContract:
-    def test_result_always_carries_every_declared_key(self) -> None:
-        assert set(_cycle()) == set(_ECC_NEUTRAL_FEATURES)
+    def test_result_always_carries_every_declared_key_and_freshness_metadata(self) -> None:
+        result = _cycle()
+        assert set(_ECC_NEUTRAL_FEATURES) <= set(result)
+        assert result["_observed_at"] > 0
+        assert set(result["_validity"]) == {"cluster", "zksnark", "utxo", "taproot", "ecdsa"}
 
-    def test_total_failure_still_returns_the_neutral_set(self) -> None:
+    def test_total_failure_preserves_neutral_values_and_provider_validity(self) -> None:
         result = _cycle(
             clusterer=MagicMock(**{"run.side_effect": RuntimeError("node down")}),
             zk_detector=MagicMock(**{"detect_mixing_flows.side_effect": RuntimeError("eth down")}),
         )
-        assert result == _ECC_NEUTRAL_FEATURES
+        assert {key: result[key] for key in _ECC_NEUTRAL_FEATURES} == _ECC_NEUTRAL_FEATURES
+        assert result["_observed_at"] > 0
+        assert result["_validity"]["cluster"] is False
+        assert result["_validity"]["zksnark"] is False
 
     def test_cluster_and_zksnark_features_are_reported(self) -> None:
         result = _cycle()

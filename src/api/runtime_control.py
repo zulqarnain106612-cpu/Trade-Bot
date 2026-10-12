@@ -35,17 +35,16 @@ from src.runtime.adaptive import SYSTEM_EVALUATOR
 from src.runtime.changes import (
     ROLE_APPROVER,
     ROLE_REQUESTER,
-    STAGE_FOR,
     Actor,
     ActorKind,
     ChangeError,
     ChangeRecord,
     ChangeRequest,
     ChangeStatus,
+    RuntimeLifecycleUnavailableError,
     UnauthorizedError,
 )
 from src.runtime.contracts import (
-    ChangeClass,
     ComponentVersion,
     LifecycleAction,
     LifecycleState,
@@ -206,59 +205,25 @@ def decide(
     platform: RuntimePlatform, change_id: str, verb: str, body: RuntimeDecisionBody
 ) -> dict[str, Any]:
     actor = actor_for(body)
+    if verb not in {"approve", "execute", "promote", "rollback", "cancel"}:
+        raise RuntimeControlError(404, f"unknown decision {verb!r}")
     changes = platform.changes
     try:
-        if verb == "approve":
-            result = changes.approve(change_id, actor)
-            # A staged class waits for its shadow/canary result; anything
-            # else approved by a human runs now.
-            component = platform.registry.get(result.request.component_id)
-            is_horizon_model = component.version.configuration.get("horizon_id") is not None
-            if is_horizon_model and result.classification is ChangeClass.SHADOW_REQUIRED:
-                if platform.horizon_models is None:
-                    raise RuntimeControlError(503, "horizon model lifecycle is unavailable")
-                detail = platform.horizon_models.record_shadow_stage(component)
-                changes.record_stage(
-                    change_id,
-                    stage="shadow",
-                    passed=True,
-                    detail=detail,
-                    actor=SYSTEM_EVALUATOR,
-                )
-                result = changes.execute(change_id, SYSTEM_EVALUATOR)
-            elif result.classification not in STAGE_FOR:
-                result = changes.execute(change_id, actor)
-        elif verb == "execute":
-            result = changes.execute(change_id, actor)
-        elif verb == "promote":
-            current = changes.get(change_id)
-            component = platform.registry.get(current.request.component_id)
-            horizon_component = component.version.configuration.get("horizon_id") is not None
-            result = (
-                current
-                if horizon_component and current.status is ChangeStatus.PROMOTED
-                else changes.promote(change_id, actor)
-            )
-            component = platform.registry.get(result.request.component_id)
-            if (
-                result.status is ChangeStatus.PROMOTED
-                and component.version.configuration.get("horizon_id") is not None
-            ):
-                if platform.horizon_models is None:
-                    raise RuntimeControlError(503, "horizon model lifecycle is unavailable")
-                platform.horizon_models.complete_promotion(component)
-        elif verb == "rollback":
-            result = changes.rollback(change_id, actor, body.reason or "operator rollback")
-        elif verb == "cancel":
-            result = changes.cancel(change_id, actor)
-        else:
-            raise RuntimeControlError(404, f"unknown decision {verb!r}")
+        result = changes.decide_lifecycle(
+            change_id,
+            verb,
+            actor,
+            reason=body.reason or "operator rollback",
+            system_actor=SYSTEM_EVALUATOR,
+        )
+    except RuntimeLifecycleUnavailableError as exc:
+        raise RuntimeControlError(503, str(exc)) from exc
     except UnauthorizedError as exc:
         raise RuntimeControlError(403, str(exc)) from exc
     except ActionRefusedError as exc:
         raise RuntimeControlError(409, str(exc)) from exc
     except ChangeError as exc:
-        status = 404 if str(exc).startswith("unknown change") else 409
+        status = 404 if str(exc).startswith(("unknown change", "unknown component")) else 409
         raise RuntimeControlError(status, str(exc)) from exc
     return result.to_dict()
 

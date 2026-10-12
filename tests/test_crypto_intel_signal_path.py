@@ -95,15 +95,20 @@ def _ohlcv() -> dict:
 
 
 def _deliver_results(intel, results: list[WorkerResult]) -> None:
-    def drain(_timeout):
-        if not results:
-            return None
-        result = results.pop(0)
-        task = next(
-            task for task in intel._orchestrator.submitted if task.horizon_id == result.horizon_id
-        )
-        result.task_id = task.task_id
-        return result
+    def drain(timeout: float = 0.0):
+        del timeout
+        # Source-cadence validation may deliberately avoid submitting a horizon
+        # whose target is shorter than the configured market-data interval.
+        # Return a result only for a task that production actually submitted.
+        submitted = {task.horizon_id: task for task in intel._orchestrator.submitted}
+        for index, result in enumerate(results):
+            task = submitted.get(result.horizon_id)
+            if task is None:
+                continue
+            del results[index]
+            result.task_id = task.task_id
+            return result
+        return None
 
     intel._drain_one = drain
 

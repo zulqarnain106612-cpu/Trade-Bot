@@ -121,7 +121,12 @@ def build_runtime_platform(
     audit_persister = None if audit_backend is None else AuditPersister(audit_backend)
     if audit_persister is not None:
         sinks.append(audit_persister.enqueue)
-    changes = ChangeManager(registry, supervisors, audit_sinks=sinks)
+    changes = ChangeManager(
+        registry,
+        supervisors,
+        audit_sinks=sinks,
+        horizon_models=horizon_models,
+    )
     persister = None
     if desired_backend is not None:
         persister = DesiredStatePersister(desired_backend)

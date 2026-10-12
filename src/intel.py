@@ -23,13 +23,13 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import structlog
 import yaml
 
-if TYPE_CHECKING:
-    from src.workers.orchestrator import WorkerResult
+from src.models.horizon_config import load_horizon_specs as _load_horizon_specs
+from src.workers.orchestrator import WorkerResult
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -87,44 +87,8 @@ class IntelSignal:
 
 
 def load_horizon_specs() -> dict[str, Any]:
-    """
-    Horizon specs from horizons.yaml, keyed h1..hN.
-
-    Module level rather than a method: the API reports the term structure
-    even when the intel engine is switched off, and it should not have to
-    construct a CryptoIntelligence (which spawns worker processes) just to
-    read a config file.
-    """
-    try:
-        with open(_HORIZONS_CONFIG, encoding="utf-8") as fh:
-            specs = (yaml.safe_load(fh) or {}).get("horizons") or {}
-        seen_ids: set[int] = set()
-        from src.models.architectures import validate_horizon_architectures
-
-        validate_horizon_architectures({"horizons": specs})
-        for key, spec in specs.items():
-            if not isinstance(spec, dict):
-                raise ValueError(f"horizon {key!r} must be a mapping")
-            horizon_id = int(spec["id"])
-            duration = int(spec["seconds"])
-            if horizon_id < 0 or horizon_id in seen_ids:
-                raise ValueError(f"horizon {key!r} has a negative or duplicate id")
-            if duration <= 0:
-                raise ValueError(f"horizon {key!r} must have a positive duration")
-            if not spec.get("models"):
-                raise ValueError(f"horizon {key!r} must declare at least one model")
-            model_names = [str(name).strip().lower() for name in spec["models"]]
-            unsupported = sorted(set(model_names) - {"mlp"})
-            if unsupported or model_names.count("mlp") != 1:
-                raise ValueError(
-                    f"horizon {key!r} uses architectures without a compatible trainer: "
-                    f"{unsupported or model_names}"
-                )
-            seen_ids.add(horizon_id)
-        return specs
-    except FileNotFoundError:
-        log.warning("horizons_config_not_found", path=str(_HORIZONS_CONFIG))
-        return {}
+    """Public compatibility wrapper for the canonical horizon configuration loader."""
+    return _load_horizon_specs(_HORIZONS_CONFIG)
 
 
 def horizon_entry(key: str, spec: dict[str, Any] | None) -> dict[str, Any]:

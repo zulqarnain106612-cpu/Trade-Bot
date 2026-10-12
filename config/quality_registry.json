@@ -5522,6 +5522,7 @@
           "test_type": "unit"
         }
       ],
+      "notes": "layer: test-suite",
       "planned_in": "PR-013"
     }
   ]

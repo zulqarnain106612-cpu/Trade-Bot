@@ -226,20 +226,25 @@ class HorizonLearningStore:
             if not inserted:
                 return {"duplicate": 1, "matured": 0, "updated": 0, "rejected": 0}
 
-            pending_filter = (
-                "outcome IS NULL AND due_ts<=? AND source_timeframe IS ?"
-                if defer_training
-                else "((outcome IS NULL AND due_ts<=? AND source_timeframe IS ?) OR "
-                "(outcome IS NOT NULL AND trained=0 AND source_timeframe IS ?))"
-            )
-            pending = db.execute(
-                f"""SELECT sample_id, horizon_id, entry_price, features_json, schema_hash, outcome
-                    FROM horizon_samples WHERE symbol=? AND {pending_filter}
-                    ORDER BY due_ts, event_ts""",
-                (symbol, ts, source_timeframe)
-                if defer_training
-                else (symbol, ts, source_timeframe, source_timeframe),
-            ).fetchall()
+            if defer_training:
+                pending = db.execute(
+                    """SELECT sample_id, horizon_id, entry_price, features_json, schema_hash, outcome
+                       FROM horizon_samples
+                       WHERE symbol=? AND outcome IS NULL AND due_ts<=? AND source_timeframe IS ?
+                       ORDER BY due_ts, event_ts""",
+                    (symbol, ts, source_timeframe),
+                ).fetchall()
+            else:
+                pending = db.execute(
+                    """SELECT sample_id, horizon_id, entry_price, features_json, schema_hash, outcome
+                       FROM horizon_samples
+                       WHERE symbol=? AND (
+                           (outcome IS NULL AND due_ts<=? AND source_timeframe IS ?) OR
+                           (outcome IS NOT NULL AND trained=0 AND source_timeframe IS ?)
+                       )
+                       ORDER BY due_ts, event_ts""",
+                    (symbol, ts, source_timeframe, source_timeframe),
+                ).fetchall()
             for sample_id, horizon_id, entry, raw_features, old_schema, stored_outcome in pending:
                 outcome = (
                     float(stored_outcome)
@@ -696,14 +701,21 @@ class HorizonLearningStore:
     def latest_candidate_evaluation(
         self, *, symbol: str, horizon_id: int, source_timeframe: str
     ) -> dict[str, Any] | None:
+        """Return the latest persisted evaluation with its durable identity."""
         with self._connect() as db:
             row = db.execute(
-                """SELECT metrics_json FROM horizon_candidate_evaluations
+                """SELECT evaluation_id, evaluated_at, metrics_json
+                   FROM horizon_candidate_evaluations
                    WHERE symbol=? AND horizon_id=? AND source_timeframe=?
-                   ORDER BY evaluated_at DESC LIMIT 1""",
+                   ORDER BY evaluated_at DESC, rowid DESC LIMIT 1""",
                 (symbol, horizon_id, source_timeframe),
             ).fetchone()
-        return None if row is None else json.loads(str(row[0]))
+        if row is None:
+            return None
+        evaluation = json.loads(str(row[2]))
+        evaluation["evaluation_id"] = str(row[0])
+        evaluation["evaluated_at"] = float(row[1])
+        return evaluation
 
     def activate_candidate(
         self,
@@ -912,7 +924,8 @@ class HorizonLearningStore:
             regime_query += " GROUP BY horizon_id, regime_id"
             regime_rows = db.execute(regime_query, regime_params).fetchall()
             latest_rows = []
-            for (horizon_id,) in rows:
+            for row in rows:
+                horizon_id = row[0]
                 latest_query = """SELECT matured_at, outcome FROM horizon_samples
                                   WHERE horizon_id=? AND matured_at IS NOT NULL
                                     AND source_timeframe IS ?"""

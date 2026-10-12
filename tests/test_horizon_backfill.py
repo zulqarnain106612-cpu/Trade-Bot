@@ -1,3 +1,9 @@
+"""Causal and isolated historical warm-start regression tests.
+
+Decides:
+  - DATA-006 — historical horizon warm-start is causal and leaves source storage unchanged
+"""
+
 from __future__ import annotations
 
 import sqlite3

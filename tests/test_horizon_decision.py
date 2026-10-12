@@ -1,3 +1,9 @@
+"""Horizon fusion and fail-closed decision contract tests.
+
+Decides:
+  - REG-0030 — horizon decisions cannot bypass the single risk-gated order path
+"""
+
 from __future__ import annotations
 
 from types import SimpleNamespace

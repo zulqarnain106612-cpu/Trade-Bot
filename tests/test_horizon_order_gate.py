@@ -1,3 +1,9 @@
+"""Regression tests for the single risk-gated horizon order path.
+
+Decides:
+  - REG-0030 — horizon decisions cannot bypass the single risk-gated order path
+"""
+
 from __future__ import annotations
 
 import asyncio

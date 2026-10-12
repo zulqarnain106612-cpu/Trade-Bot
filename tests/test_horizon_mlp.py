@@ -1,3 +1,9 @@
+"""Horizon model training, durable labels, and challenger lifecycle tests.
+
+Decides:
+  - MODL-001 — model training and artifact lifecycle requirements
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -163,8 +169,10 @@ def test_horizon_label_matures_on_source_time_and_replay_updates_once(tmp_path: 
     second_horizon = HorizonMLPExpert.load(
         tmp_path / "models" / "h2" / instrument / "candidate" / "mlp.joblib"
     )
-    assert next_maturity["updated"] == 2
-    assert first_horizon.n_samples == 2
+    # The first horizon trained once at t=130 and twice more at t=160;
+    # the second horizon trained once at its t=160 maturity.
+    assert next_maturity["updated"] == 3
+    assert first_horizon.n_samples == 3
     assert second_horizon.n_samples == 1
     assert first_horizon.schema_hash == second_horizon.schema_hash
     assert old_replay["duplicate"] == 1
@@ -396,6 +404,58 @@ def test_event_source_payload_and_regime_survive_store_reopen(tmp_path: Path) ->
     assert '"close":100.0' in event[3]
     assert event[4] == 2
     assert reopened.stats("BTC/USDT")[0]["pending_samples"] == 1
+
+
+def test_shared_horizon_config_loader_uses_explicit_and_default_paths(tmp_path: Path) -> None:
+    from src.models.horizon_config import load_horizon_specs
+
+    config = tmp_path / "horizons.yaml"
+    config.write_text(
+        "horizons:\n"
+        "  short: {id: 0, label: 30s, seconds: 30, models: [mlp]}\n"
+        "  long: {id: 1, label: 2m, seconds: 120, models: [mlp]}\n",
+        encoding="utf-8",
+    )
+    assert list(load_horizon_specs(config)) == ["short", "long"]
+    assert len(load_horizon_specs()) == 10
+    assert load_horizon_specs(tmp_path / "missing.yaml") == {}
+
+    empty = tmp_path / "empty.yaml"
+    empty.write_text("", encoding="utf-8")
+    assert load_horizon_specs(empty) == {}
+    null_horizons = tmp_path / "null-horizons.yaml"
+    null_horizons.write_text("horizons: null\n", encoding="utf-8")
+    assert load_horizon_specs(null_horizons) == {}
+
+
+def test_shared_horizon_config_loader_rejects_invalid_shapes_and_ids(tmp_path: Path) -> None:
+    import pytest
+
+    from src.models.horizon_config import load_horizon_specs
+
+    invalid_documents = (
+        ("[]\n", "root must be a mapping"),
+        ("horizons: []\n", "horizons must be a mapping"),
+        ("horizons:\n  short: 1\n", "must be a mapping"),
+        (
+            "horizons:\n  short: {id: -1, seconds: 30, models: [mlp]}\n",
+            "negative or duplicate id",
+        ),
+        (
+            "horizons:\n  short: {id: 0, seconds: 30, models: [mlp]}\n"
+            "  long: {id: 0, seconds: 120, models: [mlp]}\n",
+            "negative or duplicate id",
+        ),
+        ("horizons:\n  short: {id: 0, seconds: 0, models: [mlp]}\n", "positive duration"),
+        ("horizons:\n  short: {id: 0, seconds: 30, models: []}\n", "at least one model"),
+        ("horizons:\n  short: {id: 0, seconds: 30, models: [tft]}\n", "without a compatible trainer"),
+        ("horizons:\n  short: {id: 0, seconds: 30, models: [mlp, mlp]}\n", "without a compatible trainer"),
+    )
+    for index, (contents, error) in enumerate(invalid_documents):
+        config = tmp_path / f"invalid-{index}.yaml"
+        config.write_text(contents, encoding="utf-8")
+        with pytest.raises(ValueError, match=error):
+            load_horizon_specs(config)
 
 
 def test_canonical_horizon_loader_rejects_architecture_without_online_trainer(

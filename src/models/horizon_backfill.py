@@ -7,6 +7,7 @@ import json
 import math
 import sqlite3
 import statistics
+import sys
 from collections import deque
 from collections.abc import Iterator
 from pathlib import Path
@@ -175,7 +176,7 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
 
-    from src.intel import load_horizon_specs
+    from src.models.horizon_config import load_horizon_specs
 
     result = warm_start(
         args.database,
@@ -187,7 +188,7 @@ def main() -> None:
         update_batch_size=args.update_batch_size,
         resume=args.resume,
     )
-    print(json.dumps(result, sort_keys=True, default=str))
+    sys.stdout.write(json.dumps(result, sort_keys=True, default=str) + "\n")
 
 
 if __name__ == "__main__":
