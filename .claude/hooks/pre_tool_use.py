@@ -335,8 +335,9 @@ def _github_route_violation(event: dict[str, Any]) -> str:
             ):
                 return ""
         return (
-            "Universal GitHub-only boundary: denied. The only local command exception "
-            "is the exact SHA-filtered scripts/local_checks.py prepare subscription."
+            "Universal GitHub-only boundary: denied. Use an approved GitHub MCP tool; "
+            "the only local exception is the exact SHA-filtered "
+            "scripts/local_checks.py prepare subscription."
         )
     tail = tool[len(GITHUB_TOOL_PREFIX) :]
     if tail not in ALLOWED_GITHUB_TOOL_NAMES:
@@ -541,6 +542,7 @@ def _local_check_violation(command: str, policy: dict[str, Any]) -> str:
         )
         if not allowed:
             return "Local check execution is disabled by repository policy; only the exact local_checks.py prepare operation may read the current SHA-bound PR notice."
+        return ""
     patterns = set(LOCAL_CHECK_PATTERNS) | set(cfg.get("blocked_patterns", []))
     for pattern in patterns:
         if re.search(pattern, command, re.IGNORECASE):

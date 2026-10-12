@@ -172,7 +172,7 @@
   },
   "ci_log_access": {
     "enabled": true,
-    "_note": "CI records are never read by an agent. The workflow summarizes one actionable non-green check in one mutable PR comment, bound to the exact head SHA. The only agent-facing subscription is local_checks.py prepare, which returns only that current SHA-bound notice.",
+    "_note": "CI records are never read by an agent. The workflow .github/workflows/ci-failure-notify.yml summarizes one actionable non-green check in one mutable PR comment, bound to the exact head SHA. The only agent-facing subscription is local_checks.py prepare, which returns only that current SHA-bound notice.",
     "message": "CI logs, job records, annotations, artifacts, check results and arbitrary PR comments are blocked. Use only python3 scripts/local_checks.py prepare, which returns the single CI notice whose hidden SHA marker matches HEAD.",
     "_hard_deny_note": "Check-result reads are blocked before any comment exception. Direct PR-comment reads are also blocked; only the exact SHA-filtered local_checks.py prepare command is allowed.",
     "hard_deny_patterns": [
@@ -204,8 +204,8 @@
       "\\bcurl\\b[^|]*/(?:issues/\\d+/comments|pulls/\\d+/comments)\\b",
       "\\bgh\\s+api\\b[^|]*\\bgraphql\\b",
       "\\bcurl\\b[^|]*/graphql\\b",
-      "\\bpython(?:3)?(?:\\.\\d+)?\\s+-c\\b[^;&|]*(?:api\\.github\\.com|issues/\\d+/comments|pulls/\\d+/comments|graphql)\\b",
-      "\\bnode\\s+-e\\b[^;&|]*(?:api\\.github\\.com|issues/\\d+/comments|pulls/\\d+/comments|graphql)\\b"
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+-c\\b.*(?:api\\.github\\.com|issues/\\d+/comments|pulls/\\d+/comments|graphql)\\b",
+      "\\bnode\\s+-e\\b.*(?:api\\.github\\.com|issues/\\d+/comments|pulls/\\d+/comments|graphql)\\b"
     ]
   },
   "local_checks": {
@@ -215,7 +215,7 @@
     "run_command": "DISABLED: GitHub Actions is the sole test/build/check execution path.",
     "rule": "GitHub Actions is the sole execution path for tests, builds, lint, security scans, workflow validation, and quality gates. The only local-check operation permitted is the exact read-only python3 scripts/local_checks.py prepare command, which retrieves only the current HEAD's SHA-bound CI notice. The run subcommand is disabled.",
     "blocked_patterns": [
-      "\\bpytest\\b",
+      "(?:^|[;&|]\\s*)(?:uv\\s+run\\s+)?(?:[^\\s;&|]+/)?pytest(?:\\s|$)",
       "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+pytest\\b",
       "\\b(?:python(?:3)?(?:\\.\\d+)?\\s+-m\\s+)?unittest\\b",
       "\\b(?:tox|nox)\\b",

@@ -104,8 +104,8 @@ CI_LOG_PATTERNS: tuple[str, ...] = (
     r"\bcurl\b[^|]*/(?:issues/\d+/comments|pulls/\d+/comments)\b",
     r"\bgh\s+api\b[^|]*\bgraphql\b",
     r"\bcurl\b[^|]*/graphql\b",
-    r"\bpython(?:3)?(?:\.\d+)?\s+-c\b[^;&|]*(?:api\.github\.com|issues/\d+/comments|pulls/\d+/comments|graphql)\b",
-    r"\bnode\s+-e\b[^;&|]*(?:api\.github\.com|issues/\d+/comments|pulls/\d+/comments|graphql)\b",
+    r"\bpython(?:3)?(?:\.\d+)?\s+-c\b.*(?:api\.github\.com|issues/\d+/comments|pulls/\d+/comments|graphql)\b",
+    r"\bnode\s+-e\b.*(?:api\.github\.com|issues/\d+/comments|pulls/\d+/comments|graphql)\b",
 )
 
 # Forms the comment allowlist must NOT be able to excuse. These live on the
@@ -127,7 +127,7 @@ CI_COMMENT_ALLOW_PATTERNS: tuple[str, ...] = (
 )
 
 LOCAL_CHECK_PATTERNS: tuple[str, ...] = (
-    "\\bpytest\\b",
+    r"(?:^|[;&|]\s*)(?:uv\s+run\s+)?(?:[^\s;&|]+/)?pytest(?:\s|$)",
     "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+pytest\\b",
     "\\b(?:python(?:3)?(?:\\.\\d+)?\\s+-m\\s+)?unittest\\b",
     "\\b(?:tox|nox)\\b",

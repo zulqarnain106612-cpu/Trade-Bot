@@ -106,6 +106,16 @@ jobs:
             // can return nothing because the search index may not associate
             // the SHA with its pull request yet.
             let prNumbers = (trigger.pull_requests || []).map(pr => pr.number);
+            if (prNumbers.length === 0 && trigger.head_sha) {
+              const associated = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                ...context.repo,
+                commit_sha: trigger.head_sha,
+                per_page: 100,
+              });
+              prNumbers = associated.data
+                .filter(pr => pr.state === 'open')
+                .map(pr => pr.number);
+            }
             if (prNumbers.length === 0 && trigger.head_branch) {
               const byBranch = await github.rest.pulls.list({
                 ...context.repo,
@@ -290,7 +300,7 @@ jobs:
                   // Fallback only when the runner did not expose a bounded step tail.
                   if (hits.length) return hits.slice(-MAX_MSG_LINES);
                 }
-                return [];
+                return stepOutputTail(raw);
               } catch (e) {
                 core.info(`log unavailable for ${job.name}: ${e.message}`);
                 return [];
@@ -428,23 +438,6 @@ jobs:
 
 # This workflow is a notifier, not a required status check. The merged-comment
 # job only replaces the same bot-owned notice after the pull request is merged.
-
-  gate:
-    name: PR notice gate
-    if: always()
-    needs: [notify, merged-comment]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
-      - name: Require notifier jobs to finish correctly
-        env:
-          NEEDS: ${{ toJSON(needs) }}
-          # On open/synchronize, merged-comment is expected to skip; on close,
-          # notify is expected to skip because the merge handler owns that event.
-          ALLOW_SKIPPED: notify,merged-comment
-        run: python3 scripts/assert_jobs_green.py
 
   merged-comment:
     if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true

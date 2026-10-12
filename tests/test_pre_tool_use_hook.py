@@ -80,13 +80,14 @@ class TestDefaultDeny:
     def test_every_non_allowlisted_route_is_denied(self, tool: str) -> None:
         assert_denied(tool, {"command": "anything"}, contains="boundary")
 
-    def test_non_github_denial_redirects_to_github_mcp_and_varies_by_tool(self) -> None:
+    def test_non_github_denial_uses_a_stable_github_mcp_redirect(self) -> None:
         bash_reason = decide("Bash", {})["permissionDecisionReason"]
         read_reason = decide("Read", {})["permissionDecisionReason"]
         assert "GitHub MCP" in bash_reason
         assert "GitHub MCP" in read_reason
-        assert bash_reason != read_reason
-        assert "or suna, ab tabiyat kesi hy, kaho to koi or intizaam kru" in read_reason.lower()
+        assert "denied" in bash_reason.lower()
+        assert "denied" in read_reason.lower()
+        assert "scripts/local_checks.py prepare" in bash_reason
 
     @pytest.mark.parametrize("override", ["off", "warn"])
     def test_policy_overrides_cannot_reopen_native_routes(self, override: str) -> None:
