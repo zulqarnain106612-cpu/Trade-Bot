@@ -226,3 +226,18 @@ async def test_run_exits_on_stop_after_flushing(monkeypatch: pytest.MonkeyPatch)
     assert loop.passes == 1 and refreshed == [1]
     assert w.pause.paused
     assert stored["tuning:self_tuning"]["target_state"] == "PAUSED"
+
+
+def test_resolved_mismatch_clears_stale_alert_state() -> None:
+    p = build_platform()
+    p.registry.register(spec("w"), observed_state=S.ACTIVE)
+    p.changes.request_desired("worker:w", S.PAUSED, REQUESTER, "pause it")
+    p.controller.fail_with = RuntimeError("refused by the subsystem")
+    reconciler = Reconciler(p.registry, p.changes, retry_alerted_after=3)
+
+    reconciler.reconcile_once(suppress_repeats=True)
+    assert "worker:w" in reconciler._alerted
+
+    p.changes.request_desired("worker:w", S.ACTIVE, REQUESTER, "restore observed state")
+    assert reconciler.reconcile_once(suppress_repeats=True) == []
+    assert "worker:w" not in reconciler._alerted

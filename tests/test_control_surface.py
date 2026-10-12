@@ -313,3 +313,25 @@ class TestARegisteredTunableIsRenderedCorrectly:
         row = next(c for c in surface["controls"] if c["name"] == a_registered_param.name)
 
         assert row["min"] <= row["value"] <= row["max"]
+
+
+def test_invalid_setting_validation_is_translated_to_control_error(monkeypatch):
+    from pydantic import ValidationError
+
+    from src.api import control_surface as cs
+
+    validation_error = ValidationError.from_exception_data(
+        "Settings",
+        [{"type": "string_type", "loc": ("api_key",), "input": 123}],
+    )
+
+    def reject_setting(_name, _value):
+        raise validation_error
+
+    monkeypatch.setattr(cs, "set_setting_override", reject_setting)
+
+    with pytest.raises(cs.ControlWriteError) as error:
+        cs._apply_setting("exchange.api_key", "not-applied")
+
+    assert error.value.status == 422
+    assert "api_key" in error.value.detail
