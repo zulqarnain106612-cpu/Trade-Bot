@@ -383,6 +383,23 @@ jobs:
 # This workflow is a notifier, not a required status check. The merged-comment
 # job only replaces the same bot-owned notice after the pull request is merged.
 
+  gate:
+    name: PR notice gate
+    if: always()
+    needs: [notify, merged-comment]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.0
+      - name: Require notifier jobs to finish correctly
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          # On open/synchronize, merged-comment is expected to skip; on close,
+          # notify is expected to skip because the merge handler owns that event.
+          ALLOW_SKIPPED: notify,merged-comment
+        run: python3 scripts/assert_jobs_green.py
+
   merged-comment:
     if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
     runs-on: ubuntu-latest

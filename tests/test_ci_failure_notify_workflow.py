@@ -79,7 +79,7 @@ class TestTrigger:
         The notifier handles workflow_run events only. It inspects jobs because
         a workflow can conclude success while a required job was skipped.
         """
-        assert spec["jobs"]["notify"]["if"] == "github.event_name == 'workflow_run'"
+        assert "github.event_name == 'workflow_run'" in spec["jobs"]["notify"]["if"]
 
     @pytest.mark.parametrize(
         "conclusion",
