@@ -483,6 +483,13 @@ def _local_check_violation(command: str, policy: dict[str, Any]) -> str:
         return ""
     wrapper = str(cfg.get("wrapper", "scripts/local_checks.py"))
     run_marker = str(cfg.get("run_marker", "TB_LOCAL_CHECKS=1"))
+    if cfg.get("github_only", False):
+        if wrapper in command and re.search(r"\\brun\\b", command):
+            return "Local check execution is disabled by repository policy; push the change and use GitHub Actions as the sole test/build/check execution path."
+        for pattern in cfg.get("blocked_patterns", []):
+            if re.search(pattern, command, re.IGNORECASE):
+                return "Local test/build/check execution is disabled by repository policy; push the change and use GitHub Actions as the sole execution path."
+        return ""
     if wrapper in command:
         if re.search(r"\bprepare\b", command) or run_marker in command:
             return ""

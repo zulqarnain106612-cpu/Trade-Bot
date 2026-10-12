@@ -120,8 +120,14 @@
     "max_success_lines": 3,
     "max_success_chars": 1200,
     "max_read_lines": 30,
-    "native_read_tools": ["Read"],
-    "mcp_read_tool_patterns": ["read_file$", "read_process_output$", "read_terminal$"],
+    "native_read_tools": [
+      "Read"
+    ],
+    "mcp_read_tool_patterns": [
+      "read_file$",
+      "read_process_output$",
+      "read_terminal$"
+    ],
     "read_refusal_message": "Read operations must declare a bounded range of at most 30 lines. Use a targeted search first, then request the smallest exact range needed. The returned model observation is additionally compacted to at most three useful lines.",
     "_note": "This is a model-context boundary, not a filesystem access control. PostToolUse compacts every successful tool result; PreToolUse prevents unbounded native source reads and direct CI run-data access."
   },
@@ -203,7 +209,7 @@
     "run_marker": "TB_LOCAL_CHECKS=1",
     "prepare_command": "python3 scripts/local_checks.py prepare",
     "run_command": "TB_LOCAL_CHECKS=1 python3 scripts/local_checks.py run <failed-check>",
-    "rule": "After a completed PR run, prepare records only non-green checks. If every tracked check is green, no local check may run. After a fix, run may execute only a recorded failed check. The test check also requires paths extracted from the CI failure notice and never runs a whole test suite.",
+    "rule": "GitHub Actions is the only permitted execution path for tests, builds, lint, security scans, and quality gates. Local inspection and local_checks.py prepare may read the latest completed PR notice, but no local test/check command or wrapper run is permitted, including a single test file or a previously failed check.",
     "blocked_patterns": [
       "\\bpytest\\b",
       "\\bpython(?:3)?\\s+-m\\s+pytest\\b",
@@ -217,6 +223,7 @@
       "\\bactionlint\\b",
       "\\.claude/skills/quality-engineering/scripts/qe_gate\\.py\\b",
       "\\bscripts/arch_gate\\.sh\\b"
-    ]
+    ],
+    "github_only": true
   }
 }
