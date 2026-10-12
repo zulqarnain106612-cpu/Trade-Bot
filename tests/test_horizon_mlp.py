@@ -458,6 +458,46 @@ def test_shared_horizon_config_loader_rejects_invalid_shapes_and_ids(tmp_path: P
             load_horizon_specs(config)
 
 
+def test_shared_horizon_config_loader_rejects_missing_and_non_integer_fields(
+    tmp_path: Path,
+) -> None:
+    import pytest
+
+    from src.models.horizon_config import load_horizon_specs
+
+    invalid_documents = (
+        (
+            "missing-id",
+            "horizons:\n  short: {seconds: 30, models: [mlp]}\n",
+            KeyError,
+            "id",
+        ),
+        (
+            "missing-seconds",
+            "horizons:\n  short: {id: 0, models: [mlp]}\n",
+            KeyError,
+            "seconds",
+        ),
+        (
+            "non-integer-id",
+            "horizons:\n  short: {id: invalid, seconds: 30, models: [mlp]}\n",
+            ValueError,
+            "invalid literal",
+        ),
+        (
+            "non-integer-seconds",
+            "horizons:\n  short: {id: 0, seconds: invalid, models: [mlp]}\n",
+            ValueError,
+            "invalid literal",
+        ),
+    )
+    for name, contents, error_type, message in invalid_documents:
+        config = tmp_path / f"{name}.yaml"
+        config.write_text(contents, encoding="utf-8")
+        with pytest.raises(error_type, match=message):
+            load_horizon_specs(config)
+
+
 def test_canonical_horizon_loader_rejects_architecture_without_online_trainer(
     tmp_path: Path, monkeypatch
 ) -> None:

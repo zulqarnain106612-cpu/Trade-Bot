@@ -179,6 +179,18 @@ class TestUTXOCurve:
         assert result["hodler_index"] == 0.0
         assert result["mean_age_days"] == 0.0
 
+    def test_utxo_curve_failure_keeps_neutral_values_and_invalidity(self) -> None:
+        utxos = [_utxo(500)]
+        clusterer = MagicMock(**{"run.return_value": _cluster_result(utxos)})
+        with patch(
+            "src.ecc.utxo_curve.compute_hodler_index",
+            side_effect=RuntimeError("curve unavailable"),
+        ):
+            result = _cycle(clusterer=clusterer)
+        assert result["hodler_index"] == 0.0
+        assert result["mean_age_days"] == 0.0
+        assert result["_validity"]["utxo"] is False
+
 
 class TestUTXOAgeConversion:
     def test_confirmations_become_a_creation_timestamp(self) -> None:
@@ -224,6 +236,18 @@ class TestECDSAScan:
         result = _cycle(ecdsa_scanner=scanner, transactions=[{"hex": "00"}])
         assert result["cluster_flow_score"] == 0.5
         assert result["ecdsa_weaknesses"] == 0
+
+
+class TestTaprootFailure:
+    def test_parser_failure_preserves_neutral_taproot_features(self) -> None:
+        with patch(
+            "src.ecc.schnorr_taproot.parse_taproot_block",
+            side_effect=RuntimeError("malformed block"),
+        ):
+            result = _cycle(transactions=[{"txid": "a", "hex": "00"}])
+        assert result["musig2_count"] == 0
+        assert result["p2tr_input_count"] == 0
+        assert result["_validity"]["taproot"] is False
 
 
 class TestBlockFetch:

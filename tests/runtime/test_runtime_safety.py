@@ -187,6 +187,7 @@ def test_change_manager_owns_horizon_shadow_activation_and_promotion() -> None:
 
 def test_change_manager_refuses_horizon_approval_without_lifecycle_service() -> None:
     from src.runtime.changes import (
+        ChangeError,
         ChangeRequest,
         RuntimeLifecycleUnavailableError,
     )
@@ -231,6 +232,18 @@ def test_change_manager_refuses_horizon_approval_without_lifecycle_service() -> 
     with pytest.raises(RuntimeLifecycleUnavailableError, match="lifecycle is unavailable"):
         platform.changes.decide_lifecycle(
             change.change_id, "promote", HUMAN, system_actor=SYSTEM
+        )
+    assert platform.changes.get(change.change_id).status.value == "EXECUTED"
+
+    platform.changes._horizon_models = HorizonLifecycle()
+
+    def missing_component(_component_id):
+        return None
+
+    platform.changes._registry.find = missing_component
+    with pytest.raises(ChangeError, match="unknown component"):
+        platform.changes.decide_lifecycle(
+            change.change_id, "approve", HUMAN, system_actor=SYSTEM
         )
     assert platform.changes.get(change.change_id).status.value == "EXECUTED"
 

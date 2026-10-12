@@ -203,6 +203,7 @@ def test_route_gate_denies_generic_github_fetch_of_ci_data():
     )
     assert reason and "CI" in reason
 
+
 def test_github_only_policy_blocks_all_local_checks_and_allows_notice_preparation():
     pre = load_module(PRE, "pre_boundary_github_only_checks")
     policy = json.loads((ROOT / "config" / "command_policy.json").read_text(encoding="utf-8"))
