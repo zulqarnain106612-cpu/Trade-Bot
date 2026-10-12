@@ -380,6 +380,8 @@ When intelligence is enabled, an order from the existing primary timeframe proce
   - `tests/test_horizon_order_gate.py` (regression)
   - `tests/test_horizon_decision.py` (unit)
 
+> layer: test-suite
+
 ## Portfolio
 
 #### `PORT-001` — Portfolio-level exposure, correlation and agreement limits are enforced
