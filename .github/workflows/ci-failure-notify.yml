@@ -79,7 +79,12 @@ jobs:
               id: null,
               pull_requests: [{ number: event.pull_request.number }],
             };
-            const headSha = trigger.head_sha;
+            // For pull_request runs, head_sha can identify GitHub's synthetic
+            // merge commit. Bind notices to the PR branch HEAD instead.
+            const triggerPR = event.pull_request ||
+              (trigger.pull_requests || []).find(pr => pr.head && pr.head.sha);
+            const headSha = (triggerPR && triggerPR.head && triggerPR.head.sha) ||
+              trigger.head_sha;
 
             // Workflows that must have reported before a verdict is posted.
             // Kept identical to the `on.workflow_run.workflows` list above;

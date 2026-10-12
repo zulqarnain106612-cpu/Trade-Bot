@@ -191,6 +191,11 @@ class TestCommentBody:
         )
         assert policy["bounded_output"]["max_declared_lines"] >= 20
 
+    def test_workflow_run_uses_the_pr_head_not_the_synthetic_merge_sha(self, script):
+        assert "const triggerPR = event.pull_request" in script
+        assert "trigger.head_sha" in script
+        assert "triggerPR.head.sha" in script
+
     def test_notice_is_bound_to_exact_head_and_stale_heads_are_ignored(self, script):
         assert "ci-notice-sha:" in script
         assert "currentPr.data.head.sha !== headSha" in script
