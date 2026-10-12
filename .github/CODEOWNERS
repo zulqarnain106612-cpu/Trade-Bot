@@ -3,6 +3,7 @@
 
 # Security-sensitive agent-control paths. Keep owner review mandatory.
 /.claude/settings.json @zulqarnain106612-cpu
+/.claude/settings.local.json @zulqarnain106612-cpu
 /.claude/hooks/ @zulqarnain106612-cpu
 /config/command_policy.json @zulqarnain106612-cpu
 /config/observation_boundary.json @zulqarnain106612-cpu
