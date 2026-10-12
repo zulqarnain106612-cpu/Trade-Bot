@@ -252,3 +252,121 @@ def test_rollback_removes_the_candidate_pointer_when_no_incumbent_existed(tmp_pa
 
     assert not active_pointer.exists()
     assert HorizonMLPExpert.activation_state(active_path) == "UNPROMOTED"
+
+
+def test_activation_refuses_ineligible_candidate_without_touching_active_pointer(
+    tmp_path, monkeypatch
+):
+    store = HorizonLearningStore(tmp_path / "state")
+    monkeypatch.setattr(
+        store,
+        "evaluate_candidate",
+        lambda **kwargs: {"eligible": False, "candidate_model_version": "candidate"},
+    )
+    with pytest.raises(ValueError, match="no current, passing paired evaluation"):
+        store.activate_candidate(
+            component_id="model:horizon/ineligible",
+            symbol="BTC/USDT",
+            horizon_id=0,
+            candidate_version="candidate",
+            model_root=tmp_path / "models",
+        )
+
+
+def test_activation_refuses_candidate_whose_artifact_hash_changed(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    store, root, symbol, candidate_version, _ = _promotion_fixture(tmp_path)
+    monkeypatch.setattr(
+        store,
+        "evaluate_candidate",
+        lambda **kwargs: {
+            "eligible": True,
+            "candidate_model_version": candidate_version,
+        },
+    )
+    monkeypatch.setattr(
+        HorizonMLPExpert,
+        "load",
+        staticmethod(lambda *args, **kwargs: SimpleNamespace(artifact_sha256="changed")),
+    )
+    with pytest.raises(ValueError, match="artifact changed after its evaluation"):
+        store.activate_candidate(
+            component_id="model:horizon/changed-artifact",
+            symbol=symbol,
+            horizon_id=1,
+            candidate_version=candidate_version,
+            model_root=root,
+        )
+
+
+def test_activation_refuses_a_second_open_promotion_for_the_same_component(tmp_path):
+    store, root, symbol, candidate_version, _ = _promotion_fixture(tmp_path)
+    component_id = "model:horizon/duplicate-open"
+    args = {
+        "component_id": component_id,
+        "symbol": symbol,
+        "horizon_id": 1,
+        "candidate_version": candidate_version,
+        "model_root": root,
+    }
+    store.activate_candidate(**args)
+    with pytest.raises(ValueError, match="already active"):
+        store.activate_candidate(**args)
+
+
+def test_complete_promotion_refuses_missing_or_changed_active_pointer(tmp_path):
+    store = HorizonLearningStore(tmp_path / "empty-state")
+    with pytest.raises(ValueError, match="not in promotion probation"):
+        store.complete_promotion(component_id="missing", model_root=tmp_path / "empty-models")
+
+    store, root, symbol, candidate_version, _ = _promotion_fixture(tmp_path / "pointer")
+    component_id = "model:horizon/pointer-changed"
+    store.activate_candidate(
+        component_id=component_id,
+        symbol=symbol,
+        horizon_id=1,
+        candidate_version=candidate_version,
+        model_root=root,
+    )
+    instrument = hashlib.sha256(symbol.encode()).hexdigest()[:16]
+    active_path = root / "h2" / instrument / "mlp.joblib"
+    pointer = HorizonMLPExpert.activation_pointer(active_path)
+    pointer["sha256"] = "replaced-by-another-version"
+    HorizonMLPExpert.write_activation_pointer(active_path, pointer)
+    with pytest.raises(ValueError, match="pointer changed before promotion completion"):
+        store.complete_promotion(component_id=component_id, model_root=root)
+
+
+def test_activation_cleans_temporary_directory_after_concurrent_version_creation(
+    tmp_path, monkeypatch
+):
+    import os
+    import shutil
+
+    import src.models.horizon_learning as learning_module
+
+    store, root, symbol, candidate_version, _ = _promotion_fixture(tmp_path)
+    instrument = hashlib.sha256(symbol.encode()).hexdigest()[:16]
+    active_path = root / "h2" / instrument / "mlp.joblib"
+    original_replace = os.replace
+
+    def simulate_concurrent_version(source, destination):
+        source_path = Path(source)
+        destination_path = Path(destination)
+        if source_path.is_dir() and source_path.name.startswith(".horizon-activate-"):
+            shutil.copytree(source_path, destination_path)
+            raise FileExistsError("concurrent activator created the version directory")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(learning_module.os, "replace", simulate_concurrent_version)
+    store.activate_candidate(
+        component_id="model:horizon/concurrent-activation",
+        symbol=symbol,
+        horizon_id=1,
+        candidate_version=candidate_version,
+        model_root=root,
+    )
+    versions = active_path.parent / f".{active_path.name}.versions"
+    assert HorizonMLPExpert.artifact_available(active_path)
+    assert not list(versions.glob(".horizon-activate-*"))

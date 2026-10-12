@@ -255,3 +255,21 @@ def test_activation_and_rollback_double_failure_is_logged_and_reraised(tmp_path,
         runtime.perform(component, LifecycleAction.ACTIVATE, None)
 
     assert any(name == "rollback_promotion" for name, _ in intelligence._learning_store.calls)
+
+
+def test_probe_treats_promoted_active_artifact_as_healthy(intelligence, monkeypatch):
+    runtime = HorizonModelRuntime(lambda: intelligence)
+    component = make_component()
+    intelligence._learning_store.candidate = {
+        "eligible": True,
+        "candidate_model_version": CANDIDATE,
+    }
+    monkeypatch.setattr(
+        HorizonMLPExpert,
+        "activation_pointer",
+        lambda path: {"sha256": CANDIDATE, "lifecycle_status": "PROMOTED"},
+    )
+
+    report = runtime.probe(component)
+
+    assert report.state is LifecycleState.HEALTHY

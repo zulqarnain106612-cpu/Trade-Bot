@@ -347,7 +347,7 @@ def test_on_bar_persists_timestamped_learning_and_emits_only_after_risk_gate(int
             "BTC/USDT",
             _ohlcv(),
             regime_id=2,
-            event_ts=1_700_000_000.0,
+            event_ts=1_700_000_000_000.0,
             event_id="coverage-event-1",
             source_timeframe="1m",
             risk_context=_risk_context(),
@@ -366,6 +366,76 @@ def test_on_bar_persists_timestamped_learning_and_emits_only_after_risk_gate(int
     assert calls == ["record", "evaluate", "evaluate", "evaluate"]
     assert scheduled == ["BTC/USDT"]
     assert len(writes) == 1
+
+
+def test_on_bar_clears_previous_symbol_results_and_cadence(intel, monkeypatch):
+    _deliver_results(intel, [_result(i) for i in range(3)])
+    intel._last_horizon_symbol = "ETH/USDT"
+    intel._last_horizon_results[99] = (_result(99), time.time())
+    intel._source_cadence_seconds = 60.0
+    monkeypatch.setattr(intel._learning_store, "source_cadence_seconds", lambda *_: None)
+
+    assert asyncio.run(intel.on_bar("BTC/USDT", _ohlcv())) is None
+
+    assert 99 not in intel._last_horizon_results
+    assert intel._source_cadence_seconds is None
+
+
+def test_on_bar_handles_millisecond_event_with_unknown_observed_cadence(intel, monkeypatch):
+    store = intel._learning_store
+    seen = []
+    monkeypatch.setattr(store, "source_cadence_seconds", lambda *_: None)
+    monkeypatch.setattr(
+        store,
+        "observe_event",
+        lambda **kwargs: seen.append(kwargs) or {"updated": 0, "matured": 0, "rejected": 0},
+    )
+    monkeypatch.setattr(store, "record_predictions", lambda **kwargs: 0)
+    monkeypatch.setattr(store, "evaluate_candidate", lambda **kwargs: None)
+    monkeypatch.setattr(intel, "_schedule_training", lambda *_: None)
+    _deliver_results(intel, [_result(i) for i in range(3)])
+
+    assert (
+        asyncio.run(
+            intel.on_bar(
+                "BTC/USDT",
+                _ohlcv(),
+                event_ts=1_700_000_000_000.0,
+                event_id="millisecond-event",
+                source_timeframe="1m",
+            )
+        )
+        is None
+    )
+    assert seen[0]["event_ts"] == 1_700_000_000.0
+    assert intel.learning_status["last_error"] is None
+
+
+def test_on_bar_keeps_the_final_regime_guard_even_after_a_decision(intel, monkeypatch):
+    from src.fusion.horizon_decision import UnifiedHorizonDecision
+
+    decision = UnifiedHorizonDecision(
+        action="BUY",
+        direction=1,
+        expected_return=0.01,
+        uncertainty=0.002,
+        conflict=False,
+        contributions={0: 1.0},
+        model_versions={0: "v0"},
+        freshness_seconds={0: 0.0},
+        abstain_reason=None,
+        regime_id=None,
+    )
+    monkeypatch.setattr("src.intel.fuse_horizon_predictions", lambda *args, **kwargs: decision)
+    intel._risk_gate.size = lambda **kwargs: SimpleNamespace(
+        suppressed=False, size_pct=0.02, reason=None
+    )
+    intel._risk_gate.circuit_breaker = lambda **kwargs: False
+    intel._risk_gate.check_drift = lambda *args: None
+    intel._duckdb.write_horizon_metric = lambda **kwargs: None
+    _deliver_results(intel, [_result(i, status="PROMOTED") for i in range(3)])
+
+    assert asyncio.run(intel.on_bar("BTC/USDT", _ohlcv(), risk_context=_risk_context())) is None
 
 
 def test_on_bar_invalid_event_timestamp_does_not_schedule_a_label(intel):
@@ -446,10 +516,14 @@ class TestDrainOne:
 
 
 def test_on_bar_ignores_unmatched_worker_results_until_deadline(intel, monkeypatch):
-    _deliver_results(intel, [])
     intel._cfg["inference_timeout_seconds"] = 0.05
+    monkeypatch.setattr(
+        intel._orchestrator,
+        "submit",
+        lambda task: f"expected-task-{task.horizon_id}",
+    )
     stale = _result(99)
-    stale.task_id = "old-batch-task"
+    stale.task_id = "__not-an-expected-task__"
     calls = {"count": 0}
 
     def drain_one(timeout):
@@ -521,6 +595,18 @@ def test_learning_status_collects_successful_and_failed_background_training(inte
     status = intel.learning_status
     assert status["last_error"] == "background trainer failed"
     assert status["training_active"] is False
+
+    class NoUpdates:
+        def done(self):
+            return True
+
+        def result(self):
+            return {"updated": 0, "rejected": 0}
+
+    intel._learning_status = {"updated": 0, "rejected": 0, "last_update": None}
+    intel._training_future = NoUpdates()
+    status = intel.learning_status
+    assert status["last_update"] is None
 
 
 def test_schedule_training_submits_only_when_no_training_is_active(intel, monkeypatch):
