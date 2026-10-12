@@ -12,12 +12,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import torch
 
 from src.models.horizon_learning import HorizonLearningStore
 from src.models.horizon_mlp import HorizonMLPExpert
 from src.models.mlp import MLPHead
 from src.workers.orchestrator import WorkerTask, _run_horizon_inference
+
+import torch
 
 
 def test_horizon_mlp_trains_persists_and_is_used_by_its_worker(tmp_path: Path) -> None:
