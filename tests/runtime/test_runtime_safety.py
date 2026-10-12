@@ -140,6 +140,7 @@ def test_change_manager_owns_horizon_shadow_activation_and_promotion() -> None:
 
     from src.runtime.changes import ChangeRequest, ChangeStatus
     from src.runtime.contracts import ComponentType, LifecycleAction, LifecycleState
+
     from ._support import HUMAN, REQUESTER, SYSTEM, build_platform, spec, version
 
     class HorizonLifecycle:
@@ -192,6 +193,7 @@ def test_change_manager_refuses_horizon_approval_without_lifecycle_service() -> 
         RuntimeLifecycleUnavailableError,
     )
     from src.runtime.contracts import ComponentType, LifecycleAction, LifecycleState
+
     from ._support import HUMAN, REQUESTER, SYSTEM, build_platform, spec, version
 
     platform = build_platform()
@@ -251,6 +253,7 @@ def test_change_manager_refuses_horizon_approval_without_lifecycle_service() -> 
 def test_change_manager_routes_simple_decisions_and_refuses_unknown_verbs() -> None:
     from src.runtime.changes import ChangeError, ChangeRequest, ChangeStatus
     from src.runtime.contracts import LifecycleAction, LifecycleState
+
     from ._support import HUMAN, REQUESTER, SYSTEM, build_platform, spec
 
     platform = build_platform()
@@ -294,6 +297,7 @@ def test_change_manager_routes_simple_decisions_and_refuses_unknown_verbs() -> N
 def test_change_manager_routes_execute_rollback_and_non_horizon_model_stage() -> None:
     from src.runtime.changes import ChangeRequest, ChangeStatus
     from src.runtime.contracts import ComponentType, LifecycleAction, LifecycleState
+
     from ._support import HUMAN, REQUESTER, SYSTEM, build_platform, spec
 
     platform = build_platform()

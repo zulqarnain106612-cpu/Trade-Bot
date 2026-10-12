@@ -31,7 +31,6 @@ import yaml
 from src.models.horizon_config import load_horizon_specs as _load_horizon_specs
 from src.workers.orchestrator import WorkerResult
 
-
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
 
 
