@@ -151,6 +151,7 @@ class TestWorkerTask:
         assert result.model_id is None
         assert result.feature_schema_hash
 
+
 class TestWorkerSignalHandler:
     def test_sigterm_uses_system_exit_without_site_quitter(self) -> None:
         from src.workers.orchestrator import _handle_worker_sigterm
