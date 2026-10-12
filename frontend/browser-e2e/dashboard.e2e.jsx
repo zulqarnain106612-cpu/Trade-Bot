@@ -70,7 +70,16 @@ vi.mock('../src/hooks/useApi.js', () => {
     useWebSocket: () => ({ connected: true, lagMs: 35 }),
     useStream: () => [],
     usePolling,
-    useApiResource: () => ({ data: {}, problem: null }),
+    useApiResource: (path) => {
+      if (path === '/runtime/components') return { data: [], problem: null };
+      if (path === '/runtime') {
+        return {
+          data: { components: 0, by_state: {}, by_type: {}, open_changes: [], dependency_issues: [] },
+          problem: null,
+        };
+      }
+      return { data: {}, problem: null };
+    },
     useReadiness: () => ({ report: readiness, problem: null }),
     useOperatorAction: () => ({
       operatorId: 'operator',
