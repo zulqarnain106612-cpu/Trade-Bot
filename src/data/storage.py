@@ -201,9 +201,30 @@ ALTER TABLE regime_snapshots ADD COLUMN agreement_score REAL NOT NULL DEFAULT 1.
     updated_ms    INTEGER NOT NULL
 );""",
     ),
+    (
+        10,
+        "persist V6 unified intelligence decisions with round-trip fields",
+        """ALTER TABLE intelligence_features_history ADD COLUMN direction_v6 INTEGER;
+ALTER TABLE intelligence_features_history ADD COLUMN size_pct_v6 REAL;
+ALTER TABLE intelligence_features_history ADD COLUMN confidence_v6 REAL;
+ALTER TABLE intelligence_features_history ADD COLUMN horizon_idx_v6 INTEGER;
+ALTER TABLE intelligence_features_history ADD COLUMN ecc_anomaly_v6 REAL;
+ALTER TABLE intelligence_features_history ADD COLUMN conflict_v6 INTEGER;
+ALTER TABLE intelligence_features_history ADD COLUMN regime_id_v6 INTEGER;
+ALTER TABLE intelligence_features_history ADD COLUMN agreement_ratio_v6 REAL;
+ALTER TABLE intelligence_features_history ADD COLUMN kyle_lambda_v6 REAL;
+ALTER TABLE intelligence_features_history ADD COLUMN ofi_v6 REAL;
+ALTER TABLE intelligence_features_history ADD COLUMN vpin_v6 REAL;
+ALTER TABLE intelligence_features_history ADD COLUMN expected_return_v6 REAL;
+ALTER TABLE intelligence_features_history ADD COLUMN uncertainty_v6 REAL;
+ALTER TABLE intelligence_features_history ADD COLUMN algo_v6 TEXT;
+ALTER TABLE intelligence_features_history ADD COLUMN horizon_contributions_v6 TEXT;
+ALTER TABLE intelligence_features_history ADD COLUMN model_versions_v6 TEXT;
+ALTER TABLE intelligence_features_history ADD COLUMN freshness_seconds_v6 TEXT;""",
+    ),
 ]
 
-_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 9
+_SCHEMA_VERSION: Final[int] = len(_MIGRATIONS)  # = 10
 
 
 log: structlog.stdlib.BoundLogger = structlog.get_logger(__name__)
@@ -971,6 +992,49 @@ class StorageBackend:
         from datetime import UTC
         from datetime import datetime as _dt
 
+        allowed_features = {
+            "intelligence_exchange_netflow_7d_zscore",
+            "intelligence_whale_buy_sell_ratio",
+            "intelligence_exchange_reserve_ratio",
+            "intelligence_miner_netflow_signal",
+            "intelligence_staking_unlock_risk",
+            "intelligence_entity_exchange_imbalance",
+            "intelligence_binance_funding_rate_pct",
+            "intelligence_liquidation_pressure_24h_zscore",
+            "intelligence_futures_oi_change_pct",
+            "intelligence_liquidation_cascade_risk_usd",
+            "intelligence_btc_dominance_regime",
+            "intelligence_stablecoin_reserve_ratio",
+            "intelligence_network_activity_score",
+            "intelligence_exchange_stress_score",
+            "intelligence_cross_exchange_basis_spread_bps",
+            "intelligence_defi_tvl_7d_change_pct",
+            "intelligence_mvrv_z_score",
+            "intelligence_sopr",
+            "direction_v6",
+            "size_pct_v6",
+            "confidence_v6",
+            "horizon_idx_v6",
+            "ecc_anomaly_v6",
+            "conflict_v6",
+            "regime_id_v6",
+            "agreement_ratio_v6",
+            "kyle_lambda_v6",
+            "ofi_v6",
+            "vpin_v6",
+            "expected_return_v6",
+            "uncertainty_v6",
+            "algo_v6",
+            "horizon_contributions_v6",
+            "model_versions_v6",
+            "freshness_seconds_v6",
+        }
+        unsupported = set(features) - allowed_features
+        if unsupported:
+            raise ValueError(
+                "unsupported intelligence feature columns: " + ", ".join(sorted(unsupported))
+            )
+
         conn = self._require_conn()
         fetched_at = int(_dt.now(UTC).timestamp() * 1000)
 
@@ -997,9 +1061,18 @@ class StorageBackend:
                     network_activity_score, exchange_stress_score,
                     cross_exchange_basis_spread_bps,
                     defi_tvl_7d_change_pct, mvrv_z_score, sopr,
-                    confidence, source
+                    confidence, source,
+                    direction_v6, size_pct_v6, confidence_v6, horizon_idx_v6,
+                    ecc_anomaly_v6, conflict_v6, regime_id_v6, agreement_ratio_v6,
+                    kyle_lambda_v6, ofi_v6, vpin_v6, expected_return_v6,
+                    uncertainty_v6, algo_v6, horizon_contributions_v6,
+                    model_versions_v6, freshness_seconds_v6
                 ) VALUES (
-                    ?,?,?,?,  ?,?,?,?,?,?,  ?,?,?,?,  ?,?,?,?,?,  ?,?,?,  ?,?
+                    ?,?,?,?,?,?,?,?,?,?,
+                    ?,?,?,?,?,?,?,?,?,?,
+                    ?,?,?,?,?,?,?,?,?,?,
+                    ?,?,?,?,?,?,?,?,?,?,
+                    ?
                 )
                 """,
                 (
@@ -1027,6 +1100,23 @@ class StorageBackend:
                     _f("intelligence_sopr"),
                     float(confidence),
                     source,
+                    _f("direction_v6"),
+                    _f("size_pct_v6"),
+                    _f("confidence_v6"),
+                    _f("horizon_idx_v6"),
+                    _f("ecc_anomaly_v6"),
+                    _f("conflict_v6"),
+                    _f("regime_id_v6"),
+                    _f("agreement_ratio_v6"),
+                    _f("kyle_lambda_v6"),
+                    _f("ofi_v6"),
+                    _f("vpin_v6"),
+                    _f("expected_return_v6"),
+                    _f("uncertainty_v6"),
+                    features.get("algo_v6"),
+                    features.get("horizon_contributions_v6"),
+                    features.get("model_versions_v6"),
+                    features.get("freshness_seconds_v6"),
                 ),
             )
             await conn.commit()
@@ -1065,7 +1155,12 @@ class StorageBackend:
                    network_activity_score,          exchange_stress_score,
                    cross_exchange_basis_spread_bps,
                    defi_tvl_7d_change_pct,          mvrv_z_score,  sopr,
-                   confidence
+                   confidence,
+                   direction_v6, size_pct_v6, confidence_v6, horizon_idx_v6,
+                   ecc_anomaly_v6, conflict_v6, regime_id_v6, agreement_ratio_v6,
+                   kyle_lambda_v6, ofi_v6, vpin_v6, expected_return_v6,
+                   uncertainty_v6, algo_v6, horizon_contributions_v6,
+                   model_versions_v6, freshness_seconds_v6
             FROM intelligence_features_history
             WHERE symbol=? AND timeframe=? AND bar_ts>=?
             ORDER BY bar_ts ASC
@@ -1099,6 +1194,28 @@ class StorageBackend:
             "mvrv_z_score": "intelligence_mvrv_z_score",
             "sopr": "intelligence_sopr",
             "confidence": "intelligence_confidence",
+            **{
+                name: name
+                for name in (
+                    "direction_v6",
+                    "size_pct_v6",
+                    "confidence_v6",
+                    "horizon_idx_v6",
+                    "ecc_anomaly_v6",
+                    "conflict_v6",
+                    "regime_id_v6",
+                    "agreement_ratio_v6",
+                    "kyle_lambda_v6",
+                    "ofi_v6",
+                    "vpin_v6",
+                    "expected_return_v6",
+                    "uncertainty_v6",
+                    "algo_v6",
+                    "horizon_contributions_v6",
+                    "model_versions_v6",
+                    "freshness_seconds_v6",
+                )
+            },
         }
 
         df = (

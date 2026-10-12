@@ -98,6 +98,14 @@ CI_LOG_PATTERNS: tuple[str, ...] = (
     r"\bcurl\b[^|]*/actions/(runs|jobs|artifacts|workflows|caches)\b",
     r"\bcurl\b[^|]*/check-runs?\b",
     r"\bact\b\s+-",  # nektos/act: runs the workflow locally to read its output
+    r"\bgh\s+pr\s+view\b[^|]*(?:--comments\b|--json\b[^|]*\bcomments\b)",
+    r"\bgh\s+issue\s+view\b[^|]*(?:--comments\b|--json\b[^|]*\bcomments\b)",
+    r"\bgh\s+api\b[^|]*/(?:issues/(?:comments|\d+/comments)|pulls/\d+/comments)\b",
+    r"\bcurl\b[^|]*/(?:issues/\d+/comments|pulls/\d+/comments)\b",
+    r"\bgh\s+api\b[^|]*\bgraphql\b",
+    r"\bcurl\b[^|]*/graphql\b",
+    r"\bpython(?:3)?(?:\.\d+)?\s+-c\b.*(?:api\.github\.com|issues/\d+/comments|pulls/\d+/comments|graphql)\b",
+    r"\bnode\s+-e\b.*(?:api\.github\.com|issues/\d+/comments|pulls/\d+/comments|graphql)\b",
 )
 
 # Forms the comment allowlist must NOT be able to excuse. These live on the
@@ -112,17 +120,62 @@ CI_HARD_DENY_PATTERNS: tuple[str, ...] = (
     r"\bgh\s+pr\s+checks\b",
 )
 
-# Reading and writing pull-request comments, which is the one sanctioned
-# channel. Checked after the hard-deny tier and before CI_LOG_PATTERNS, so a
-# comment fetch is never caught by a broad `gh api` rule: closing this channel
-# would leave no way to learn why a run failed, which turns a guard into a wall
-# and then into a guard somebody disables.
+# The only permitted comment subscription is the SHA-filtered notice reader.
+# Direct PR-comment reads are blocked because they expose unrelated discussion.
 CI_COMMENT_ALLOW_PATTERNS: tuple[str, ...] = (
-    r"\bgh\s+pr\s+(view|comment)\b",
-    r"\bgh\s+issue\s+(view|comment)\b",
-    r"\bgh\s+api\b[^|]*/issues/(comments|\d+/comments)\b",
-    r"\bgh\s+api\b[^|]*/pulls/\d+/comments\b",
+    r"^\s*(?:cd\s+[^;&|]+\s*&&\s*)?(?:python|python3|\.venv/bin/python|\.venv/bin/python3)\s+scripts/local_checks\.py\s+prepare\s*$",
 )
+
+LOCAL_CHECK_PATTERNS: tuple[str, ...] = (
+    r"(?:^|[;&|]\s*)(?:uv\s+run\s+)?(?:[^\s;&|]+/)?pytest(?:\s|$)",
+    "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+pytest\\b",
+    "\\b(?:python(?:3)?(?:\\.\\d+)?\\s+-m\\s+)?unittest\\b",
+    "\\b(?:tox|nox)\\b",
+    "\\bcoverage(?:\\s+(?:run|combine|report|html|xml|erase))?\\b",
+    "\\bruff\\s+(?:check|format)\\b",
+    "\\b(?:mypy|pyright|flake8|pylint|black|isort)\\b",
+    "\\b(?:bandit|pip-audit|safety|semgrep|trivy)\\b",
+    "\\b(?:npx\\s+)?(?:vitest|jest|playwright|cypress)\\b",
+    "\\b(?:npm|pnpm|yarn)\\s+(?:test|run\\s+(?:test|build|lint|check)|build|lint|check)\\b",
+    "\\b(?:cargo\\s+(?:test|build|clippy)|go\\s+(?:test|build|vet))\\b",
+    "\\b(?:make|gmake)\\s+(?:test|build|lint|check|ci)\\b",
+    "\\b(?:cmake\\s+--build|ninja(?:\\s|$))",
+    "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+build\\b",
+    "\\bpre-commit\\s+run\\b",
+    "\\b(?:actionlint|shellcheck)\\b",
+    "\\.claude/skills/quality-engineering/scripts/qe_gate\\.py\\b",
+    "\\bscripts/arch_gate\\.sh\\b",
+    "\\bpython(?:3)?(?:\\.\\d+)?\\s+(?:-m\\s+)?tests?/[^ \\t;&|]*\\.py\\b",
+    "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+tests?(?:\\.|\\s)",
+    "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+compileall\\b",
+    "\\bpython(?:3)?(?:\\.\\d+)?\\s+scripts/generate_(?:math|quality)_docs\\.py\\s+--check\\b",
+    "\\b(?:bash|sh)\\s+[^;&|]*(?:test|tests|testing|build|lint|check|quality[-_]gate|security[-_]scan)[^;&|]*\\.sh\\b",
+    "\\bnode\\s+[^;&|]*(?:test|tests|testing|build|lint|check)[^;&|]*\\.(?:js|mjs|cjs|ts)\\b",
+    r"\bpython(?:3)?(?:\.\d+)?\s+(?:[^\s;&|]+/)?(?!local_checks\.py\b)[^\s;&|]*(?:test|tests|build|lint|check|quality_gate|security_scan)[^\s;&|]*\.py\b",
+    r"\b(?:docker\s+(?:compose\s+)?build|podman\s+build)\b",
+    r"\b(?:cargo\s+fmt|go\s+fmt)\b",
+    r"\b(?:eslint|prettier|tsc)\b",
+    r"\bgit\s+diff\b[^;&|]*--check\b",
+    r"\b(?:npm|pnpm|yarn)\s+(?:run\s+)?(?:typecheck|type-check|type-checks|lint:check)\b",
+)
+_LOCAL_CHECK_RE = [re.compile(pattern, re.IGNORECASE) for pattern in LOCAL_CHECK_PATTERNS]
+_LOCAL_PREPARE_RE = re.compile(
+    r"^\s*(?:cd\s+[^;&|]+\s*&&\s*)?(?:python|python3|\.venv/bin/python|\.venv/bin/python3)\s+scripts/local_checks\.py\s+prepare\s*$",
+    re.IGNORECASE,
+)
+LOCAL_CHECK_REFUSAL = (
+    "Local tests, builds, lint, security scans, and quality gates are disabled. "
+    "GitHub Actions is the sole execution path; only the SHA-filtered "
+    "scripts/local_checks.py prepare command is permitted."
+)
+
+
+def is_local_check_execution(command: str) -> bool:
+    """Return True for local check execution; allow only exact notice preparation."""
+    if "scripts/local_checks.py" in command:
+        return _LOCAL_PREPARE_RE.fullmatch(command.strip()) is None
+    return any(pattern.search(command) for pattern in _LOCAL_CHECK_RE)
+
 
 # Secrets that must never reach an LLM context. Each pattern captures the
 # whole secret-bearing token; _redact() replaces the match with a marker that
@@ -459,33 +512,19 @@ _CI_HARD_DENY_RE = [re.compile(p, re.IGNORECASE) for p in CI_HARD_DENY_PATTERNS]
 _CI_COMMENT_RE = [re.compile(p, re.IGNORECASE) for p in CI_COMMENT_ALLOW_PATTERNS]
 
 CI_LOG_REFUSAL = (
-    "CI logs, job records, annotations, artifacts and check results are "
-    "permanently unreadable from here, in every condition -- there is no line "
-    "bound that makes this allowed. The pull-request comment posted by the CI "
-    "failure notice is the only channel: it already carries the status and the "
-    "exact failing lines. Read it with `gh pr view <n> --json comments`."
+    "CI logs, job records, annotations, artifacts, check results and arbitrary "
+    "PR comments are blocked. Use only python3 scripts/local_checks.py prepare, "
+    "which returns the single CI notice whose hidden SHA marker matches HEAD."
 )
 
 
 def is_ci_log_access(command: str) -> bool:
     """
-    Whether ``command`` reads CI run data, rather than a pull-request comment.
+    Refuse CI data and arbitrary PR-comment reads.
 
-    Three tiers, in order, because two of them share a subcommand:
-
-    1. **Hard deny.** ``gh pr view --json statusCheckRollup`` is one flag away
-       from ``gh pr view --json comments``. Check results are CI data whatever
-       verb fetched them, so the allowlist must not be able to excuse this.
-    2. **The comment allowlist**, which wins over the general rules. A broad
-       ``gh api`` rule would otherwise catch the comment fetch too, and a guard
-       that closes the only sanctioned channel leaves an agent with no way at
-       all to learn why a run failed -- at which point someone turns the guard
-       off, which is worse than a narrow one.
-    3. **The general CI patterns.**
-
-    Textual, like :func:`classify`, and an under-approximation for the same
-    reason: a script that shells out to ``gh`` is invisible here. It exists to
-    stop the direct route, not to sandbox a determined caller.
+    Only the exact local_checks.py prepare command is exempt. That script
+    returns the newest GitHub Actions notice whose hidden SHA marker matches
+    the current open PR head; it does not expose arbitrary comments or logs.
     """
     if any(rx.search(command) for rx in _CI_HARD_DENY_RE):
         return True

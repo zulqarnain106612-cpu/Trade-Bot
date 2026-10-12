@@ -112,6 +112,17 @@ def test_notice_parser_detects_green_and_pending(monkeypatch, tmp_path):
     assert pending["status"] == "pending"
 
 
+def test_notice_with_no_verdict_is_non_green_not_pending(monkeypatch, tmp_path):
+    monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
+    record = reliability.record_ci_from_notice(
+        sha="c" * 40,
+        pr=1,
+        notice="**CI / Python tests (shard 1/6)** — no verdict",
+    )
+    assert record["status"] == "failed"
+    assert record["failed_checks"] == ["CI / Python tests (shard 1/6)"]
+
+
 def test_notice_parser_uses_non_green_fallback(monkeypatch, tmp_path):
     monkeypatch.setattr(reliability, "_git_common_dir", lambda: tmp_path)
     record = reliability.record_ci_from_notice(sha="a" * 40, pr=1, notice="CI result unavailable")

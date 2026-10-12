@@ -25,7 +25,9 @@ evidently>=0.4,<1.0                # src/diagnostics drift
 
 # --- causal / topological ---------------------------------------------------
 dowhy>=0.14,<1.0                   # src/causal
-giotto-tda>=0.6.2,<1.0               # src/features (imports as gtda)
+# giotto-tda is in requirements-topology-optional.txt. Its only published
+# release pins scikit-learn 1.3.2, which cannot coexist with requirements.txt.
+# The topology engine has a tested graceful fallback when giotto-tda is absent.
 
 # --- market / chain data ----------------------------------------------------
 yfinance>=1.7.0,<2.0                 # src/data

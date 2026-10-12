@@ -1239,6 +1239,12 @@ _WALL_CLOCK_ARITHMETIC_ALLOWED = {
     ("src/data/quality_gate.py", "check_ohlcv"),
     # Same: compared against the macro release date parsed from the provider.
     ("src/data/quality_gate.py", "check_macro"),
+    # _collect_ecc compares a recorded epoch observation time with current epoch
+    # to determine the age of an observation (an absolute point in history).
+    ("src/intel.py", "_collect_ecc"),
+    # _apply_intelligence_order_gate compares a prediction epoch timestamp with
+    # current epoch; the timestamp is the point in history when it was produced.
+    ("src/engine/orchestrator.py", "_apply_intelligence_order_gate"),
     # since_ms is an exchange API parameter and must be a real epoch time.
     # _tick_traced, not _tick: the tick body moved there when _tick became the
     # wrapper that binds the trace id.

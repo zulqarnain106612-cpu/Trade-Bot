@@ -5,6 +5,7 @@ Decides:
   - GOV-012 — live CI monitoring is refused
   - GOV-019 — CI run data is unreadable by every tool route
   - GOV-057 — every authorized tool observation crosses the repository boundary
+  - REG-0024 — local checks are CI-only and the prepare route exposes only the current HEAD notice
 """
 
 from __future__ import annotations
@@ -79,13 +80,14 @@ class TestDefaultDeny:
     def test_every_non_allowlisted_route_is_denied(self, tool: str) -> None:
         assert_denied(tool, {"command": "anything"}, contains="boundary")
 
-    def test_non_github_denial_redirects_to_github_mcp_and_varies_by_tool(self) -> None:
+    def test_non_github_denial_uses_a_stable_github_mcp_redirect(self) -> None:
         bash_reason = decide("Bash", {})["permissionDecisionReason"]
         read_reason = decide("Read", {})["permissionDecisionReason"]
         assert "GitHub MCP" in bash_reason
         assert "GitHub MCP" in read_reason
-        assert bash_reason != read_reason
-        assert "or suna, ab tabiyat kesi hy, kaho to koi or intizaam kru" in read_reason.lower()
+        assert "denied" in bash_reason.lower()
+        assert "denied" in read_reason.lower()
+        assert "scripts/local_checks.py prepare" in bash_reason
 
     @pytest.mark.parametrize("override", ["off", "warn"])
     def test_policy_overrides_cannot_reopen_native_routes(self, override: str) -> None:
@@ -119,10 +121,17 @@ class TestApprovedGithubRoute:
         )
         assert decision["permissionDecision"] == "allow"
 
-    def test_pull_request_notice_comment_route_remains_allowed(self) -> None:
+    def test_arbitrary_pull_request_comment_reads_are_denied(self) -> None:
         decision = decide(
             "mcp__GitHub__fetch_pr_comments",
-            {"repo_full_name": REPO, "pr_number": 435},
+            {"repo_full_name": REPO, "pr_number": 439},
+        )
+        assert decision["permissionDecision"] == "deny"
+
+    def test_exact_sha_filtered_notice_subscription_is_allowed(self) -> None:
+        decision = decide(
+            "Bash",
+            {"command": "python3 scripts/local_checks.py prepare"},
         )
         assert decision["permissionDecision"] == "allow"
 
@@ -215,13 +224,16 @@ class TestCIBoundary:
             contains="endpoint is not allowlisted",
         )
 
-    def test_pull_request_notice_comment_remains_the_ci_diagnostic_channel(self) -> None:
-        assert (
-            decide(
-                "mcp__GitHub__fetch_pr_comments",
-                {"repo_full_name": REPO, "pr_number": 435},
-            )["permissionDecision"]
-            == "allow"
+    def test_generic_fetch_cannot_read_pr_comment_api(self) -> None:
+        assert_denied(
+            "mcp__GitHub__fetch",
+            {
+                "url": (
+                    "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/"
+                    "issues/439/comments"
+                )
+            },
+            contains="Arbitrary PR-comment",
         )
 
 

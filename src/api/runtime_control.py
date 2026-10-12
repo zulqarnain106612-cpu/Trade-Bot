@@ -31,16 +31,17 @@ from pydantic import BaseModel, Field
 
 from src.agent_control.model import ManifestError, to_dict
 from src.agent_control.store import STATE_DIR_ENV, STATE_DIR_NAME, TaskStore
+from src.runtime.adaptive import SYSTEM_EVALUATOR
 from src.runtime.changes import (
     ROLE_APPROVER,
     ROLE_REQUESTER,
-    STAGE_FOR,
     Actor,
     ActorKind,
     ChangeError,
     ChangeRecord,
     ChangeRequest,
     ChangeStatus,
+    RuntimeLifecycleUnavailableError,
     UnauthorizedError,
 )
 from src.runtime.contracts import (
@@ -51,6 +52,7 @@ from src.runtime.contracts import (
 )
 from src.runtime.platform import RuntimePlatform
 from src.runtime.registry import UnknownComponentError
+from src.runtime.supervisor import ActionRefusedError
 
 # What /runtime/components/{id}/{action} accepts: the operator's direct
 # levers. Version changes and activations go through /runtime/changes, where
@@ -203,28 +205,25 @@ def decide(
     platform: RuntimePlatform, change_id: str, verb: str, body: RuntimeDecisionBody
 ) -> dict[str, Any]:
     actor = actor_for(body)
+    if verb not in {"approve", "execute", "promote", "rollback", "cancel"}:
+        raise RuntimeControlError(404, f"unknown decision {verb!r}")
     changes = platform.changes
     try:
-        if verb == "approve":
-            result = changes.approve(change_id, actor)
-            # A staged class waits for its shadow/canary result; anything
-            # else approved by a human runs now.
-            if result.classification not in STAGE_FOR:
-                result = changes.execute(change_id, actor)
-        elif verb == "execute":
-            result = changes.execute(change_id, actor)
-        elif verb == "promote":
-            result = changes.promote(change_id, actor)
-        elif verb == "rollback":
-            result = changes.rollback(change_id, actor, body.reason or "operator rollback")
-        elif verb == "cancel":
-            result = changes.cancel(change_id, actor)
-        else:
-            raise RuntimeControlError(404, f"unknown decision {verb!r}")
+        result = changes.decide_lifecycle(
+            change_id,
+            verb,
+            actor,
+            reason=body.reason or "operator rollback",
+            system_actor=SYSTEM_EVALUATOR,
+        )
+    except RuntimeLifecycleUnavailableError as exc:
+        raise RuntimeControlError(503, str(exc)) from exc
     except UnauthorizedError as exc:
         raise RuntimeControlError(403, str(exc)) from exc
+    except ActionRefusedError as exc:
+        raise RuntimeControlError(409, str(exc)) from exc
     except ChangeError as exc:
-        status = 404 if str(exc).startswith("unknown change") else 409
+        status = 404 if str(exc).startswith(("unknown change", "unknown component")) else 409
         raise RuntimeControlError(status, str(exc)) from exc
     return result.to_dict()
 

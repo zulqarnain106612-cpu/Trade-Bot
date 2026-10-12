@@ -131,6 +131,10 @@ class ChangeError(RuntimeError):
     """The request cannot move in the way asked."""
 
 
+class RuntimeLifecycleUnavailableError(ChangeError):
+    """A lifecycle-specific runtime dependency is unavailable for this change."""
+
+
 class UnauthorizedError(ChangeError):
     """The actor lacks the role for this step."""
 
@@ -242,11 +246,13 @@ class ChangeManager:
         *,
         clock: Callable[[], datetime] = _utc_now,
         audit_sinks: Iterable[AuditSink] = (),
+        horizon_models: Any | None = None,
     ) -> None:
         self._registry = registry
         self._supervisors = supervisors
         self._clock = clock
         self._sinks = list(audit_sinks)
+        self._horizon_models = horizon_models
         self._lock = threading.RLock()
         self._changes: dict[str, ChangeRecord] = {}
         self._audit: list[AuditEntry] = []
@@ -533,6 +539,80 @@ class ChangeManager:
             ):
                 raise UnauthorizedError(f"{actor.name} cannot promote")
             return self._observe(change, actor, final=True)
+
+    def decide_lifecycle(
+        self,
+        change_id: str,
+        verb: str,
+        actor: Actor,
+        *,
+        reason: str = "",
+        system_actor: Actor,
+    ) -> ChangeRecord:
+        """Apply a control decision and its domain lifecycle through this manager.
+
+        The API must not reach into the registry or horizon lifecycle service
+        directly. Keeping the decision, approval, stage, execution, promotion,
+        and associated failure boundary here ensures every state change passes
+        through the same audited ChangeManager path.
+        """
+        if verb == "approve":
+            pending = self.get(change_id)
+            component = self._registry.find(pending.request.component_id)
+            if component is None:
+                raise ChangeError(f"unknown component {pending.request.component_id}")
+            is_horizon_model = component.version.configuration.get("horizon_id") is not None
+            horizon_lifecycle = self._horizon_models
+            if (
+                is_horizon_model
+                and pending.classification is ChangeClass.SHADOW_REQUIRED
+                and horizon_lifecycle is None
+            ):
+                raise RuntimeLifecycleUnavailableError("horizon model lifecycle is unavailable")
+            result = self.approve(change_id, actor)
+            if is_horizon_model and result.classification is ChangeClass.SHADOW_REQUIRED:
+                # The adapter was checked and captured before approval.
+                # ChangeManager classification is unchanged by approve().
+                detail = horizon_lifecycle.record_shadow_stage(component)
+                self.record_stage(
+                    change_id,
+                    stage="shadow",
+                    passed=True,
+                    detail=detail,
+                    actor=system_actor,
+                )
+                return self.execute(change_id, system_actor)
+            if result.classification not in STAGE_FOR:
+                return self.execute(change_id, actor)
+            return result
+
+        if verb == "execute":
+            return self.execute(change_id, actor)
+
+        if verb == "promote":
+            current = self.get(change_id)
+            component = self._registry.find(current.request.component_id)
+            if component is None:
+                raise ChangeError(f"unknown component {current.request.component_id}")
+            is_horizon_model = component.version.configuration.get("horizon_id") is not None
+            horizon_lifecycle = self._horizon_models
+            if is_horizon_model and horizon_lifecycle is None:
+                raise RuntimeLifecycleUnavailableError("horizon model lifecycle is unavailable")
+            result = (
+                current
+                if is_horizon_model and current.status is ChangeStatus.PROMOTED
+                else self.promote(change_id, actor)
+            )
+            if result.status is ChangeStatus.PROMOTED and is_horizon_model:
+                # The adapter was checked before promote() could mutate state.
+                horizon_lifecycle.complete_promotion(component)
+            return result
+
+        if verb == "rollback":
+            return self.rollback(change_id, actor, reason or "operator rollback")
+        if verb == "cancel":
+            return self.cancel(change_id, actor)
+        raise ChangeError(f"unknown decision {verb!r}")
 
     def rollback(self, change_id: str, actor: Actor, reason: str) -> ChangeRecord:
         with self._lock:

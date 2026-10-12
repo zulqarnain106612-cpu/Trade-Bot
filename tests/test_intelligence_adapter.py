@@ -26,7 +26,7 @@ class TestIntelligenceAdapter:
         self._run(adapter.on_bar("BTC/USDT", "1h", 1000, {"close": 50000.0, "volume": 10.0}))
         storage.store_intelligence_features.assert_not_called()
 
-    def test_on_bar_with_signal_calls_storage(self) -> None:
+    def test_on_bar_persists_supported_v6_decision(self) -> None:
         from src.intel import IntelSignal
 
         sig = IntelSignal(
@@ -43,7 +43,10 @@ class TestIntelligenceAdapter:
         )
         adapter, _intel, storage = self._make_adapter(signal=sig)
         self._run(adapter.on_bar("BTC/USDT", "1h", 1000, {"close": 50000.0, "volume": 10.0}))
-        storage.store_intelligence_features.assert_called_once()
+        storage.store_intelligence_features.assert_awaited_once()
+        fields = storage.store_intelligence_features.await_args.kwargs["features"]
+        assert fields["direction_v6"] == 1.0
+        assert fields["horizon_idx_v6"] == 2.0
 
     def test_on_bar_intel_exception_does_not_crash(self) -> None:
         from src.intelligence.intelligence_adapter import IntelligenceAdapter
@@ -54,6 +57,21 @@ class TestIntelligenceAdapter:
         storage.store_intelligence_features = AsyncMock()
 
         adapter = IntelligenceAdapter(intel, storage)
+        self._run(adapter.on_bar("BTC/USDT", "1h", 1000, {"close": 50000.0, "volume": 10.0}))
+        storage.store_intelligence_features.assert_not_called()
+
+    def test_on_bar_unsupported_signal_feature_contract_skips_storage(self) -> None:
+        signal = MagicMock()
+        signal.direction = "not-a-number"
+        signal.size_pct = 0.02
+        signal.confidence = 0.75
+        signal.horizon_idx = 2
+        signal.ecc_anomaly = 0.3
+        signal.conflict = False
+        signal.regime_id = 1
+        signal.meta = {}
+
+        adapter, _intel, storage = self._make_adapter(signal=signal)
         self._run(adapter.on_bar("BTC/USDT", "1h", 1000, {"close": 50000.0, "volume": 10.0}))
         storage.store_intelligence_features.assert_not_called()
 
@@ -76,7 +94,7 @@ class TestIntelligenceAdapter:
         self._run(adapter.on_bar("BTC/USDT", "1h", 1000, {"close": 50000.0, "volume": 10.0}))
         # Should log warning but not raise
 
-    def test_signal_to_features_returns_floats(self) -> None:
+    def test_signal_to_features_maps_complete_v6_contract(self) -> None:
         from src.intel import IntelSignal
         from src.intelligence.intelligence_adapter import IntelligenceAdapter
 
@@ -96,33 +114,73 @@ class TestIntelligenceAdapter:
         storage = MagicMock()
         adapter = IntelligenceAdapter(intel, storage)
         features = adapter._signal_to_features(sig)
-        assert isinstance(features, dict)
-        for k, v in features.items():
-            assert isinstance(v, float), f"{k}={v!r} is not float"
+        assert features["direction_v6"] == -1.0
+        assert features["size_pct_v6"] == 0.01
+        assert features["confidence_v6"] == 0.72
+        assert features["horizon_idx_v6"] == 5.0
+        assert features["conflict_v6"] == 1.0
+        assert features["algo_v6"] == "TWAP"
+        assert features["horizon_contributions_v6"] == "{}"
 
-    def test_signal_to_features_algo_flags(self) -> None:
-        from src.intel import IntelSignal
-        from src.intelligence.intelligence_adapter import IntelligenceAdapter
+    def test_v6_storage_round_trip_and_unknown_column_rejection(self) -> None:
+        import pandas as pd
 
-        intel = MagicMock()
-        storage = MagicMock()
-        adapter = IntelligenceAdapter(intel, storage)
+        from src.data.storage import StorageBackend
 
-        for algo, flag_key in [
-            ("IOC", "algo_ioc_v6"),
-            ("iceberg", "algo_iceberg_v6"),
-            ("TWAP", "algo_twap_v6"),
-        ]:
-            sig = IntelSignal(
-                symbol="BTC/USDT",
-                direction=1,
-                size_pct=0.01,
-                confidence=0.7,
-                horizon_idx=0,
-                algo=algo,
-                ecc_anomaly=0.0,
-                conflict=False,
-                regime_id=0,
-            )
-            features = adapter._signal_to_features(sig)
-            assert features.get(flag_key) == 1.0, f"{algo}: expected {flag_key}=1.0"
+        async def exercise_storage_lifecycle() -> None:
+            storage = StorageBackend(db_path=":memory:")
+            try:
+                await storage.initialize()
+                features = {
+                    "direction_v6": -1.0,
+                    "size_pct_v6": 0.01,
+                    "confidence_v6": 0.72,
+                    "horizon_idx_v6": 5.0,
+                    "ecc_anomaly_v6": None,
+                    "conflict_v6": 1.0,
+                    "regime_id_v6": 2.0,
+                    "agreement_ratio_v6": 0.6,
+                    "kyle_lambda_v6": 0.002,
+                    "ofi_v6": -0.3,
+                    "vpin_v6": 0.5,
+                    "expected_return_v6": 0.02,
+                    "uncertainty_v6": 0.01,
+                    "algo_v6": "TWAP",
+                    "horizon_contributions_v6": '{"5":1.0}',
+                    "model_versions_v6": '{"5":"v1"}',
+                    "freshness_seconds_v6": '{"5":0.2}',
+                }
+                await storage.store_intelligence_features(
+                    "BTC/USDT", "1h", 1000, features, confidence=0.72, source="test"
+                )
+                rows = await storage.fetch_intelligence_features("BTC/USDT", "1h")
+                assert rows.loc[1000, "direction_v6"] == -1
+                assert rows.loc[1000, "size_pct_v6"] == 0.01
+                assert rows.loc[1000, "horizon_idx_v6"] == 5
+                assert pd.isna(rows.loc[1000, "ecc_anomaly_v6"])
+                assert rows.loc[1000, "algo_v6"] == "TWAP"
+                assert rows.loc[1000, "horizon_contributions_v6"] == '{"5":1.0}'
+            finally:
+                await storage.close()
+
+            unknown_column_storage = StorageBackend(db_path=":memory:")
+            try:
+                await unknown_column_storage.initialize()
+                try:
+                    await unknown_column_storage.store_intelligence_features(
+                        "BTC/USDT",
+                        "1h",
+                        1000,
+                        {"direction_v6": 1.0, "unknown": 3.0},
+                        confidence=0.7,
+                    )
+                except ValueError as exc:
+                    assert "unsupported intelligence feature columns" in str(exc)
+                else:
+                    raise AssertionError(
+                        "unknown feature names must not be silently stored as NULL"
+                    )
+            finally:
+                await unknown_column_storage.close()
+
+        self._run(exercise_storage_lifecycle())

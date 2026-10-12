@@ -69,15 +69,21 @@ def _cycle(
 
 
 class TestFeatureContract:
-    def test_result_always_carries_every_declared_key(self) -> None:
-        assert set(_cycle()) == set(_ECC_NEUTRAL_FEATURES)
+    def test_result_always_carries_every_declared_key_and_freshness_metadata(self) -> None:
+        result = _cycle()
+        assert set(_ECC_NEUTRAL_FEATURES) <= set(result)
+        assert result["_observed_at"] > 0
+        assert set(result["_validity"]) == {"cluster", "zksnark", "utxo", "taproot", "ecdsa"}
 
-    def test_total_failure_still_returns_the_neutral_set(self) -> None:
+    def test_total_failure_preserves_neutral_values_and_provider_validity(self) -> None:
         result = _cycle(
             clusterer=MagicMock(**{"run.side_effect": RuntimeError("node down")}),
             zk_detector=MagicMock(**{"detect_mixing_flows.side_effect": RuntimeError("eth down")}),
         )
-        assert result == _ECC_NEUTRAL_FEATURES
+        assert {key: result[key] for key in _ECC_NEUTRAL_FEATURES} == _ECC_NEUTRAL_FEATURES
+        assert result["_observed_at"] > 0
+        assert result["_validity"]["cluster"] is False
+        assert result["_validity"]["zksnark"] is False
 
     def test_cluster_and_zksnark_features_are_reported(self) -> None:
         result = _cycle()
@@ -173,6 +179,18 @@ class TestUTXOCurve:
         assert result["hodler_index"] == 0.0
         assert result["mean_age_days"] == 0.0
 
+    def test_utxo_curve_failure_keeps_neutral_values_and_invalidity(self) -> None:
+        utxos = [_utxo(500)]
+        clusterer = MagicMock(**{"run.return_value": _cluster_result(utxos)})
+        with patch(
+            "src.ecc.utxo_curve.compute_hodler_index",
+            side_effect=RuntimeError("curve unavailable"),
+        ):
+            result = _cycle(clusterer=clusterer)
+        assert result["hodler_index"] == 0.0
+        assert result["mean_age_days"] == 0.0
+        assert result["_validity"]["utxo"] is False
+
 
 class TestUTXOAgeConversion:
     def test_confirmations_become_a_creation_timestamp(self) -> None:
@@ -218,6 +236,18 @@ class TestECDSAScan:
         result = _cycle(ecdsa_scanner=scanner, transactions=[{"hex": "00"}])
         assert result["cluster_flow_score"] == 0.5
         assert result["ecdsa_weaknesses"] == 0
+
+
+class TestTaprootFailure:
+    def test_parser_failure_preserves_neutral_taproot_features(self) -> None:
+        with patch(
+            "src.ecc.schnorr_taproot.parse_taproot_block",
+            side_effect=RuntimeError("malformed block"),
+        ):
+            result = _cycle(transactions=[{"txid": "a", "hex": "00"}])
+        assert result["musig2_count"] == 0
+        assert result["p2tr_input_count"] == 0
+        assert result["_validity"]["taproot"] is False
 
 
 class TestBlockFetch:

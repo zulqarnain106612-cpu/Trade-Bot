@@ -677,6 +677,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 _intel.start()
                 _state.intel_adapter = IntelligenceAdapter(_intel, _state.storage)
                 _state.crypto_intel = _intel
+                _state.orchestrator.set_intelligence_adapter(_state.intel_adapter)
                 log.info("api.crypto_intel_v6_started")
             except Exception as _exc:
                 log.warning("api.crypto_intel_v6_start_failed", exc=str(_exc))
@@ -2807,11 +2808,16 @@ async def horizons() -> dict[str, Any]:
         # Report the term structure from config alone — no engine needed.
         from src.intel import sorted_horizon_entries
 
+        entries = sorted_horizon_entries()
+        for entry in entries:
+            entry["status"] = "DISABLED"
+            entry["model_status"] = "DISABLED"
+            entry["error"] = "INTEL_ENABLED is false or startup did not complete"
         return {
             "enabled": False,
             "symbol": None,
             "last_update_ts": None,
-            "horizons": sorted_horizon_entries(),
+            "horizons": entries,
         }
 
     return {
@@ -2819,6 +2825,9 @@ async def horizons() -> dict[str, Any]:
         "symbol": intel.last_horizon_symbol,
         "last_update_ts": intel.last_horizon_ts,
         "horizons": intel.horizon_status(),
+        "decision": intel.last_decision,
+        "learning": intel.learning_status,
+        "scheduler": intel.worker_pool.health_snapshot(),
     }
 
 
@@ -3741,6 +3750,9 @@ async def start_runtime_platform() -> RuntimePlatform | None:
     """
     try:
         sources = runtime_sources()
+        from src.runtime.horizon_models import HorizonModelRuntime
+
+        sources.horizon_models = HorizonModelRuntime(sources.intel)
         platform = build_runtime_platform(
             bus=get_event_bus(),
             discoveries=production_discoveries(sources),
@@ -3748,6 +3760,7 @@ async def start_runtime_platform() -> RuntimePlatform | None:
             trail=get_audit_trail(),
             desired_backend=_state.storage,
             audit_backend=_state.storage,
+            horizon_models=sources.horizon_models,
         )
         for problem in await platform.restore():
             log.warning("api.runtime_desired_state_unusable", problem=problem)

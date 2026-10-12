@@ -315,21 +315,11 @@ class TestTheSkillAppliesWithoutBeingInvoked:
         for tool in ("Write", "Edit"):
             assert any(tool in m for m in matchers), f"{tool} is not matched"
 
-    def test_the_hook_blocks_a_registry_that_breaks_the_contract(self, tmp_path):
-        # Driven through the hook's real stdin contract rather than by calling
-        # an internal function, because the contract is the thing that has to
-        # keep working.
-        broken = json.loads((REPO / "config" / "quality_registry.json").read_text())
-        broken["entries"][0]["status"] = "verified"
-        broken["entries"][0].pop("verification", None)
-
-        event = {"tool_name": "Edit", "tool_input": {"file_path": str(tmp_path / "x.json")}}
-        # Point the hook at a copy of the repo is overkill; instead assert the
-        # gate the hook depends on reports the failure, which is what the hook
-        # forwards.
-        schema = json.loads((REPO / "config" / "quality_registry.schema.json").read_text())
-        assert not Draft7Validator(schema).is_valid(broken)
-        assert event["tool_name"] in {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+    def test_the_hook_does_not_run_local_quality_gates(self):
+        source = HOOK.read_text(encoding="utf-8")
+        assert "_run_gate" not in source
+        assert "subprocess" not in source
+        assert "qe_gate.py" not in source
 
     def test_the_hook_ignores_files_outside_the_project(self):
         result = subprocess.run(
