@@ -98,6 +98,13 @@ vi.mock('../src/hooks/useApi.js', () => {
 vi.mock('../src/terminal/TerminalContext.jsx', async () => {
   const ReactModule = await import('react');
   const Context = ReactModule.createContext(null);
+  const fakeClient = {
+    request: async () => ({}),
+    on: () => () => {},
+    send: () => {},
+    attach: () => {},
+    detach: () => {},
+  };
   const now = Date.now() / 1000;
   const activeProcess = {
     id: 'process-running-1',
@@ -144,8 +151,18 @@ vi.mock('../src/terminal/TerminalContext.jsx', async () => {
     });
     const value = {
       state,
-      client: { request: async () => ({}) },
-      createSession: async () => ({ id: 'session-1', name: 'Test terminal', state: 'running' }),
+      client: fakeClient,
+      createSession: async () => {
+        const session = { id: 'session-1', name: 'Test terminal', state: 'running' };
+        setState((current) => ({
+          ...current,
+          sessions: { ...current.sessions, [session.id]: session },
+          order: [...current.order, session.id],
+          selected: session.id,
+          dockOpen: true,
+        }));
+        return session;
+      },
       closeSession: async () => {},
       renameSession: async () => {},
       selectSession: () => {},
@@ -165,11 +182,28 @@ vi.mock('../src/terminal/TerminalContext.jsx', async () => {
         consoleProcess: entry.id,
         centerOpen: true,
       })),
-      killProcess: async () => {},
-      showConsole: (id) => setState((current) => ({ ...current, consoleProcess: id })),
-      fetchProcessOutput: async () => ({
-        process: { ...failedProcess, output: btoa('completed with fixture failure\\n') },
+      killProcess: async (id, signal) => setState((current) => {
+        const process = current.active[id];
+        if (!process) return current;
+        const stopped = {
+          ...process,
+          state: 'stopped',
+          signal,
+          ended_at: Date.now() / 1000,
+          exit_code: null,
+        };
+        const active = { ...current.active };
+        delete active[id];
+        return { ...current, active, history: [stopped, ...current.history] };
       }),
+      showConsole: (id) => setState((current) => ({ ...current, consoleProcess: id })),
+      fetchProcessOutput: ReactModule.useCallback(async (id) => {
+        const process = state.active[id] || state.history.find((entry) => entry.id === id) || failedProcess;
+        const output = process.id === failedProcess.id
+          ? 'completed with fixture failure\\n'
+          : `${process.title} process output\\n`;
+        return { process: { ...process, output: btoa(output) } };
+      }, [state.active, state.history]),
     };
     return ReactModule.createElement(Context.Provider, { value }, children);
   }
@@ -207,17 +241,91 @@ describe('dashboard in a real Chromium browser', () => {
     expect(window.scrollY).toBeGreaterThan(0);
   });
 
-  it('opens the process center and terminal dock with populated process state', () => {
+  it('inspects and stops a controlled process through the process center', async () => {
     render(<App />);
 
     fireEvent.click(screen.getByRole('button', { name: /Processes/ }));
     expect(screen.getByRole('complementary', { name: 'Processes' })).toBeTruthy();
-    expect(screen.getByRole('row', { name: /horizon-worker, running/ })).toBeTruthy();
+    const running = screen.getByRole('row', { name: /horizon-worker, running/ });
+    expect(running).toBeTruthy();
     expect(screen.getByText('completed-backfill')).toBeTruthy();
+
+    fireEvent.click(running);
+    await waitFor(() => {
+      expect(screen.getByLabelText('Process output').textContent).toContain('horizon-worker process output');
+    });
+    fireEvent.click(screen.getByRole('button', { name: '← Back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Terminate horizon-worker' }));
+    await waitFor(() => {
+      expect(screen.getByRole('row', { name: /horizon-worker, TERM/ })).toBeTruthy();
+    });
+    expect(screen.queryByRole('row', { name: /horizon-worker, running/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole('row', { name: /completed-backfill, exit 1/ }));
+    await waitFor(() => {
+      expect(screen.getByLabelText('Process output').textContent).toContain('completed with fixture failure');
+      expect(screen.getByText('fixture failure')).toBeTruthy();
+    });
+  });
+
+  it('starts a terminal session and resizes the dock in Chromium', async () => {
+    render(<App />);
 
     fireEvent.click(screen.getByRole('button', { name: /^Terminal/ }));
     expect(screen.getByRole('region', { name: 'Terminal' })).toBeTruthy();
     expect(screen.getByText('No sessions yet.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: /Test terminal/ })).toBeTruthy());
+
+    const resizer = screen.getByRole('separator', { name: 'Resize terminal' });
+    const before = Number(resizer.getAttribute('aria-valuenow'));
+    fireEvent.keyDown(resizer, { key: 'ArrowUp' });
+    await waitFor(() => expect(Number(resizer.getAttribute('aria-valuenow'))).toBe(before + 24));
+  });
+
+  it('resizes, navigates, and restores dashboard panels across a clean remount', async () => {
+    const view = render(<App />);
+    await waitFor(() => expect(localStorage.getItem(WORKSPACE_STORAGE_KEY)).toBeTruthy());
+
+    const grip = screen.getByRole('button', { name: 'Move or resize Positions' });
+    const initial = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY)).items.positions;
+    fireEvent.keyDown(grip, { key: 'ArrowDown', shiftKey: true });
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY)).items.positions;
+      expect(saved.h).toBeGreaterThan(initial.h);
+    });
+
+    const resized = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY)).items.positions;
+    fireEvent.keyDown(grip, { key: 'ArrowRight' });
+    await waitFor(() => {
+      const saved = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY)).items.positions;
+      expect(saved.x).toBeGreaterThan(resized.x);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Panels' }));
+    const manager = document.querySelector('[aria-label="Panel visibility and layout"]');
+    const hidePositions = [...manager.querySelectorAll('button')].find((button) => button.textContent.includes('Positions'));
+    expect(hidePositions).toBeTruthy();
+    fireEvent.click(hidePositions);
+    await waitFor(() => expect(document.querySelector('[data-ws-id="positions"]')).toBeNull());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide Manager' }));
+    fireEvent.click(screen.getByRole('button', { name: /hidden panel.*show/i }));
+    const restoreManager = document.querySelector('[aria-label="Panel visibility and layout"]');
+    const restorePositions = [...restoreManager.querySelectorAll('button')].find((button) => button.textContent.includes('Positions'));
+    expect(restorePositions).toBeTruthy();
+    fireEvent.click(restorePositions);
+    await waitFor(() => expect(document.querySelector('[data-ws-id="positions"]')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Hide Manager' }));
+
+    const beforeRemount = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY)).items.positions;
+    view.unmount();
+    render(<App />);
+    await waitFor(() => expect(document.querySelector('[data-ws-id="positions"]')).toBeTruthy());
+    const afterRemount = JSON.parse(localStorage.getItem(WORKSPACE_STORAGE_KEY)).items.positions;
+    expect(afterRemount.x).toBe(beforeRemount.x);
+    expect(afterRemount.w).toBe(beforeRemount.w);
+    expect(afterRemount.h).toBe(beforeRemount.h);
   });
 
   it('drags a real dashboard panel and persists the new grid placement', async () => {

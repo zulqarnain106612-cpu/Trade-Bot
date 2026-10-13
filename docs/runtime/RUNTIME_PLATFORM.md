@@ -276,3 +276,21 @@ The short preflight explicitly requires the 1m first tick; the 15m and 4h loops 
 A second controlled PAPER-mode run against runtime implementation commit `c307752a90837a614cbca725b2ff26b41650a13f` passed with a clean tracked worktree. It used isolated SQLite/model-artifact snapshots, blank exchange and optional-service credentials, loopback port `18181`, `live_orders_enabled=false`, and the unchanged 1,024 MiB critical limit. API bind/API readiness/Runtime Platform readiness were each 14.1 s; all 1m/15m/4h models were ready at 414.0 s; the first healthy 1m tick was 427.2 s; reconciliation passes were 84; peak process-tree RSS was 553.5 MiB; total elapsed was 431.5 s; shutdown exited 0 in 3.4 s without force. The effective XGBoost profile remained 300 estimators/depth 4/one worker and the configured 500/depth 6 values were unchanged.
 
 The preflight passed without a readiness failure or memory-limit breach. Only the 1m first tick was required and observed; the 15m/4h loop tick counters were still zero at the snapshot, so their first ticks are not claimed as verified. One public OKX instruments request exhausted retries without blocking readiness; OKX endpoint health remains unverified. The machine-generated summary also confirmed PAPER mode, no inherited exchange credentials, isolated storage, and live orders disabled.
+
+
+## Full-timeframe PAPER acceptance procedure
+
+The default preflight requires the first `1m` tick because a `15m` or `4h` loop deliberately waits for the next UTC-aligned bar close. To make an acceptance run account for every configured timeframe, run this command on the exact commit under review:
+
+```bash
+python3 scripts/startup_preflight.py \
+  --timeout 1800 \
+  --tick-timeout 15000 \
+  --require-tick 1m \
+  --require-tick 15m \
+  --require-tick 4h
+```
+
+This is an operational PAPER preflight, not a substitute for CI. It blanks exchange and optional-service credentials, disables live orders, snapshots configured storage/model artifacts into a disposable directory, and stops the API gracefully. The JSON report is SHA-bound and explicitly lists `required_timeframes`, `missing_required_timeframes`, each observed `first_tick_s`, API/runtime/model readiness, peak RSS, and shutdown status. A pass requires every requested tick and clean shutdown; a model-ready response alone does not count as a tick. The 4-hour first tick can require waiting for the next UTC-aligned 4-hour boundary after model warm-up, so the extended timeout is intentional. Repeat the command after the first process has fully exited to check clean-restart behavior; retain both reports with their source SHAs. Do not infer a pass from older measurements or a green frontend build.
+
+The Chromium dashboard suite separately exercises visible readiness, populated operational panels, whole-page scrolling, drag/drop persistence, keyboard resize/move, hide/restore navigation across a remount, terminal-session creation/resizing, and process-center inspect/terminate interactions. Its API and terminal provider are deterministic fixtures; it validates browser interactions, not a live API-to-terminal deployment. Backend readiness, process lifecycle, and graceful API shutdown remain covered by their owning Python tests and the isolated PAPER preflight.
