@@ -97,7 +97,9 @@ jobs:
         run: |
           for diagram in codebase-analysis-docs/assets/*.mmd; do
             output="${RUNNER_TEMP}/$(basename "${diagram%.mmd}").svg"
-            npx --yes @mermaid-js/mermaid-cli@11.4.2 --input "$diagram" --output "$output"
+            npx --yes @mermaid-js/mermaid-cli@11.4.2 \
+              --puppeteerConfigFile .github/mermaid-puppeteer-config.json \
+              --input "$diagram" --output "$output"
           done
 
       - name: Quality-engineering gates
