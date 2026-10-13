@@ -2,7 +2,7 @@
 
 **Purpose:** standalone architecture reference for engineers and code-generating LLMs changing this repository.  
 **Repository snapshot:** branch codex/adaptive-horizon-intelligence, commit 9128e3da8b9542efef5c89706b8f2e8f3512f054 (2026-10-12).  
-**Analysis date:** 2026-10-13. The source narrative and CHUNK_INDEX remain bound to the stated snapshot; FILE_INDEX metadata was refreshed against main HEAD 6232016c94db2025e9afddf4aa3e3e2331dc7b2f. The two source files changed between those snapshots are covered by a supplemental delta note in PHASE_2_SOURCE_AUDIT.md; stale chunk hashes must not be used as current anchors. This is source inspection, not a CI, live-exchange, deployment, or production-readiness certification.
+**Analysis date:** 2026-10-13. FILE_INDEX metadata was refreshed against main HEAD 6232016c94db2025e9afddf4aa3e3e2331dc7b2f. The CHUNK_INDEX section for `src/workers/orchestrator.py` was reconciled to that source snapshot, including the five-line insertion; other semantic anchors remain manually maintained and are checked for hash/range drift by `scripts/codebase_knowledge_index.py`. The two source files changed between the audited baseline and main are documented in PHASE_2_SOURCE_AUDIT.md. This is source inspection, not a CI, live-exchange, deployment, or production-readiness certification.
 
 ## How to use this document
 

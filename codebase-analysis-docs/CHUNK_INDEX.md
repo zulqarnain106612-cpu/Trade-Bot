@@ -1645,40 +1645,40 @@ SHA8 687738d8; total lines 138.
 
 ## src/workers/orchestrator.py
 
-SHA8 217c9114; total lines 800.
+SHA8 a2efe8f2; total lines 805.
 
-- WorkerTask (class, lines 42-54): CHUNK_ID = src/workers/orchestrator.py#42-54#217c9114 — [[F:src/workers/orchestrator.py#42-54#217c9114]].
-- WorkerResult (class, lines 58-88): CHUNK_ID = src/workers/orchestrator.py#58-88#217c9114 — [[F:src/workers/orchestrator.py#58-88#217c9114]].
-- _model_worker (function, lines 91-130): CHUNK_ID = src/workers/orchestrator.py#91-130#217c9114 — [[F:src/workers/orchestrator.py#91-130#217c9114]].
-- _run_horizon_inference (function, lines 133-170, slice 1): CHUNK_ID = src/workers/orchestrator.py#133-170#217c9114 — [[F:src/workers/orchestrator.py#133-170#217c9114]].
-- _run_horizon_inference (function, lines 171-208, slice 2): CHUNK_ID = src/workers/orchestrator.py#171-208#217c9114 — [[F:src/workers/orchestrator.py#171-208#217c9114]].
-- _run_horizon_inference (function, lines 209-246, slice 3): CHUNK_ID = src/workers/orchestrator.py#209-246#217c9114 — [[F:src/workers/orchestrator.py#209-246#217c9114]].
-- _run_horizon_inference (function, lines 247-284, slice 4): CHUNK_ID = src/workers/orchestrator.py#247-284#217c9114 — [[F:src/workers/orchestrator.py#247-284#217c9114]].
-- _run_horizon_inference (function, lines 285-322, slice 5): CHUNK_ID = src/workers/orchestrator.py#285-322#217c9114 — [[F:src/workers/orchestrator.py#285-322#217c9114]].
-- _run_horizon_inference (function, lines 323-360, slice 6): CHUNK_ID = src/workers/orchestrator.py#323-360#217c9114 — [[F:src/workers/orchestrator.py#323-360#217c9114]].
-- _run_horizon_inference (function, lines 361-392, slice 7): CHUNK_ID = src/workers/orchestrator.py#361-392#217c9114 — [[F:src/workers/orchestrator.py#361-392#217c9114]].
-- _utxos_with_ages (function, lines 434-451): CHUNK_ID = src/workers/orchestrator.py#434-451#217c9114 — [[F:src/workers/orchestrator.py#434-451#217c9114]].
-- _fetch_recent_block_transactions (function, lines 454-482): CHUNK_ID = src/workers/orchestrator.py#454-482#217c9114 — [[F:src/workers/orchestrator.py#454-482#217c9114]].
-- _ecc_worker (function, lines 485-523): CHUNK_ID = src/workers/orchestrator.py#485-523#217c9114 — [[F:src/workers/orchestrator.py#485-523#217c9114]].
-- _run_ecc_cycle (function, lines 526-563, slice 1): CHUNK_ID = src/workers/orchestrator.py#526-563#217c9114 — [[F:src/workers/orchestrator.py#526-563#217c9114]].
-- _run_ecc_cycle (function, lines 564-601, slice 2): CHUNK_ID = src/workers/orchestrator.py#564-601#217c9114 — [[F:src/workers/orchestrator.py#564-601#217c9114]].
-- _run_ecc_cycle (function, lines 602-637, slice 3): CHUNK_ID = src/workers/orchestrator.py#602-637#217c9114 — [[F:src/workers/orchestrator.py#602-637#217c9114]].
-- WorkerOrchestrator (class, lines 640-677, slice 1): CHUNK_ID = src/workers/orchestrator.py#640-677#217c9114 — [[F:src/workers/orchestrator.py#640-677#217c9114]].
-- WorkerOrchestrator (class, lines 678-715, slice 2): CHUNK_ID = src/workers/orchestrator.py#678-715#217c9114 — [[F:src/workers/orchestrator.py#678-715#217c9114]].
-- WorkerOrchestrator (class, lines 716-753, slice 3): CHUNK_ID = src/workers/orchestrator.py#716-753#217c9114 — [[F:src/workers/orchestrator.py#716-753#217c9114]].
-- WorkerOrchestrator (class, lines 754-791, slice 4): CHUNK_ID = src/workers/orchestrator.py#754-791#217c9114 — [[F:src/workers/orchestrator.py#754-791#217c9114]].
-- WorkerOrchestrator (class, lines 792-800, slice 5): CHUNK_ID = src/workers/orchestrator.py#792-800#217c9114 — [[F:src/workers/orchestrator.py#792-800#217c9114]].
-- WorkerOrchestrator.__init__ (method, lines 653-675): CHUNK_ID = src/workers/orchestrator.py#653-675#217c9114 — [[F:src/workers/orchestrator.py#653-675#217c9114]].
-- WorkerOrchestrator.start (method, lines 677-683): CHUNK_ID = src/workers/orchestrator.py#677-683#217c9114 — [[F:src/workers/orchestrator.py#677-683#217c9114]].
-- WorkerOrchestrator._spawn (method, lines 685-709): CHUNK_ID = src/workers/orchestrator.py#685-709#217c9114 — [[F:src/workers/orchestrator.py#685-709#217c9114]].
-- WorkerOrchestrator._pin_cpu (method, lines 711-719): CHUNK_ID = src/workers/orchestrator.py#711-719#217c9114 — [[F:src/workers/orchestrator.py#711-719#217c9114]].
-- WorkerOrchestrator.submit (method, lines 721-739): CHUNK_ID = src/workers/orchestrator.py#721-739#217c9114 — [[F:src/workers/orchestrator.py#721-739#217c9114]].
-- WorkerOrchestrator.collect (method, lines 741-746): CHUNK_ID = src/workers/orchestrator.py#741-746#217c9114 — [[F:src/workers/orchestrator.py#741-746#217c9114]].
-- WorkerOrchestrator.scale (method, lines 748-760): CHUNK_ID = src/workers/orchestrator.py#748-760#217c9114 — [[F:src/workers/orchestrator.py#748-760#217c9114]].
-- WorkerOrchestrator.shutdown (method, lines 762-772): CHUNK_ID = src/workers/orchestrator.py#762-772#217c9114 — [[F:src/workers/orchestrator.py#762-772#217c9114]].
-- WorkerOrchestrator.worker_count (method, lines 775-776): CHUNK_ID = src/workers/orchestrator.py#775-776#217c9114 — [[F:src/workers/orchestrator.py#775-776#217c9114]].
-- WorkerOrchestrator.dropped_tasks (method, lines 779-780): CHUNK_ID = src/workers/orchestrator.py#779-780#217c9114 — [[F:src/workers/orchestrator.py#779-780#217c9114]].
-- WorkerOrchestrator.health_snapshot (method, lines 782-800): CHUNK_ID = src/workers/orchestrator.py#782-800#217c9114 — [[F:src/workers/orchestrator.py#782-800#217c9114]].
+- WorkerTask (class, lines 42-54): CHUNK_ID = src/workers/orchestrator.py#42-54#a2efe8f2 — [[F:src/workers/orchestrator.py#42-54#a2efe8f2]].
+- WorkerResult (class, lines 58-88): CHUNK_ID = src/workers/orchestrator.py#58-88#a2efe8f2 — [[F:src/workers/orchestrator.py#58-88#a2efe8f2]].
+- _model_worker (function, lines 96-135): CHUNK_ID = src/workers/orchestrator.py#96-135#a2efe8f2 — [[F:src/workers/orchestrator.py#96-135#a2efe8f2]].
+- _run_horizon_inference (function, lines 138-175, slice 1): CHUNK_ID = src/workers/orchestrator.py#138-175#a2efe8f2 — [[F:src/workers/orchestrator.py#138-175#a2efe8f2]].
+- _run_horizon_inference (function, lines 176-213, slice 2): CHUNK_ID = src/workers/orchestrator.py#176-213#a2efe8f2 — [[F:src/workers/orchestrator.py#176-213#a2efe8f2]].
+- _run_horizon_inference (function, lines 214-251, slice 3): CHUNK_ID = src/workers/orchestrator.py#214-251#a2efe8f2 — [[F:src/workers/orchestrator.py#214-251#a2efe8f2]].
+- _run_horizon_inference (function, lines 252-289, slice 4): CHUNK_ID = src/workers/orchestrator.py#252-289#a2efe8f2 — [[F:src/workers/orchestrator.py#252-289#a2efe8f2]].
+- _run_horizon_inference (function, lines 290-327, slice 5): CHUNK_ID = src/workers/orchestrator.py#290-327#a2efe8f2 — [[F:src/workers/orchestrator.py#290-327#a2efe8f2]].
+- _run_horizon_inference (function, lines 328-365, slice 6): CHUNK_ID = src/workers/orchestrator.py#328-365#a2efe8f2 — [[F:src/workers/orchestrator.py#328-365#a2efe8f2]].
+- _run_horizon_inference (function, lines 366-397, slice 7): CHUNK_ID = src/workers/orchestrator.py#366-397#a2efe8f2 — [[F:src/workers/orchestrator.py#366-397#a2efe8f2]].
+- _utxos_with_ages (function, lines 439-456): CHUNK_ID = src/workers/orchestrator.py#439-456#a2efe8f2 — [[F:src/workers/orchestrator.py#439-456#a2efe8f2]].
+- _fetch_recent_block_transactions (function, lines 459-487): CHUNK_ID = src/workers/orchestrator.py#459-487#a2efe8f2 — [[F:src/workers/orchestrator.py#459-487#a2efe8f2]].
+- _ecc_worker (function, lines 490-528): CHUNK_ID = src/workers/orchestrator.py#490-528#a2efe8f2 — [[F:src/workers/orchestrator.py#490-528#a2efe8f2]].
+- _run_ecc_cycle (function, lines 531-568, slice 1): CHUNK_ID = src/workers/orchestrator.py#531-568#a2efe8f2 — [[F:src/workers/orchestrator.py#531-568#a2efe8f2]].
+- _run_ecc_cycle (function, lines 569-606, slice 2): CHUNK_ID = src/workers/orchestrator.py#569-606#a2efe8f2 — [[F:src/workers/orchestrator.py#569-606#a2efe8f2]].
+- _run_ecc_cycle (function, lines 607-642, slice 3): CHUNK_ID = src/workers/orchestrator.py#607-642#a2efe8f2 — [[F:src/workers/orchestrator.py#607-642#a2efe8f2]].
+- WorkerOrchestrator (class, lines 645-682, slice 1): CHUNK_ID = src/workers/orchestrator.py#645-682#a2efe8f2 — [[F:src/workers/orchestrator.py#645-682#a2efe8f2]].
+- WorkerOrchestrator (class, lines 683-720, slice 2): CHUNK_ID = src/workers/orchestrator.py#683-720#a2efe8f2 — [[F:src/workers/orchestrator.py#683-720#a2efe8f2]].
+- WorkerOrchestrator (class, lines 721-758, slice 3): CHUNK_ID = src/workers/orchestrator.py#721-758#a2efe8f2 — [[F:src/workers/orchestrator.py#721-758#a2efe8f2]].
+- WorkerOrchestrator (class, lines 759-796, slice 4): CHUNK_ID = src/workers/orchestrator.py#759-796#a2efe8f2 — [[F:src/workers/orchestrator.py#759-796#a2efe8f2]].
+- WorkerOrchestrator (class, lines 797-805, slice 5): CHUNK_ID = src/workers/orchestrator.py#797-805#a2efe8f2 — [[F:src/workers/orchestrator.py#797-805#a2efe8f2]].
+- WorkerOrchestrator.__init__ (method, lines 658-680): CHUNK_ID = src/workers/orchestrator.py#658-680#a2efe8f2 — [[F:src/workers/orchestrator.py#658-680#a2efe8f2]].
+- WorkerOrchestrator.start (method, lines 682-688): CHUNK_ID = src/workers/orchestrator.py#682-688#a2efe8f2 — [[F:src/workers/orchestrator.py#682-688#a2efe8f2]].
+- WorkerOrchestrator._spawn (method, lines 690-714): CHUNK_ID = src/workers/orchestrator.py#690-714#a2efe8f2 — [[F:src/workers/orchestrator.py#690-714#a2efe8f2]].
+- WorkerOrchestrator._pin_cpu (method, lines 716-724): CHUNK_ID = src/workers/orchestrator.py#716-724#a2efe8f2 — [[F:src/workers/orchestrator.py#716-724#a2efe8f2]].
+- WorkerOrchestrator.submit (method, lines 726-744): CHUNK_ID = src/workers/orchestrator.py#726-744#a2efe8f2 — [[F:src/workers/orchestrator.py#726-744#a2efe8f2]].
+- WorkerOrchestrator.collect (method, lines 746-751): CHUNK_ID = src/workers/orchestrator.py#746-751#a2efe8f2 — [[F:src/workers/orchestrator.py#746-751#a2efe8f2]].
+- WorkerOrchestrator.scale (method, lines 753-765): CHUNK_ID = src/workers/orchestrator.py#753-765#a2efe8f2 — [[F:src/workers/orchestrator.py#753-765#a2efe8f2]].
+- WorkerOrchestrator.shutdown (method, lines 767-777): CHUNK_ID = src/workers/orchestrator.py#767-777#a2efe8f2 — [[F:src/workers/orchestrator.py#767-777#a2efe8f2]].
+- WorkerOrchestrator.worker_count (method, lines 780-781): CHUNK_ID = src/workers/orchestrator.py#780-781#a2efe8f2 — [[F:src/workers/orchestrator.py#780-781#a2efe8f2]].
+- WorkerOrchestrator.dropped_tasks (method, lines 784-785): CHUNK_ID = src/workers/orchestrator.py#784-785#a2efe8f2 — [[F:src/workers/orchestrator.py#784-785#a2efe8f2]].
+- WorkerOrchestrator.health_snapshot (method, lines 787-805): CHUNK_ID = src/workers/orchestrator.py#787-805#a2efe8f2 — [[F:src/workers/orchestrator.py#787-805#a2efe8f2]].
 
 ## src/intelligence/client.py
 
