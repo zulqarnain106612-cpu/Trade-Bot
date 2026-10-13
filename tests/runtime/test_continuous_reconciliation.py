@@ -238,7 +238,9 @@ def test_resolved_mismatch_clears_stale_alert_state() -> None:
     reconciler.reconcile_once(suppress_repeats=True)
     assert "worker:w" in reconciler._alerted
 
-    observed = p.registry.get("worker:w").state
-    p.changes.request_desired("worker:w", observed, REQUESTER, "restore observed state")
+    # FAILED is an outcome, not a valid desired target. Simulate adapter recovery
+    # to the last known ACTIVE state before aligning desired state with observation.
+    p.registry.observe("worker:w", S.ACTIVE, actor="test-recovery")
+    p.changes.request_desired("worker:w", S.ACTIVE, REQUESTER, "restore observed state")
     assert reconciler.reconcile_once(suppress_repeats=True) == []
     assert "worker:w" not in reconciler._alerted
