@@ -1,0 +1,70 @@
+flowchart TB
+  operator["Operator / dashboard / host CLI"]
+  subgraph Presentation["Presentation and control surface"]
+    react["React + Vite dashboard"]
+    electron["Electron main / narrow preload IPC"]
+    terminalui["Terminal dock and process center"]
+    api["FastAPI REST + WebSocket"]
+  end
+  subgraph TradingRuntime["Authoritative trading runtime: src/engine"]
+    life["FastAPI lifespan startup and cleanup"]
+    orch["Orchestrator"]
+    loop["1m / 15m / 4h timeframe loops"]
+    fetcher["MarketDataFetcher: Binance + OKX via CCXT"]
+    signal["SignalEngine per symbol/timeframe"]
+    features["Feature pipeline and data-quality gate"]
+    hmm["GaussianHMM / regime and changepoint"]
+    models["XGBoost direction + meta-label models"]
+    risk["Sequential risk gates + position sizing"]
+    exec{"Trading mode"}
+    paper["Paper executor"]
+    live["Live executor (only with live gate)"]
+    fsm["OrderFSM / OrderManager / idempotency"]
+    ledger["Unified cross-venue ledger"]
+    db[("StorageBackend: SQLite or TimescaleDB")]
+  end
+  subgraph CrossCutting["Cross-cutting services"]
+    bus["Async event bus"]
+    diag["Audit trail / decision traces / drift / health / metrics"]
+    runtime["RuntimePlatform: registry, controllers, desired-state reconcile"]
+    tune["Optional self-tuning scheduler: disabled by default, shadow by default"]
+  end
+  subgraph OptionalIntel["Optional intelligence and horizon subsystem"]
+    intel["Provider aggregation / CryptoIntelligence"]
+    horizons["h1-h10 model workers and ECC analytics"]
+  end
+  operator --> react
+  operator --> electron
+  react --> api
+  electron --> api
+  react --> terminalui
+  terminalui --> termdaemon["Separate per-user PTY terminal daemon"]
+  api --> life --> orch
+  orch --> loop
+  loop --> fetcher
+  fetcher <--> exchange["External venues / public market feeds"]
+  fetcher --> db
+  loop --> signal
+  signal --> features --> hmm
+  features --> models
+  signal --> risk
+  risk --> exec
+  exec --> paper
+  exec --> live
+  paper --> fsm
+  live --> fsm --> ledger
+  fsm --> db
+  ledger --> db
+  signal --> db
+  orch --> bus
+  fsm --> bus
+  bus --> diag
+  bus --> api
+  orch --> runtime
+  runtime --> bus
+  orch -. if enabled .-> tune
+  intel -. optional / INTEL_ENABLED .-> orch
+  horizons --> intel
+  intel --> features
+  api --> db
+  api --> diag

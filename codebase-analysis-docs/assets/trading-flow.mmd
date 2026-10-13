@@ -1,0 +1,30 @@
+sequenceDiagram
+  participant O as Orchestrator
+  participant F as MarketDataFetcher
+  participant S as StorageBackend
+  participant E as SignalEngine
+  participant Q as Feature / quality pipeline
+  participant M as HMM + XGBoost models
+  participant R as Risk gates / sizing
+  participant X as Paper or live executor
+  participant D as Audit / EventBus
+  O->>F: fetch or refresh OHLCV / order book
+  F->>S: persist bars
+  O->>E: tick(symbol, timeframe)
+  E->>S: load recent bars / metrics / outcomes
+  E->>Q: build aligned features and check data quality
+  Q-->>E: ordered, sufficiently fresh features or abstention
+  E->>M: regime + directional probability + meta-label
+  M-->>E: probabilities and regime snapshot
+  E->>R: candidate signal, costs, account/trade context
+  R-->>E: first failing gate OR permitted position size
+  E-->>O: SignalResult with reason and audit context
+  alt signal permitted
+    O->>X: submit order intent with execution mode policy
+    X-->>O: order state / fills / exchange rejection
+  else blocked or no signal
+    O->>S: record missed-trade / regime / decision where applicable
+  end
+  O->>D: decision, order, lifecycle and metric events
+  D-->>S: persisted audit/history where wired
+  D-->>O: event-driven listeners / WebSocket fanout
