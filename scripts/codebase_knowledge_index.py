@@ -172,8 +172,13 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
         old_count = match.group(4)
         count_text = str(count) if old_count not in {"—", "-"} else old_count
         refreshed_top.append(
-            match.group(1) + path_text + match.group(3) + count_text
-            + match.group(5) + digest + match.group(7)
+            match.group(1)
+            + path_text
+            + match.group(3)
+            + count_text
+            + match.group(5)
+            + digest
+            + match.group(7)
         )
 
     if issues:

@@ -94,6 +94,7 @@ def test_anchor_validation_reports_stale_hash_and_out_of_range(tmp_path: Path) -
     assert any("invalid CHUNK_INDEX.md anchor range" in issue for issue in issues)
     assert any("invalid CODEBASE_KNOWLEDGE.md anchor range" in issue for issue in issues)
 
+
 def test_api_reference_must_match_source_route_and_line() -> None:
     source = '@app.get("/status")\nasync def status():\n    return {"ok": True}\n'
     valid_reference = (
