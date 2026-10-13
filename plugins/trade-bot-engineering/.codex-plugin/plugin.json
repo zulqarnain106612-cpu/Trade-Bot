@@ -1,0 +1,42 @@
+{
+  "name": "trade-bot-engineering",
+  "version": "1.1.0",
+  "description": "Trade-Bot-specific engineering skills for design, implementation, root-cause debugging, code review/PR handling, safe SDK integration, parallel agent coordination, evaluation, and delivery.",
+  "author": {
+    "name": "Trade-Bot maintainers"
+  },
+  "homepage": "https://github.com/zulqarnain106612-cpu/Trade-Bot/blob/main/docs/agents/OPENAI_COOKBOOK_ADOPTION.md",
+  "repository": "https://github.com/zulqarnain106612-cpu/Trade-Bot",
+  "license": "MIT",
+  "keywords": [
+    "trade-bot",
+    "codex",
+    "openai-cookbook",
+    "engineering",
+    "debugging",
+    "parallel-agents",
+    "evaluation",
+    "sdk",
+    "ci"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Trade-Bot Engineering",
+    "shortDescription": "Evidence-first engineering, parallel agent coordination, debugging, evaluation, and SDK workflows",
+    "longDescription": "Project-aware skills for code design, editing, error handling, root-cause analysis, safe parallel agent/sub-agent work, quality policy, PR delivery, safe OpenAI SDK use, and repeatable evaluation. Includes read-only access to official OpenAI developer documentation.",
+    "developerName": "Trade-Bot maintainers",
+    "category": "Developer tools",
+    "capabilities": [
+      "Read"
+    ],
+    "websiteURL": "https://github.com/zulqarnain106612-cpu/Trade-Bot",
+    "defaultPrompt": [
+      "Inspect Trade-Bot repository state and develop an evidence-backed implementation plan.",
+      "Coordinate bounded parallel agents or sub-agents across independent Trade-Bot workstreams.",
+      "Find the root cause of a Trade-Bot failure and prepare a targeted, regression-tested fix.",
+      "Review a proposed Trade-Bot change for safety, quality, runtime, and PR-readiness gaps.",
+      "Apply Cookbook-inspired evaluation and safe SDK patterns without weakening trading controls."
+    ]
+  }
+}
