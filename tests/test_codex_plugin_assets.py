@@ -28,12 +28,8 @@ def test_codex_and_plugin_manifests_reference_existing_assets() -> None:
     assert (plugin_path / ".mcp.json").is_file()
     assert (plugin_path / "plugin.json").is_file()
     assert (plugin_path / "mcp.json").is_file()
-    manifest = json.loads(
-        (plugin_path / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
-    )
-    mcp_config = json.loads(
-        (plugin_path / ".mcp.json").read_text(encoding="utf-8")
-    )
+    manifest = json.loads((plugin_path / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))
+    mcp_config = json.loads((plugin_path / ".mcp.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "trade-bot-engineering"
     assert manifest["skills"] == "./skills/"
     assert manifest["mcpServers"] == "./.mcp.json"
