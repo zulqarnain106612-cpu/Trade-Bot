@@ -9,9 +9,9 @@ Before implementation, review CLAUDE.md and relevant repository-owned policies u
 1. Inspect the live checkout before acting: branch, HEAD, upstream, staged/unstaged/untracked files, active Git operations, relevant history, dependencies, tests, policies, and CI evidence available through approved summary channels.
 2. Establish current behavior, expected behavior, the evidence-backed gap, and root cause before implementation. Label facts, inferences, and unknowns distinctly. Do not treat prior-agent claims as proof.
 3. Preserve all pre-existing user changes and untracked files. Never reset, clean, stash, overwrite, delete, force-push, rebase, cherry-pick, merge, or change branch state without explicit authorization. Do not bundle unrelated work.
-4. Make the complete scoped fix; add regression tests that reproduce the failure and prove the behavior. Use the strongest repository-supported test environment and state any missing browser/runtime/CI evidence honestly.
+4. Make the complete scoped fix and add focused regression tests that express the intended behavior. Trade-Bot's policy prohibits executing tests, builds, lint/format/type/security checks, and quality gates locally; GitHub Actions is the sole execution path for them.
 5. Follow config/command_policy.json, observation-boundary rules, required hooks, architecture/security/math constraints, config/quality_registry.json, and coverage/per-file floors. Never bypass or weaken gates to obtain a green result.
-6. Before completion, inspect the final diff, validate generated files, run relevant focused tests and required local checks, check git diff --check, and verify the actual final HEAD/worktree/remote state. Do not claim tests, CI, runtime readiness, or a push succeeded unless output confirms it.
+6. Inspect the final diff and staged paths through bounded read-only review. After an authorized push, the only permitted CI diagnostic command is `python3 scripts/local_checks.py prepare`, which returns only the current HEAD's SHA-bound PR notice. Do not fetch workflow logs, job records, artifacts, annotations, check results, or run a watcher. Verify actual HEAD/worktree/remote state and report missing evidence honestly; never claim tests or CI passed without a permitted result.
 
 ## Trade-Bot safety invariants
 
@@ -21,9 +21,13 @@ Before implementation, review CLAUDE.md and relevant repository-owned policies u
 - Treat readiness as measured operational state, not a hard-coded healthy constant. Keep liveness, API readiness, runtime initialization/reconciliation, model readiness, and first-tick evidence distinct.
 - Keep secrets out of source, logs, prompts, commits, and test output. Use ignored local environment files and documented secret stores.
 
+## Agent skills and parallel work
+
+Use the relevant repository-local skill in `.agents/skills/` for implementation, root-cause debugging, code review/PR handling, OpenAI SDK integration, evaluation/optimization, and parallel agent/sub-agent work. Parallelize only independent tasks with explicit path ownership and evidence requirements. Keep concurrent writes in isolated worktrees; the coordinating agent owns integration, final review, and one coherent PR. Skills never override the repository safety, permission, or validation policies.
+
 ## Efficient context and output
 
-Prefer targeted searches and narrow file ranges. For command/test failures, return the shortest actionable summary with the failing assertion/error and relevant file/line; do not dump full logs or whole source files into agent context. Never run live CI watchers or retrieve bulk CI logs when repository policy prohibits it. Use the PR's designated compact CI failure-notice channel where required.
+Prefer targeted searches and narrow file ranges. For command/test failures, return the shortest actionable summary with the failing assertion/error and relevant file/line; do not dump full logs or whole source files into agent context. Never run live CI watchers or retrieve workflow logs, job records, artifacts, annotations, or check results. Use only the PR's designated compact CI failure-notice channel.
 
 ## Delivery
 
