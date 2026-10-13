@@ -337,7 +337,7 @@ jobs:
           retention-days: 14
 
   frontend:
-    name: Frontend (build)
+    name: Frontend (browser + build)
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -361,6 +361,14 @@ jobs:
         # runs before the build because a lifecycle defect the build cannot
         # see is exactly what these tests are for.
         run: npm test
+
+      - name: Install Chromium for browser E2E
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser E2E
+        working-directory: frontend
+        run: npm run test:browser
 
       - name: Build
         working-directory: frontend
