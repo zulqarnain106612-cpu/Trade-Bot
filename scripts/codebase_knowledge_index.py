@@ -56,7 +56,8 @@ def tracked_paths(root: Path = PROJECT_ROOT) -> set[str]:
     )
     if result.returncode:
         raise RuntimeError(
-            "git ls-files failed: " + result.stderr.decode("utf-8", errors="replace").strip()
+            "git ls-files failed: "
+            + result.stderr.decode("utf-8", errors="replace").strip()
         )
     # The knowledge pack is intentionally excluded even when its files are
     # committed: FILE_INDEX cannot contain a stable self-hash, and these
@@ -99,7 +100,7 @@ def _default_priority(path_text: str) -> str:
 
 
 def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[str]]:
-    """Rebuild tracked inventory metadata while preserving existing notes/priorities."""
+    """Rebuild tracked inventory metadata, preserving existing notes/priorities."""
     issues: list[str] = []
     lines = text.splitlines()
     try:
@@ -111,10 +112,16 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
     try:
         section_start = lines.index(complete_marker)
     except ValueError:
-        return text, ["FILE_INDEX.md is missing the Complete tracked-file index section"]
+        return text, [
+            "FILE_INDEX.md is missing the Complete tracked-file index section"
+        ]
 
     table_header_index = next(
-        (i for i in range(section_start + 1, len(lines)) if lines[i].startswith("| ---")),
+        (
+            i
+            for i in range(section_start + 1, len(lines))
+            if lines[i].startswith("| ---")
+        ),
         None,
     )
     if table_header_index is None:
@@ -135,7 +142,9 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
     for path_text in sorted(expected):
         path = root / path_text
         if not path.is_file():
-            issues.append(f"tracked path is missing from the working tree: {path_text}")
+            issues.append(
+                f"tracked path is missing from the working tree: {path_text}"
+            )
             continue
         digest, count = file_facts(path)
         priority, type_name, note = existing.get(
@@ -151,8 +160,13 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
     priority_order = {"P0": 0, "P1": 1, "P2": 2}
     rows.sort(key=lambda row: (priority_order.get(row[0], 3), row[1]))
     rendered_rows = [
-        f"| {i} | {priority} | {path_text} | {type_name} | {line_count} | {digest} | {note} |"
-        for i, (priority, path_text, type_name, line_count, digest, note) in enumerate(rows, 1)
+        (
+            f"| {i} | {priority} | {path_text} | {type_name} | {line_count} "
+            f"| {digest} | {note} |"
+        )
+        for i, (priority, path_text, type_name, line_count, digest, note) in enumerate(
+            rows, 1
+        )
     ]
 
     # Refresh metadata in the small reference table without changing its notes.
@@ -165,7 +179,9 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
         path_text = match.group(2).strip()
         path = root / path_text
         if not path.is_file():
-            issues.append(f"reference path is missing from the working tree: {path_text}")
+            issues.append(
+                f"reference path is missing from the working tree: {path_text}"
+            )
             refreshed_top.append(line)
             continue
         digest, count = file_facts(path)
@@ -183,7 +199,9 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
     result_lines = refreshed_top + header + rendered_rows
     totals = {
         "Tracked paths": len(rows),
-        "Python files": sum(1 for _, path_text, *_ in rows if path_text.endswith(".py")),
+        "Python files": sum(
+            1 for _, path_text, *_ in rows if path_text.endswith(".py")
+        ),
         "P0 anchors": sum(1 for priority, *_ in rows if priority == "P0"),
         "P1 files": sum(1 for priority, *_ in rows if priority == "P1"),
     }
@@ -231,7 +249,9 @@ def validate_anchors(text: str, root: Path = PROJECT_ROOT) -> list[str]:
         for path_text, start_text, end_text, digest in ANCHOR.findall(index_text):
             path = root / path_text
             if not path.is_file():
-                issues.append(f"{index_name} anchor references missing path: {path_text}")
+                issues.append(
+                    f"{index_name} anchor references missing path: {path_text}"
+                )
                 continue
             actual_digest, line_count = file_facts(path)
             start, end = int(start_text), int(end_text)
@@ -242,22 +262,34 @@ def validate_anchors(text: str, root: Path = PROJECT_ROOT) -> list[str]:
                 )
             if start < 1 or end < start or end > line_count:
                 issues.append(
-                    f"invalid {index_name} anchor range for {path_text}#{start}-{end}; "
+                    f"invalid {index_name} anchor range for "
+                    f"{path_text}#{start}-{end}; "
                     f"current lines={line_count}"
                 )
     return issues
 
 
 def validate_api_reference(source_text: str, reference_text: str) -> list[str]:
-    """Compare the API route inventory with AST-derived method/path/handler/line tuples."""
-    methods = {"get", "post", "put", "patch", "delete", "options", "head", "websocket"}
+    """Compare the API route inventory with AST-derived route tuples."""
+    methods = {
+        "get",
+        "post",
+        "put",
+        "patch",
+        "delete",
+        "options",
+        "head",
+        "websocket",
+    }
     tree = ast.parse(source_text)
     source_routes: list[tuple[str, str, str, int]] = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for decorator in node.decorator_list:
-            if not isinstance(decorator, ast.Call) or not isinstance(decorator.func, ast.Attribute):
+            if not isinstance(decorator, ast.Call) or not isinstance(
+                decorator.func, ast.Attribute
+            ):
                 continue
             if (
                 not isinstance(decorator.func.value, ast.Name)
@@ -268,8 +300,14 @@ def validate_api_reference(source_text: str, reference_text: str) -> list[str]:
                 or not isinstance(decorator.args[0].value, str)
             ):
                 continue
-            method = "WEBSOCKET" if decorator.func.attr == "websocket" else decorator.func.attr.upper()
-            source_routes.append((method, decorator.args[0].value, node.name, node.lineno))
+            method = (
+                "WEBSOCKET"
+                if decorator.func.attr == "websocket"
+                else decorator.func.attr.upper()
+            )
+            source_routes.append(
+                (method, decorator.args[0].value, node.name, node.lineno)
+            )
 
     all_routes_marker = "## All routes"
     if all_routes_marker not in reference_text:
@@ -279,7 +317,12 @@ def validate_api_reference(source_text: str, reference_text: str) -> list[str]:
         r"^\|\s*([A-Z]+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|"
     )
     documented_routes = [
-        (match.group(1), match.group(2).strip(), match.group(3).strip(), int(match.group(4)))
+        (
+            match.group(1),
+            match.group(2).strip(),
+            match.group(3).strip(),
+            int(match.group(4)),
+        )
         for line in route_section.splitlines()
         if (match := row_pattern.match(line))
     ]
@@ -311,7 +354,9 @@ def check(root: Path = PROJECT_ROOT) -> list[str]:
     )
     for path in required_paths:
         if not path.is_file():
-            issues.append(f"required knowledge artifact is missing: {path.relative_to(root)}")
+            issues.append(
+                f"required knowledge artifact is missing: {path.relative_to(root)}"
+            )
     if issues:
         return issues
 
@@ -335,11 +380,16 @@ def check(root: Path = PROJECT_ROOT) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group(required=True)
-    modes.add_argument("--check", action="store_true", help="validate index integrity without writes")
+    modes.add_argument(
+        "--check", action="store_true", help="validate index integrity without writes"
+    )
     modes.add_argument(
         "--refresh-file-index",
         action="store_true",
-        help="rebuild FILE_INDEX rows/totals while preserving notes; never rewrite semantic anchors",
+        help=(
+            "rebuild FILE_INDEX rows/totals while preserving notes; "
+            "never rewrite semantic anchors"
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -351,7 +401,9 @@ def main(argv: list[str] | None = None) -> int:
             print("REFUSED: " + "; ".join(issues), file=sys.stderr)
             return 2
         path.write_text(refreshed, encoding="utf-8")
-        print("FILE_INDEX.md metadata refreshed; semantic notes and anchor ranges unchanged.")
+        print(
+            "FILE_INDEX.md metadata refreshed; semantic notes and anchor ranges unchanged."
+        )
         return 0
 
     issues = check()
