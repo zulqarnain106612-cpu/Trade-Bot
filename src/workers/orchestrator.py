@@ -88,6 +88,11 @@ class WorkerResult:
     calibration_method: str | None = None
 
 
+def _handle_worker_sigterm(*_: object) -> None:
+    """Exit the worker through Python's normal exception/finalization path."""
+    raise SystemExit(0)
+
+
 def _model_worker(
     worker_id: int,
     queue_in: mp.Queue[WorkerTask | None],
@@ -99,7 +104,7 @@ def _model_worker(
     Listens on queue_in for WorkerTask objects; processes and puts
     WorkerResult on queue_out.  Exits cleanly on None sentinel.
     """
-    signal.signal(signal.SIGTERM, lambda *_: exit(0))
+    signal.signal(signal.SIGTERM, _handle_worker_sigterm)
     log.info("model_worker_started", worker_id=worker_id, pid=os.getpid())
 
     while True:
