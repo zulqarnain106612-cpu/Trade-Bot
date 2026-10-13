@@ -13,6 +13,18 @@ Before implementation, review CLAUDE.md and relevant repository-owned policies u
 5. Follow config/command_policy.json, observation-boundary rules, required hooks, architecture/security/math constraints, config/quality_registry.json, and coverage/per-file floors. Never bypass or weaken gates to obtain a green result.
 6. Inspect the final diff and staged paths through bounded read-only review. After an authorized push, the only permitted CI diagnostic command is `python3 scripts/local_checks.py prepare`, which returns only the current HEAD's SHA-bound PR notice. Do not fetch workflow logs, job records, artifacts, annotations, check results, or run a watcher. Verify actual HEAD/worktree/remote state and report missing evidence honestly; never claim tests or CI passed without a permitted result.
 
+## Knowledge-pack routing
+
+Use `codebase-analysis-docs/CODEBASE_KNOWLEDGE.md` as the architecture entry point, not as a substitute for source inspection. Load only the relevant reference for the task:
+
+- File discovery: `FILE_INDEX.md`; bounded declaration lookup: `CHUNK_INDEX.md`. Verify the live path, symbol, hash, and line range before relying on an anchor.
+- FastAPI route changes: `API_REFERENCE.md`, then inspect the actual router, dependencies, authorization, and tests.
+- Runtime, trading flow, persistence, schema, terminal, or frontend changes: the matching section of `CODEBASE_KNOWLEDGE.md`, the relevant diagram under `assets/`, and the owning source/tests.
+- Historical findings and handoffs: `STATE_BLOCKS.md` and `PHASE_2_SOURCE_AUDIT.md`; treat dated findings and explicitly unverified claims as historical until rechecked against current source.
+- Before delivery, follow the documented knowledge-index refresh procedure and CI gate; never silently rewrite manually maintained semantic anchors or overwrite user-authored notes.
+
+The knowledge pack is navigation and investigation evidence, not proof of runtime correctness, security, CI success, or production readiness. If it conflicts with current source or policy, current source and authoritative policy win; record material drift and update the owning document in the same scoped change. Do not require reading the full pack for unrelated or trivial edits.
+
 ## Trade-Bot safety invariants
 
 - Trading and exchange tests use deterministic fixtures, PAPER mode, and no live orders or real credentials unless the user explicitly authorizes a separate, safe operation.
