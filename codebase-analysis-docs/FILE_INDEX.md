@@ -1,6 +1,6 @@
 # File Index
 
-Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b8f2e8f3512f054; inventory hashes and line counts refreshed against main HEAD 6232016c94db2025e9afddf4aa3e3e2331dc7b2f. Inventory includes Git-tracked application/repository paths; codebase-analysis-docs/ is always excluded to prevent self-referential hashes, and other untracked user files/build outputs are excluded. SHA8 is the first eight hexadecimal digits of SHA-256 over current working-tree bytes (modified tracked files show working-tree hashes). Binary assets have no line count. P0 marks runtime/entrypoint/policy anchors; P1 high-value source/config/docs/tests; P2 supporting/other files.
+Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b8f2e8f3512f054; inventory hashes and line counts refreshed against the current PR worktree based on main HEAD 6232016c94db2025e9afddf4aa3e3e2331dc7b2f. Inventory includes Git-tracked application/repository paths; codebase-analysis-docs/ is always excluded to prevent self-referential hashes, and other untracked user files/build outputs are excluded. SHA8 is the first eight hexadecimal digits of SHA-256 over current working-tree bytes (modified tracked files show working-tree hashes). Binary assets have no line count. P0 marks runtime/entrypoint/policy anchors; P1 high-value source/config/docs/tests; P2 supporting/other files.
 
 ## Totals
 
@@ -14,7 +14,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | # | Priority | Path | Type | Lines | SHA8 | Why it matters |
 | ---: | --- | --- | --- | ---: | --- | --- |
 | 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 501 | 40c0126b | SHA-bound compact CI notice |
-| 2 | P0 | .github/workflows/ci.yml | YAML | 390 | 2dd1cc49 | CI jobs and gate composition |
+| 2 | P0 | .github/workflows/ci.yml | YAML | 402 | b4315947 | CI jobs and gate composition |
 | 3 | P0 | AGENTS.md | Markdown | 34 | 9a24a0dc | Engineering workflow and safety contract |
 | 4 | P0 | CLAUDE.md | Markdown | 603 | 52a22bc9 | Architecture, quality, CI and project policy |
 | 5 | P0 | Dockerfile | Other text/source | 135 | 27c44f78 | Container runtime, identity, healthcheck and entrypoint |
@@ -69,7 +69,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | # | Priority | Path | Type | Lines | SHA8 | Notes |
 | ---: | --- | --- | --- | ---: | --- | --- |
 | 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 501 | 40c0126b | SHA-bound compact CI notice |
-| 2 | P0 | .github/workflows/ci.yml | YAML | 390 | 2dd1cc49 | CI jobs and gate composition |
+| 2 | P0 | .github/workflows/ci.yml | YAML | 402 | b4315947 | CI jobs and gate composition |
 | 3 | P0 | AGENTS.md | Markdown | 34 | 9a24a0dc | Engineering workflow and safety contract |
 | 4 | P0 | CLAUDE.md | Markdown | 603 | 52a22bc9 | Architecture, quality, CI and project policy |
 | 5 | P0 | Dockerfile | Other text/source | 135 | 27c44f78 | Container runtime, identity, healthcheck and entrypoint |

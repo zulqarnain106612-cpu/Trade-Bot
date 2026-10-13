@@ -2,7 +2,7 @@
 
 **Purpose:** standalone architecture reference for engineers and code-generating LLMs changing this repository.  
 **Repository snapshot:** branch codex/adaptive-horizon-intelligence, commit 9128e3da8b9542efef5c89706b8f2e8f3512f054 (2026-10-12).  
-**Analysis date:** 2026-10-13. FILE_INDEX metadata was refreshed against main HEAD 6232016c94db2025e9afddf4aa3e3e2331dc7b2f. The CHUNK_INDEX section for `src/workers/orchestrator.py` was reconciled to that source snapshot, including the five-line insertion; other semantic anchors remain manually maintained and are checked for hash/range drift by `scripts/codebase_knowledge_index.py`. The two source files changed between the audited baseline and main are documented in PHASE_2_SOURCE_AUDIT.md. This is source inspection, not a CI, live-exchange, deployment, or production-readiness certification.
+**Analysis date:** 2026-10-13. FILE_INDEX metadata was refreshed against the current PR worktree based on main HEAD `6232016c94db2025e9afddf4aa3e3e2331dc7b2f`. The CHUNK_INDEX section for `src/workers/orchestrator.py` was reconciled to main, including the five-line insertion; other semantic anchors remain manually maintained and are checked for hash/range drift by `scripts/codebase_knowledge_index.py`. The two source files changed between the audited baseline and main are documented in PHASE_2_SOURCE_AUDIT.md. This is source inspection, not a CI, live-exchange, deployment, or production-readiness certification.
 
 ## How to use this document
 
@@ -15,7 +15,7 @@ Start with architecture and safety rules before changing code. Locate the owning
 - **codebase-analysis-docs/PHASE_2_SOURCE_AUDIT.md** — source-backed subsystem audit, findings, and verification limitations for 2026-10-13.
 - **codebase-analysis-docs/assets/architecture.mmd**, **trading-flow.mmd**, **runtime-change.mmd**, **schema-er.mmd**, **terminal-architecture.mmd** — Mermaid source diagrams.
 
-The code is authoritative for current behavior. If source, test, policy and prose disagree, record the contradiction and trace the current caller/wiring and test contract. The inventory is broad; deep reading prioritized startup, trade flow, risk, persistence, API/auth, runtime control, frontend, terminal, testing and developer tooling. This document does not claim every one of the 1,195 tracked application/repository files was read line-by-line; the knowledge-pack files themselves are excluded from FILE_INDEX to avoid self-referential hashes.
+The code is authoritative for current behavior. If source, test, policy and prose disagree, record the contradiction and trace the current caller/wiring and test contract. The inventory is broad; deep reading prioritized startup, trade flow, risk, persistence, API/auth, runtime control, frontend, terminal, testing and developer tooling. This document does not claim every one of the 1,215 tracked application/repository files was read line-by-line; the knowledge-pack files themselves are excluded from FILE_INDEX to avoid self-referential hashes.
 
 ## 1. High-level overview
 
