@@ -150,10 +150,7 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
     priority_order = {"P0": 0, "P1": 1, "P2": 2}
     rows.sort(key=lambda row: (priority_order.get(row[0], 3), row[1]))
     rendered_rows = [
-        (
-            f"| {i} | {priority} | {path_text} | {type_name} | "
-            f"{line_count} | {digest} | {note} |"
-        )
+        (f"| {i} | {priority} | {path_text} | {type_name} | {line_count} | {digest} | {note} |")
         for i, (priority, path_text, type_name, line_count, digest, note) in enumerate(rows, 1)
     ]
 
@@ -167,9 +164,7 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
         path_text = match.group(2).strip()
         path = root / path_text
         if not path.is_file():
-            issues.append(
-                f"reference path is missing from the working tree: {path_text}"
-            )
+            issues.append(f"reference path is missing from the working tree: {path_text}")
             refreshed_top.append(line)
             continue
         digest, count = file_facts(path)
@@ -211,9 +206,7 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
 def validate_anchors(text: str, root: Path = PROJECT_ROOT) -> list[str]:
     """Verify chunk metadata, stable anchors, file existence and range bounds."""
     issues: list[str] = []
-    chunk_text = (root / "codebase-analysis-docs/CHUNK_INDEX.md").read_text(
-        encoding="utf-8"
-    )
+    chunk_text = (root / "codebase-analysis-docs/CHUNK_INDEX.md").read_text(encoding="utf-8")
     current_path: str | None = None
 
     for line in chunk_text.splitlines():
@@ -240,9 +233,7 @@ def validate_anchors(text: str, root: Path = PROJECT_ROOT) -> list[str]:
         for path_text, start_text, end_text, digest in ANCHOR.findall(index_text):
             path = root / path_text
             if not path.is_file():
-                issues.append(
-                    f"{index_name} anchor references missing path: {path_text}"
-                )
+                issues.append(f"{index_name} anchor references missing path: {path_text}")
                 continue
             actual_digest, line_count = file_facts(path)
             start, end = int(start_text), int(end_text)
@@ -280,21 +271,15 @@ def validate_api_reference(source_text: str, reference_text: str) -> list[str]:
             ):
                 continue
             method = (
-                "WEBSOCKET"
-                if decorator.func.attr == "websocket"
-                else decorator.func.attr.upper()
+                "WEBSOCKET" if decorator.func.attr == "websocket" else decorator.func.attr.upper()
             )
-            source_routes.append(
-                (method, decorator.args[0].value, node.name, node.lineno)
-            )
+            source_routes.append((method, decorator.args[0].value, node.name, node.lineno))
 
     all_routes_marker = "## All routes"
     if all_routes_marker not in reference_text:
         return ["API_REFERENCE.md is missing the All routes section"]
     route_section = reference_text.split(all_routes_marker, 1)[1]
-    row_pattern = re.compile(
-        r"^\|\s*([A-Z]+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|"
-    )
+    row_pattern = re.compile(r"^\|\s*([A-Z]+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|")
     documented_routes = [
         (match.group(1), match.group(2).strip(), match.group(3).strip(), int(match.group(4)))
         for line in route_section.splitlines()
@@ -328,9 +313,7 @@ def check(root: Path = PROJECT_ROOT) -> list[str]:
     )
     for path in required_paths:
         if not path.is_file():
-            issues.append(
-                f"required knowledge artifact is missing: {path.relative_to(root)}"
-            )
+            issues.append(f"required knowledge artifact is missing: {path.relative_to(root)}")
     if issues:
         return issues
 
@@ -344,9 +327,7 @@ def check(root: Path = PROJECT_ROOT) -> list[str]:
     master = master_path.read_text(encoding="utf-8")
     issues.extend(validate_anchors(master, root))
     api_source = (root / "src/api/main.py").read_text(encoding="utf-8")
-    api_reference = (root / "codebase-analysis-docs/API_REFERENCE.md").read_text(
-        encoding="utf-8"
-    )
+    api_reference = (root / "codebase-analysis-docs/API_REFERENCE.md").read_text(encoding="utf-8")
     issues.extend(validate_api_reference(api_source, api_reference))
     return issues
 
@@ -361,8 +342,7 @@ def main(argv: list[str] | None = None) -> int:
         "--refresh-file-index",
         action="store_true",
         help=(
-            "rebuild FILE_INDEX rows/totals while preserving notes; "
-            "never rewrite semantic anchors"
+            "rebuild FILE_INDEX rows/totals while preserving notes; never rewrite semantic anchors"
         ),
     )
     args = parser.parse_args(argv)
@@ -375,9 +355,7 @@ def main(argv: list[str] | None = None) -> int:
             print("REFUSED: " + "; ".join(issues), file=sys.stderr)
             return 2
         path.write_text(refreshed, encoding="utf-8")
-        print(
-            "FILE_INDEX.md metadata refreshed; semantic notes and anchor ranges unchanged."
-        )
+        print("FILE_INDEX.md metadata refreshed; semantic notes and anchor ranges unchanged.")
         return 0
 
     issues = check()
