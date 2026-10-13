@@ -110,16 +110,10 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
     try:
         section_start = lines.index(complete_marker)
     except ValueError:
-        return text, [
-            "FILE_INDEX.md is missing the Complete tracked-file index section"
-        ]
+        return text, ["FILE_INDEX.md is missing the Complete tracked-file index section"]
 
     table_header_index = next(
-        (
-            i
-            for i in range(section_start + 1, len(lines))
-            if lines[i].startswith("| ---")
-        ),
+        (i for i in range(section_start + 1, len(lines)) if lines[i].startswith("| ---")),
         None,
     )
     if table_header_index is None:
@@ -160,9 +154,7 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
             f"| {i} | {priority} | {path_text} | {type_name} | "
             f"{line_count} | {digest} | {note} |"
         )
-        for i, (priority, path_text, type_name, line_count, digest, note) in enumerate(
-            rows, 1
-        )
+        for i, (priority, path_text, type_name, line_count, digest, note) in enumerate(rows, 1)
     ]
 
     # Refresh metadata in the small reference table without changing its notes.
@@ -200,9 +192,7 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
     result_lines = refreshed_top + header + rendered_rows
     totals = {
         "Tracked paths": len(rows),
-        "Python files": sum(
-            1 for _, path_text, *_ in rows if path_text.endswith(".py")
-        ),
+        "Python files": sum(1 for _, path_text, *_ in rows if path_text.endswith(".py")),
         "P0 anchors": sum(1 for priority, *_ in rows if priority == "P0"),
         "P1 files": sum(1 for priority, *_ in rows if priority == "P1"),
     }
@@ -271,25 +261,14 @@ def validate_anchors(text: str, root: Path = PROJECT_ROOT) -> list[str]:
 
 def validate_api_reference(source_text: str, reference_text: str) -> list[str]:
     """Compare API routes with AST-derived method/path/handler/line tuples."""
-    methods = {
-        "get",
-        "post",
-        "put",
-        "patch",
-        "delete",
-        "options",
-        "head",
-        "websocket",
-    }
+    methods = {"get", "post", "put", "patch", "delete", "options", "head", "websocket"}
     tree = ast.parse(source_text)
     source_routes: list[tuple[str, str, str, int]] = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         for decorator in node.decorator_list:
-            if not isinstance(decorator, ast.Call) or not isinstance(
-                decorator.func, ast.Attribute
-            ):
+            if not isinstance(decorator, ast.Call) or not isinstance(decorator.func, ast.Attribute):
                 continue
             if (
                 not isinstance(decorator.func.value, ast.Name)
@@ -317,12 +296,7 @@ def validate_api_reference(source_text: str, reference_text: str) -> list[str]:
         r"^\|\s*([A-Z]+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|"
     )
     documented_routes = [
-        (
-            match.group(1),
-            match.group(2).strip(),
-            match.group(3).strip(),
-            int(match.group(4)),
-        )
+        (match.group(1), match.group(2).strip(), match.group(3).strip(), int(match.group(4)))
         for line in route_section.splitlines()
         if (match := row_pattern.match(line))
     ]
@@ -402,8 +376,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         path.write_text(refreshed, encoding="utf-8")
         print(
-            "FILE_INDEX.md metadata refreshed; semantic notes and anchor ranges "
-            "unchanged."
+            "FILE_INDEX.md metadata refreshed; semantic notes and anchor ranges unchanged."
         )
         return 0
 
