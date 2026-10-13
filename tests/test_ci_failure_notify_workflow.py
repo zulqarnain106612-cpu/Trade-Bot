@@ -43,11 +43,16 @@ def script(spec: dict) -> str:
 
 
 class TestTrigger:
-    def test_it_runs_for_workflow_run_lifecycle_events(self, spec):
-        # PyYAML parses a bare `on:` key as the boolean True.
+    def test_workflow_run_notifier_only_reacts_to_completed_events(self, spec):
+        # Lifecycle events used to cancel the active watcher through the shared
+        # cancel-in-progress group before it could publish a notice.
         triggers = spec.get("on") or spec.get(True)
         assert "workflow_run" in triggers
-        assert triggers["workflow_run"]["types"] == ["requested", "in_progress", "completed"]
+        assert triggers["workflow_run"]["types"] == ["completed"]
+        concurrency = spec["concurrency"]
+        assert "workflow-run" in concurrency["group"]
+        assert "pull-request" in concurrency["group"]
+        assert "github.event_name == 'pull_request'" in concurrency["cancel-in-progress"]
 
     def test_it_watches_every_workflow_that_gates_a_pull_request(self, spec):
         triggers = spec.get("on") or spec.get(True)
@@ -72,6 +77,11 @@ class TestTrigger:
         assert "event.pull_request.head.sha" in "\n".join(
             step.get("with", {}).get("script", "") for step in spec["jobs"]["notify"]["steps"]
         )
+
+    def test_live_watcher_is_not_cancelled_by_workflow_run_events(self, spec):
+        concurrency = spec["concurrency"]
+        assert "github.event_name == 'workflow_run'" in concurrency["group"]
+        assert concurrency["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
 
     def test_every_completed_run_is_inspected(self, spec):
         """
@@ -201,6 +211,9 @@ class TestCommentBody:
     def test_workflow_run_uses_the_pr_head_not_the_synthetic_merge_sha(self, script):
         assert "const triggerPR = event.pull_request" in script
         assert "trigger.head_sha" in script
+        assert "branch: currentHead.head.ref" in script
+        assert "pr.head.sha === headSha" in script
+        assert "r.head_sha === headSha" in script
         assert "triggerPR.head.sha" in script
 
     def test_notice_is_bound_to_exact_head_and_stale_heads_are_ignored(self, script):
