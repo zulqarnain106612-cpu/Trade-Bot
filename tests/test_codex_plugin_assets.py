@@ -20,7 +20,9 @@ def test_codex_and_plugin_manifests_reference_existing_assets() -> None:
     assert "mcp_servers" in config
     marketplace = _read_json(".agents/plugins/marketplace.json")
     plugin_entries = marketplace["plugins"]
-    plugin = next(entry for entry in plugin_entries if entry["name"] == "trade-bot-engineering")
+    plugin = next(
+        entry for entry in plugin_entries if entry["name"] == "trade-bot-engineering"
+    )
     plugin_path = ROOT / plugin["source"]["path"].removeprefix("./")
     assert (plugin_path / ".codex-plugin/plugin.json").is_file()
     assert (plugin_path / ".mcp.json").is_file()
@@ -29,12 +31,15 @@ def test_codex_and_plugin_manifests_reference_existing_assets() -> None:
     manifest = json.loads(
         (plugin_path / ".codex-plugin/plugin.json").read_text(encoding="utf-8")
     )
-    mcp_config = json.loads((plugin_path / ".mcp.json").read_text(encoding="utf-8"))
+    mcp_config = json.loads(
+        (plugin_path / ".mcp.json").read_text(encoding="utf-8")
+    )
     assert manifest["name"] == "trade-bot-engineering"
     assert manifest["skills"] == "./skills/"
     assert manifest["mcpServers"] == "./.mcp.json"
-    assert mcp_config["mcpServers"]["openaiDeveloperDocs"]["url"] == (
-        "https://developers.openai.com/mcp"
+    assert (
+        mcp_config["mcpServers"]["openaiDeveloperDocs"]["url"]
+        == "https://developers.openai.com/mcp"
     )
 
 
