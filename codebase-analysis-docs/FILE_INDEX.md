@@ -244,7 +244,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 174 | P1 | scripts/check_production_readiness.py | Python | 178 | 6c642773 |  |
 | 175 | P1 | scripts/check_static_invariants.py | Python | 1778 | 2d74913a |  |
 | 176 | P1 | scripts/check_supply_chain.py | Python | 367 | 02350a53 |  |
-| 177 | P1 | scripts/codebase_knowledge_index.py | Python | 421 | 6d9c3c37 |  |
+| 177 | P1 | scripts/codebase_knowledge_index.py | Python | 422 | 58aabf10 |  |
 | 178 | P1 | scripts/collect_quality_metrics.py | Python | 210 | 8afb524c |  |
 | 179 | P1 | scripts/generate_math_docs.py | Python | 237 | 588d286e |  |
 | 180 | P1 | scripts/generate_quality_docs.py | Python | 258 | 16dad626 |  |

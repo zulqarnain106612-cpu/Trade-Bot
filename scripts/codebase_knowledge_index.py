@@ -402,7 +402,8 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         path.write_text(refreshed, encoding="utf-8")
         print(
-            "FILE_INDEX.md metadata refreshed; semantic notes and anchor ranges unchanged."
+            "FILE_INDEX.md metadata refreshed; semantic notes and anchor ranges "
+            "unchanged."
         )
         return 0
 
