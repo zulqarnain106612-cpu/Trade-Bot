@@ -4555,6 +4555,30 @@
       ]
     },
     {
+      "id": "GOV-066",
+      "kind": "requirement",
+      "title": "Codebase knowledge indexes have a deterministic integrity checker",
+      "statement": "The knowledge-index utility checks complete tracked-file coverage and current FILE_INDEX metadata, validates CHUNK_INDEX and CODEBASE_KNOWLEDGE source hashes and line ranges, verifies API_REFERENCE method/path/handler/line rows against AST-derived routes, and offers a safe refresh operation that preserves existing notes/priorities without rewriting semantic anchor ranges.",
+      "criticality": "medium",
+      "subsystem": "governance",
+      "status": "partial",
+      "source": "OPS-2026-10-13",
+      "failure_mode": "A stale index sends an agent to wrong code or makes old line ranges look authoritative, and no reproducible check identifies the drift before the index is trusted.",
+      "owning_modules": [
+        "scripts/codebase_knowledge_index.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_codebase_knowledge_index.py",
+          "test_type": "unit"
+        }
+      ],
+      "depends_on": [
+        "GOV-005"
+      ],
+      "planned_in": "PR-013"
+    },
+    {
       "id": "RES-009",
       "kind": "requirement",
       "title": "Runtime components have explicit identity, immutable versions and declared capabilities",

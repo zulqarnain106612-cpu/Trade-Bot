@@ -85,6 +85,23 @@ jobs:
       - name: Quality registry is valid and traceability doc in sync
         run: python3 scripts/generate_quality_docs.py --check
 
+      - name: Codebase knowledge indexes are current
+        run: python3 scripts/codebase_knowledge_index.py --check
+
+      - name: Set up Node for Mermaid rendering
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Render knowledge-pack diagrams
+        run: |
+          for diagram in codebase-analysis-docs/assets/*.mmd; do
+            output="${RUNNER_TEMP}/$(basename "${diagram%.mmd}").svg"
+            npx --yes @mermaid-js/mermaid-cli@11.4.2 \
+              --puppeteerConfigFile .github/mermaid-puppeteer-config.json \
+              --input "$diagram" --output "$output"
+          done
+
       - name: Quality-engineering gates
         # The same gates the skill runs before a push, run again here on the
         # machine that actually decides the pull request. Running them in both
