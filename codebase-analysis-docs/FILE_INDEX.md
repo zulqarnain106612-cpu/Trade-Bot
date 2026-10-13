@@ -244,7 +244,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 174 | P1 | scripts/check_production_readiness.py | Python | 178 | 6c642773 |  |
 | 175 | P1 | scripts/check_static_invariants.py | Python | 1778 | 2d74913a |  |
 | 176 | P1 | scripts/check_supply_chain.py | Python | 367 | 02350a53 |  |
-| 177 | P1 | scripts/codebase_knowledge_index.py | Python | 383 | 57698823 |  |
+| 177 | P1 | scripts/codebase_knowledge_index.py | Python | 421 | 6d9c3c37 |  |
 | 178 | P1 | scripts/collect_quality_metrics.py | Python | 210 | 8afb524c |  |
 | 179 | P1 | scripts/generate_math_docs.py | Python | 237 | 588d286e |  |
 | 180 | P1 | scripts/generate_quality_docs.py | Python | 258 | 16dad626 |  |
@@ -812,7 +812,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 742 | P1 | tests/test_ci_log_access.py | Python | 276 | 6a215f51 |  |
 | 743 | P1 | tests/test_ci_notice_supersession.py | Python | 76 | 4727e57a |  |
 | 744 | P1 | tests/test_ci_workflow_cost.py | Python | 235 | fb0a0315 |  |
-| 745 | P1 | tests/test_codebase_knowledge_index.py | Python | 151 | b228662c |  |
+| 745 | P1 | tests/test_codebase_knowledge_index.py | Python | 162 | 411d5dd8 |  |
 | 746 | P1 | tests/test_codex_plugin_assets.py | Python | 53 | e06c9c8b |  |
 | 747 | P1 | tests/test_coding.py | Python | 176 | c980e95b |  |
 | 748 | P1 | tests/test_cognitive_engine.py | Python | 700 | d1cd5904 |  |

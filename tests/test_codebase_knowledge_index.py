@@ -26,7 +26,9 @@ def _table_row(path: str, count: int, digest: str) -> str:
     return f"| 1 | P0 | {path} | Python | {count} | {digest} | preserve this note |"
 
 
-def test_refresh_updates_metadata_and_preserves_notes(tmp_path: Path, monkeypatch) -> None:
+def test_refresh_updates_metadata_and_preserves_notes(
+    tmp_path: Path, monkeypatch
+) -> None:
     source = tmp_path / "src" / "example.py"
     source.parent.mkdir()
     source.write_text("first = 1\nsecond = 2\n", encoding="utf-8")
@@ -52,7 +54,9 @@ def test_refresh_updates_metadata_and_preserves_notes(tmp_path: Path, monkeypatc
     assert "00000000" not in refreshed
 
 
-def test_refresh_refuses_to_hide_missing_tracked_paths(tmp_path: Path, monkeypatch) -> None:
+def test_refresh_refuses_to_hide_missing_tracked_paths(
+    tmp_path: Path, monkeypatch
+) -> None:
     index = (
         "## Complete tracked-file index\n"
         "| # | Priority | Path | Type | Lines | SHA8 | Notes |\n"
@@ -60,7 +64,9 @@ def test_refresh_refuses_to_hide_missing_tracked_paths(tmp_path: Path, monkeypat
         + _table_row("src/missing.py", 1, "00000000")
         + "\n"
     )
-    monkeypatch.setattr(indexer, "tracked_paths", lambda root: {"src/missing.py", "new.py"})
+    monkeypatch.setattr(
+        indexer, "tracked_paths", lambda root: {"src/missing.py", "new.py"}
+    )
 
     _, issues = indexer.refresh_file_index(index, tmp_path)
 
@@ -92,7 +98,9 @@ def test_anchor_validation_reports_stale_hash_and_out_of_range(tmp_path: Path) -
     assert any("stale CHUNK_INDEX metadata" in issue for issue in issues)
     assert any("stale CHUNK_INDEX.md anchor hash" in issue for issue in issues)
     assert any("invalid CHUNK_INDEX.md anchor range" in issue for issue in issues)
-    assert any("invalid CODEBASE_KNOWLEDGE.md anchor range" in issue for issue in issues)
+    assert any(
+        "invalid CODEBASE_KNOWLEDGE.md anchor range" in issue for issue in issues
+    )
 
 
 def test_api_reference_must_match_source_route_and_line() -> None:
@@ -132,7 +140,10 @@ def test_refresh_adds_new_tracked_paths_and_updates_totals(
         "## Complete tracked-file index\n"
         "| # | Priority | Path | Type | Lines | SHA8 | Notes |\n"
         "| ---: | --- | --- | --- | ---: | --- | --- |\n"
-        + f"| 1 | P0 | src/existing.py | Python | {count} | {digest} | existing note |\n"
+        + (
+            f"| 1 | P0 | src/existing.py | Python | {count} | "
+            f"{digest} | existing note |\n"
+        )
     )
     monkeypatch.setattr(
         indexer,
