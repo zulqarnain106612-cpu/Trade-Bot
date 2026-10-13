@@ -37,7 +37,8 @@ def test_codex_and_plugin_manifests_reference_existing_assets() -> None:
     assert manifest["name"] == "trade-bot-engineering"
     assert manifest["skills"] == "./skills/"
     assert manifest["mcpServers"] == "./.mcp.json"
-    assert mcp_config["mcpServers"]["openaiDeveloperDocs"]["url"] == "https://developers.openai.com/mcp"
+    developer_docs_url = mcp_config["mcpServers"]["openaiDeveloperDocs"]["url"]
+    assert developer_docs_url == "https://developers.openai.com/mcp"
 
 
 def test_project_skills_are_packaged_without_drift() -> None:
