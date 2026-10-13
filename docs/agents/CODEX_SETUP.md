@@ -6,8 +6,8 @@ This repository supports Codex through the project-scoped .codex/config.toml, ro
 
 - AGENTS.md: repository engineering contract for Codex; directs the agent to the more detailed existing CLAUDE.md and repository governance.
 - .codex/config.toml: approval-on-request, workspace-write sandbox, live web search, official read-only OpenAI developer documentation MCP, and local plugin enablement.
-- .agents/skills/: reusable repository-specific evidence-first and delivery workflows.
-- .agents/plugins/marketplace.json and plugins/trade-bot-engineering/: a local plugin package with the same core workflow and official OpenAI docs MCP connection.
+- .agents/skills/: reusable repository-specific evidence-first, delivery, implementation, debugging, parallel agent/sub-agent coordination, OpenAI SDK, and evaluation/optimization workflows.
+- .agents/plugins/marketplace.json and plugins/trade-bot-engineering/: the local plugin package, with an official Codex .codex-plugin/plugin.json manifest, packaged project skills, and a read-only OpenAI developer-docs MCP connection.
 - .vscode/extensions.json: recommends the official OpenAI ChatGPT/Codex extension alongside the repository's existing extensions.
 
 ## Codex CLI and VS Code
@@ -22,6 +22,12 @@ This repository supports Codex through the project-scoped .codex/config.toml, ro
 
 The repository includes a local marketplace named trade-bot-local with a plugin named trade-bot-engineering. Restart the ChatGPT desktop app after opening the repository marketplace, then open the Plugins Directory, choose the local repository marketplace, and install the plugin. The project config enables the plugin for trusted Codex project sessions. A local marketplace is not the same thing as publishing an administrator-managed workspace plugin.
 
+## OpenAI Cookbook patterns
+
+See [OPENAI_COOKBOOK_ADOPTION.md](OPENAI_COOKBOOK_ADOPTION.md) for the source-pinned map from relevant Cookbook recipes to Trade-Bot skills and engineering boundaries. We adopt relevant patterns rather than copying the entire Cookbook. In particular, no LLM or OpenAI SDK is inserted into the deterministic trading/risk path by this skills/configuration change.
+
+The repository-local skills are the source of truth; the plugin's `skills/` directory is a packaged copy for plugin installation. `tests/test_codex_plugin_assets.py` verifies that both inventories remain in sync and that the manifests parse in CI.
+
 ## Developer platform / Build with Codex
 
 Repository configuration does not create a developer-platform project, enable API billing, create an API key, or configure account-level Build with Codex features. If you separately build an API-powered Codex integration or use the official Codex GitHub Action, create the needed platform project and secret in the appropriate account UI. Store credentials as local ignored environment values or GitHub Actions secrets (for example, OPENAI_API_KEY); never commit them, put them in .codex/config.toml, or copy them into agent prompts. Codex CLI signed in through ChatGPT does not require this repository to contain an API key.
@@ -32,17 +38,6 @@ A repository cannot change organization/workspace administration settings. An au
 
 ## Verification
 
-From the repository root, run:
+The CI test `tests/test_codex_plugin_assets.py` parses the Codex/plugin manifests and checks that the plugin's packaged skills match the repository-local skill inventory. Per the repository's GitHub-only check contract, do not run this test or any local validation command; let GitHub Actions execute it after the branch is pushed.
 
-    python3 - <<'PY'
-    import json, tomllib
-    from pathlib import Path
-    root = Path.cwd()
-    with (root / '.codex/config.toml').open('rb') as f:
-        tomllib.load(f)
-    for name in ('.agents/plugins/marketplace.json', 'plugins/trade-bot-engineering/plugin.json', 'plugins/trade-bot-engineering/mcp.json'):
-        json.loads((root / name).read_text())
-    print('Codex TOML and plugin JSON syntax: PASS')
-    PY
-
-This validates file syntax and package references, not the live Codex client, plugin installation, MCP connectivity, developer-platform API credentials, or workspace-admin publishing. Verify those in the relevant client/account UI after pushing and checking out the branch.
+This automated test covers file syntax and package consistency, not the live Codex client, plugin installation, MCP connectivity, developer-platform API credentials, or workspace-admin publishing. Verify those runtime/account-level settings in the relevant client or administration UI.
