@@ -39,7 +39,9 @@ on:
       - "CodeQL"
       - "Workflow lint"
       - "Security"
-    types: [requested, in_progress, completed]
+    # Completion events consolidate final verdicts. The PR-head watcher below
+    # handles early failure detection; lifecycle events must not restart it.
+    types: [completed]
   pull_request:
     types: [opened, synchronize, reopened, closed]
 
@@ -50,11 +52,11 @@ permissions:
   pull-requests: read
 
 concurrency:
-  # One watcher per PR branch, independent of event source. A new push, a
-  # workflow result, or a merge event supersedes stale work and cannot race
-  # another watcher while updating the single mutable PR notice.
-  group: ci-notice-${{ github.event.workflow_run.head_branch || github.event.pull_request.head.ref || github.ref }}
-  cancel-in-progress: true
+  # Keep the PR-head watcher separate from completion-event consolidation.
+  # New commits cancel the old PR watcher, but completion events must never
+  # cancel an active watcher or each other while they are collecting verdicts.
+  group: ci-notice-${{ github.event.workflow_run.head_branch || github.event.pull_request.head.ref || github.ref }}-${{ github.event_name == 'workflow_run' && 'workflow-run' || 'pull-request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   notify:
@@ -149,10 +151,10 @@ jobs:
               return;
             }
 
-            // Poll the live workflow/job state instead of waiting for a
-            // workflow_run=completed event. GitHub emits no workflow_run event
-            // when an individual job fails, so a one-shot notifier cannot
-            // terminate sibling jobs promptly.
+            // The pull_request watcher polls live job state for prompt failure
+            // detection. Completion-event runs consolidate the final verdict.
+            // These event classes have separate concurrency groups, so routine
+            // workflow lifecycle events cannot cancel the live watcher.
             const isBad = (j) => j.conclusion !== 'success';
 
             const NOISE = [
@@ -317,13 +319,20 @@ jobs:
             const isSummaryGate = (job) => /gate|all jobs green/i.test(job.name);
 
             for (let poll = 0; poll < 90; poll++) {
+              // Pull-request workflow runs may use GitHub's synthetic merge
+              // SHA as head_sha. Query by branch, then bind runs to this exact
+              // PR head through their associated pull-request head SHA.
               const allRuns = await github.paginate(
                 github.rest.actions.listWorkflowRunsForRepo,
-                { ...context.repo, head_sha: headSha, per_page: 100 },
+                { ...context.repo, branch: currentHead.head.ref, per_page: 100 },
               );
               latest = new Map();
               for (const r of allRuns) {
                 if (!WATCHED.includes(r.name)) continue;
+                const linkedToCurrentHead = (r.pull_requests || []).some(pr =>
+                  prNumbers.includes(pr.number) && pr.head && pr.head.sha === headSha);
+                const exactCommitRun = r.head_branch === currentHead.head.ref && r.head_sha === headSha;
+                if (!linkedToCurrentHead && !exactCommitRun) continue;
                 const prior = latest.get(r.name);
                 if (!prior || r.run_number > prior.run_number ||
                     (r.run_number === prior.run_number && r.run_attempt > prior.run_attempt)) {
