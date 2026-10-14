@@ -318,8 +318,48 @@ jobs:
               stale: 4, skipped: 5, cancelled: 6,
             };
             const isSummaryGate = (job) => /gate|all jobs green/i.test(job.name);
+            // An in_progress event is an early-stop watcher for its own run.
+            // Do not infer this commit's verdict from older same-SHA runs of
+            // sibling workflows that have not started their current run yet.
+            const earlyFailureOnly = event.workflow_run && event.action === 'in_progress';
 
             for (let poll = 0; poll < 90; poll++) {
+              if (earlyFailureOnly) {
+                const triggerRunResponse = await github.rest.actions.getWorkflowRun({
+                  ...context.repo, run_id: trigger.id,
+                });
+                const triggerRun = triggerRunResponse.data;
+                const triggerJobs = await github.paginate(
+                  github.rest.actions.listJobsForWorkflowRun,
+                  { ...context.repo, run_id: trigger.id, per_page: 100 },
+                );
+                failing = triggerJobs
+                  .filter(job => job.conclusion || triggerRun.status === 'completed')
+                  .filter(job => isBad(job))
+                  .map(job => ({ workflow: triggerRun.name, run_id: triggerRun.id, job }));
+                if (failing.length > 0) {
+                  // Once the triggering run itself has a non-green job,
+                  // cancel every still-running watched workflow for this PR
+                  // head, including the triggering run if it is still active.
+                  const allRuns = await github.paginate(
+                    github.rest.actions.listWorkflowRunsForRepo,
+                    { ...context.repo, branch: currentHead.head.ref, per_page: 100 },
+                  );
+                  pending = allRuns.filter(r => {
+                    if (!WATCHED.includes(r.name) || r.status === 'completed') return false;
+                    const linked = (r.pull_requests || []).some(pr =>
+                      prNumbers.includes(pr.number) && pr.head && pr.head.sha === headSha);
+                    return linked || (r.head_branch === currentHead.head.ref && r.head_sha === headSha);
+                  });
+                  break;
+                }
+                // A green completion is consolidated by its separate completed
+                // event. This early watcher has no success verdict to publish.
+                if (triggerRun.status === 'completed') return;
+                if (poll < 89) await new Promise(resolve => setTimeout(resolve, 10000));
+                continue;
+              }
+
               // Pull-request workflow runs may use GitHub's synthetic merge
               // SHA as head_sha. Query by branch, then bind runs to this exact
               // PR head through their associated pull-request head SHA.
