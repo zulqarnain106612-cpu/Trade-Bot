@@ -13,7 +13,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 
 | # | Priority | Path | Type | Lines | SHA8 | Why it matters |
 | ---: | --- | --- | --- | ---: | --- | --- |
-| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 501 | 40c0126b | SHA-bound compact CI notice |
+| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 517 | b5a24449 | SHA-bound compact CI notice |
 | 2 | P0 | .github/workflows/ci.yml | YAML | 404 | da238171 | CI jobs and gate composition |
 | 3 | P0 | AGENTS.md | Markdown | 34 | 9a24a0dc | Engineering workflow and safety contract |
 | 4 | P0 | CLAUDE.md | Markdown | 603 | 52a22bc9 | Architecture, quality, CI and project policy |
@@ -28,7 +28,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 13 | P0 | config/risk.yaml | YAML | 26 | dd4766f8 | Horizon/intelligence risk, distinct from core Settings |
 | 14 | P0 | docker-compose.yml | YAML | 82 | 80ec3eca | API/Timescale/optional-worker composition |
 | 15 | P0 | docs/quality/CI_GATE_ARCHITECTURE.md | Markdown | 255 | 02726345 | CI gates |
-| 16 | P0 | docs/runtime/RUNTIME_PLATFORM.md | Markdown | 278 | 2ea1f81a | Runtime control plane architecture |
+| 16 | P0 | docs/runtime/RUNTIME_PLATFORM.md | Markdown | 296 | 37fde0ad | Runtime control plane architecture |
 | 17 | P0 | docs/security/THREAT_MODEL.md | Markdown | 341 | ab52c113 | Threat model |
 | 18 | P0 | docs/terminal/ARCHITECTURE.md | Markdown | 217 | ac1b11e0 | Terminal/workspace architecture; historical baseline clearly labeled |
 | 19 | P0 | frontend/package.json | JSON | 77 | f1ae54c1 | Node toolchain and frontend scripts |
@@ -68,7 +68,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 
 | # | Priority | Path | Type | Lines | SHA8 | Notes |
 | ---: | --- | --- | --- | ---: | --- | --- |
-| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 501 | 40c0126b | SHA-bound compact CI notice |
+| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 517 | b5a24449 | SHA-bound compact CI notice |
 | 2 | P0 | .github/workflows/ci.yml | YAML | 404 | da238171 | CI jobs and gate composition |
 | 3 | P0 | AGENTS.md | Markdown | 34 | 9a24a0dc | Engineering workflow and safety contract |
 | 4 | P0 | CLAUDE.md | Markdown | 603 | 52a22bc9 | Architecture, quality, CI and project policy |
@@ -83,7 +83,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 13 | P0 | config/risk.yaml | YAML | 26 | dd4766f8 | Horizon/intelligence risk, distinct from core Settings |
 | 14 | P0 | docker-compose.yml | YAML | 82 | 80ec3eca | API/Timescale/optional-worker composition |
 | 15 | P0 | docs/quality/CI_GATE_ARCHITECTURE.md | Markdown | 255 | 02726345 | CI gates |
-| 16 | P0 | docs/runtime/RUNTIME_PLATFORM.md | Markdown | 278 | 2ea1f81a | Runtime control plane architecture |
+| 16 | P0 | docs/runtime/RUNTIME_PLATFORM.md | Markdown | 296 | 37fde0ad | Runtime control plane architecture |
 | 17 | P0 | docs/security/THREAT_MODEL.md | Markdown | 341 | ab52c113 | Threat model |
 | 18 | P0 | docs/terminal/ARCHITECTURE.md | Markdown | 217 | ac1b11e0 | Terminal/workspace architecture; historical baseline clearly labeled |
 | 19 | P0 | frontend/package.json | JSON | 77 | f1ae54c1 | Node toolchain and frontend scripts |
@@ -808,7 +808,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 738 | P1 | tests/test_causal_inference.py | Python | 243 | 917865bc |  |
 | 739 | P1 | tests/test_causal_modules.py | Python | 214 | a86122e6 |  |
 | 740 | P1 | tests/test_changepoint.py | Python | 80 | abb1294c |  |
-| 741 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 424 | 595e1150 |  |
+| 741 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 439 | 260273e2 |  |
 | 742 | P1 | tests/test_ci_log_access.py | Python | 276 | 6a215f51 |  |
 | 743 | P1 | tests/test_ci_notice_supersession.py | Python | 76 | 4727e57a |  |
 | 744 | P1 | tests/test_ci_workflow_cost.py | Python | 235 | fb0a0315 |  |
