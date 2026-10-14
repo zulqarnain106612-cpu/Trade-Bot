@@ -13,7 +13,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 
 | # | Priority | Path | Type | Lines | SHA8 | Why it matters |
 | ---: | --- | --- | --- | ---: | --- | --- |
-| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 502 | 8aaebf30 | SHA-bound compact CI notice |
+| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 502 | 5b47154b | SHA-bound compact CI notice |
 | 2 | P0 | .github/workflows/ci.yml | YAML | 404 | da238171 | CI jobs and gate composition |
 | 3 | P0 | AGENTS.md | Markdown | 34 | 9a24a0dc | Engineering workflow and safety contract |
 | 4 | P0 | CLAUDE.md | Markdown | 603 | 52a22bc9 | Architecture, quality, CI and project policy |
@@ -68,7 +68,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 
 | # | Priority | Path | Type | Lines | SHA8 | Notes |
 | ---: | --- | --- | --- | ---: | --- | --- |
-| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 502 | 8aaebf30 | SHA-bound compact CI notice |
+| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 502 | 5b47154b | SHA-bound compact CI notice |
 | 2 | P0 | .github/workflows/ci.yml | YAML | 404 | da238171 | CI jobs and gate composition |
 | 3 | P0 | AGENTS.md | Markdown | 34 | 9a24a0dc | Engineering workflow and safety contract |
 | 4 | P0 | CLAUDE.md | Markdown | 603 | 52a22bc9 | Architecture, quality, CI and project policy |
