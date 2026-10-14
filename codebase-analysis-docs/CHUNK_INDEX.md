@@ -2073,13 +2073,13 @@ SHA8 ac1b11e0; total lines 217.
 
 ### docs/runtime/RUNTIME_PLATFORM.md
 
-SHA8 2ea1f81a; total lines 278.
+SHA8 37fde0ad; total lines 278.
 
-- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#1-38#2ea1f81a — [[F:docs/runtime/RUNTIME_PLATFORM.md#1-38#2ea1f81a]].
-- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#39-76#2ea1f81a — [[F:docs/runtime/RUNTIME_PLATFORM.md#39-76#2ea1f81a]].
-- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#77-114#2ea1f81a — [[F:docs/runtime/RUNTIME_PLATFORM.md#77-114#2ea1f81a]].
-- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#115-152#2ea1f81a — [[F:docs/runtime/RUNTIME_PLATFORM.md#115-152#2ea1f81a]].
-- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#153-190#2ea1f81a — [[F:docs/runtime/RUNTIME_PLATFORM.md#153-190#2ea1f81a]].
-- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#191-228#2ea1f81a — [[F:docs/runtime/RUNTIME_PLATFORM.md#191-228#2ea1f81a]].
-- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#229-266#2ea1f81a — [[F:docs/runtime/RUNTIME_PLATFORM.md#229-266#2ea1f81a]].
-- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#267-278#2ea1f81a — [[F:docs/runtime/RUNTIME_PLATFORM.md#267-278#2ea1f81a]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#1-38#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#1-38#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#39-76#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#39-76#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#77-114#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#77-114#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#115-152#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#115-152#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#153-190#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#153-190#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#191-228#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#191-228#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#229-266#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#229-266#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#267-278#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#267-278#37fde0ad]].
