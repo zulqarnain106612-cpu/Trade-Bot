@@ -85,7 +85,10 @@ class TestTrigger:
     def test_in_progress_watcher_scopes_early_failure_to_its_trigger_run(self, script):
         # Older same-commit failures must not cancel sibling runs that have
         # not started yet; only the triggering run drives early cancellation.
-        assert "const earlyFailureOnly = event.workflow_run && event.action === 'in_progress';" in script
+        assert (
+            "const earlyFailureOnly = event.workflow_run && "
+            "event.action === 'in_progress';"
+        ) in script
         assert "github.rest.actions.getWorkflowRun" in script
         assert "if (earlyFailureOnly)" in script
         assert "if (triggerRun.status === 'completed') return;" in script
