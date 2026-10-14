@@ -89,8 +89,9 @@ jobs:
               head_sha: checkRun.head_sha,
               head_branch: (checkRun.check_suite && checkRun.check_suite.head_branch) || '',
               id: checkRun.check_suite && checkRun.check_suite.id || null,
-              pull_requests: checkRun.pull_requests ||
-                (checkRun.check_suite && checkRun.check_suite.pull_requests) || [],
+              pull_requests: (checkRun.pull_requests && checkRun.pull_requests.length)
+                ? checkRun.pull_requests
+                : ((checkRun.check_suite && checkRun.check_suite.pull_requests) || []),
             } : {
               head_sha: event.pull_request.head.sha,
               head_branch: event.pull_request.head.ref,
