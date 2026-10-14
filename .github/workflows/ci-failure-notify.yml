@@ -33,19 +33,16 @@ name: CI failure notice
 # all four gates unrun.
 
 on:
-  # A completed check run is emitted as soon as an individual job ends,
-  # unlike workflow_run.completed, which waits for the entire workflow. This
-  # event is the fail-fast signal that lets the notifier cancel sibling runs.
-  check_run:
-    types: [completed]
   workflow_run:
     workflows:
       - "CI"
       - "CodeQL"
       - "Workflow lint"
       - "Security"
-    # Workflow completion events consolidate the final verdict.
-    types: [completed]
+    # Start the watcher when a workflow begins, not only after it completes.
+    # The watcher polls individual job conclusions and cancels sibling runs as
+    # soon as a non-green job is visible; completed events consolidate verdicts.
+    types: [in_progress, completed]
   pull_request:
     types: [opened, synchronize, reopened, closed]
 
@@ -56,15 +53,15 @@ permissions:
   pull-requests: read
 
 concurrency:
-  # Separate PR heads and event classes. A new non-green check-run event
-  # supersedes an older failure watcher for that same head; successful check-run
-  # events use a separate group and cannot cancel the failure watcher.
-  group: ci-notice-${{ github.event.workflow_run.head_branch || github.event.check_run.check_suite.head_branch || github.event.pull_request.head.ref || github.ref }}-${{ github.event_name == 'workflow_run' && 'workflow-run' || (github.event_name == 'check_run' && (github.event.check_run.conclusion == 'success' && 'check-run-success' || 'check-run-non-success')) || 'pull-request' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'check_run' && github.event.check_run.conclusion != 'success') }}
+  # Keep workflow lifecycle events separate from the PR-head watcher. A new
+  # commit cancels the stale PR watcher; workflow-run events never cancel the
+  # active watcher or each other while they are collecting verdicts.
+  group: ci-notice-${{ github.event.workflow_run.head_branch || github.event.pull_request.head.ref || github.ref }}-${{ github.event_name == 'workflow_run' && 'workflow-run' || 'pull-request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   notify:
-    if: github.event_name == 'workflow_run' || (github.event_name == 'check_run' && github.event.check_run.conclusion != 'success') || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
+    if: github.event_name == 'workflow_run' || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository)
     # All workflow_run activity types are inspected. A workflow can conclude
     # success while a required job inside it was skipped or neutral.
     runs-on: ubuntu-latest
@@ -80,24 +77,12 @@ jobs:
         with:
           script: |
             const event = context.payload;
-            const checkRun = event.check_run;
-            const trigger = event.workflow_run || (checkRun ? {
-              // check_run.completed fires at job completion, before the whole
-              // workflow necessarily finishes. Resolve the branch and PR from
-              // the check suite/associated PR rather than treating its SHA as
-              // a workflow-run ID or assuming the synthetic merge SHA is HEAD.
-              head_sha: checkRun.head_sha,
-              head_branch: (checkRun.check_suite && checkRun.check_suite.head_branch) || '',
-              id: checkRun.check_suite && checkRun.check_suite.id || null,
-              pull_requests: (checkRun.pull_requests && checkRun.pull_requests.length)
-                ? checkRun.pull_requests
-                : ((checkRun.check_suite && checkRun.check_suite.pull_requests) || []),
-            } : {
+            const trigger = event.workflow_run || {
               head_sha: event.pull_request.head.sha,
               head_branch: event.pull_request.head.ref,
               id: null,
               pull_requests: [{ number: event.pull_request.number }],
-            });
+            };
             // For pull_request runs, head_sha can identify GitHub's synthetic
             // merge commit. Bind notices to the PR branch HEAD instead.
             const triggerPR = event.pull_request ||
