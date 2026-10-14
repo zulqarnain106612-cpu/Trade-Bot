@@ -82,6 +82,7 @@ class TestTrigger:
         concurrency = spec["concurrency"]
         assert "github.event_name == 'workflow_run'" in concurrency["group"]
         assert concurrency["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
+
     def test_in_progress_watcher_scopes_early_failure_to_its_trigger_run(self, script):
         # Older same-commit failures must not cancel sibling runs that have
         # not started yet; only the triggering run drives early cancellation.

@@ -808,7 +808,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 738 | P1 | tests/test_causal_inference.py | Python | 243 | 917865bc |  |
 | 739 | P1 | tests/test_causal_modules.py | Python | 214 | a86122e6 |  |
 | 740 | P1 | tests/test_changepoint.py | Python | 80 | abb1294c |  |
-| 741 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 434 | e052a044 |  |
+| 741 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 435 | 3fa8a101 |  |
 | 742 | P1 | tests/test_ci_log_access.py | Python | 276 | 6a215f51 |  |
 | 743 | P1 | tests/test_ci_notice_supersession.py | Python | 76 | 4727e57a |  |
 | 744 | P1 | tests/test_ci_workflow_cost.py | Python | 235 | fb0a0315 |  |
@@ -1080,7 +1080,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 1010 | P1 | tests/test_signal_engine_residual_paths.py | Python | 352 | 3a907c98 |  |
 | 1011 | P1 | tests/test_slippage.py | Python | 183 | 5e33dbf9 |  |
 | 1012 | P1 | tests/test_small_module_gaps.py | Python | 413 | d4829feb |  |
-| 1013 | P1 | tests/test_startup_readiness.py | Python | 842 | 8cd8efae |  |
+| 1013 | P1 | tests/test_startup_readiness.py | Python | 844 | dd5c6b9e |  |
 | 1014 | P1 | tests/test_static_invariants.py | Python | 1589 | cb1c834c |  |
 | 1015 | P1 | tests/test_storage.py | Python | 1071 | 61979b83 |  |
 | 1016 | P1 | tests/test_storage_write_rollback.py | Python | 102 | e5d9d7f3 |  |

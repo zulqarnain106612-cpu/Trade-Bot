@@ -102,12 +102,14 @@ def test_preflight_tracks_first_tick_evidence_for_all_timeframes() -> None:
 
     watcher = _LogWatcher(iter(()), time.monotonic())
     for timeframe in ("1m", "15m", "4h"):
-        watcher._note({
-            "event": "orchestrator.tick_complete",
-            "level": "info",
-            "trace_id": f"trace-{timeframe}",
-            "timeframe": timeframe,
-        })
+        watcher._note(
+            {
+                "event": "orchestrator.tick_complete",
+                "level": "info",
+                "trace_id": f"trace-{timeframe}",
+                "timeframe": timeframe,
+            }
+        )
 
     first_ticks = watcher.snapshot()["first_tick_s"]
     assert set(first_ticks) == {"1m", "15m", "4h"}
