@@ -9,10 +9,10 @@ name: CI failure notice
 #
 # Three rules follow from being the only channel, and all three are load-bearing:
 #
-#   1. ONE mutable comment per PR head. A non-green check cancels other
-#      in-flight watched workflows and updates the comment with one actionable
-#      check. The success phrase appears only after every watched workflow has
-#      been observed and completed green.
+#   1. ONE mutable comment per PR head. A non-green job cancels all
+#      in-flight watched workflow runs, including its own run if sibling jobs
+#      are still executing, and publishes one actionable check. The success
+#      phrase appears only after every watched workflow has completed green.
 #
 #   2. Status and exact errors, nothing else. No advice, no instructions, no
 #      "consider checking" prose. The comment is read into an agent's context,
