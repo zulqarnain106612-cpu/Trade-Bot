@@ -1,0 +1,59 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Trade-Bot API (PAPER)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "src.api",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "env": {
+        "API_HOST": "127.0.0.1",
+        "API_RELOAD": "false",
+        "TRADING_MODE": "paper"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "subProcess": true
+    },
+    {
+      "name": "Trade-Bot Dashboard (Vite)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/frontend/node_modules/vite/bin/vite.js",
+      "cwd": "${workspaceFolder}/frontend",
+      "args": [
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5173",
+        "--strictPort"
+      ],
+      "console": "integratedTerminal",
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "outputCapture": "std"
+    },
+    {
+      "name": "Trade-Bot Dashboard (Microsoft Edge)",
+      "type": "pwa-msedge",
+      "request": "launch",
+      "url": "http://127.0.0.1:5173",
+      "webRoot": "${workspaceFolder}/frontend",
+      "sourceMaps": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Trade-Bot: API + Dashboard (PAPER)",
+      "configurations": [
+        "Trade-Bot API (PAPER)",
+        "Trade-Bot Dashboard (Vite)"
+      ],
+      "stopAll": true
+    }
+  ]
+}

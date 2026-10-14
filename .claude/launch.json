@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "frontend"],
       "port": 5173
+    },
+    {
+      "name": "dashboard-dragfix",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "/home/s752/Projects/Trade-Bot-dragfix/frontend", "--", "--port", "5174", "--strictPort"],
+      "port": 5174
     }
   ]
 }
