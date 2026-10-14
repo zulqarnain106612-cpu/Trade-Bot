@@ -43,12 +43,12 @@ def script(spec: dict) -> str:
 
 
 class TestTrigger:
-    def test_workflow_run_notifier_only_reacts_to_completed_events(self, spec):
-        # Lifecycle events used to cancel the active watcher through the shared
-        # cancel-in-progress group before it could publish a notice.
+    def test_workflow_run_starts_watcher_early_and_consolidates_on_completion(self, spec):
+        # Waiting for completed alone cannot stop sibling jobs while the first
+        # failing workflow is still running. in_progress starts the poller early.
         triggers = spec.get("on") or spec.get(True)
         assert "workflow_run" in triggers
-        assert triggers["workflow_run"]["types"] == ["completed"]
+        assert triggers["workflow_run"]["types"] == ["in_progress", "completed"]
         concurrency = spec["concurrency"]
         assert "workflow-run" in concurrency["group"]
         assert "pull-request" in concurrency["group"]
@@ -81,23 +81,7 @@ class TestTrigger:
     def test_live_watcher_is_not_cancelled_by_workflow_run_events(self, spec):
         concurrency = spec["concurrency"]
         assert "github.event_name == 'workflow_run'" in concurrency["group"]
-        assert "github.event_name == 'check_run'" in concurrency["group"]
-        assert "check-run-success" in concurrency["group"]
-        assert "check-run-non-success" in concurrency["group"]
-        assert "github.event_name == 'pull_request'" in concurrency["cancel-in-progress"]
-        assert "github.event.check_run.conclusion != 'success'" in concurrency["cancel-in-progress"]
-
-    def test_non_green_check_run_starts_early_cancellation(self, spec, script):
-        triggers = spec.get("on") or spec.get(True)
-        assert triggers["check_run"]["types"] == ["completed"]
-        condition = spec["jobs"]["notify"]["if"]
-        assert "github.event_name == 'check_run'" in condition
-        assert "github.event.check_run.conclusion != 'success'" in condition
-        assert "const checkRun = event.check_run;" in script
-        assert "checkRun.check_suite.head_branch" in script
-        assert "checkRun.pull_requests" in script
-        assert "cancelWorkflowRun" in script
-
+        assert concurrency["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
     def test_every_completed_run_is_inspected(self, spec):
         """
         The notifier handles workflow_run events only. It inspects jobs because
