@@ -81,7 +81,22 @@ class TestTrigger:
     def test_live_watcher_is_not_cancelled_by_workflow_run_events(self, spec):
         concurrency = spec["concurrency"]
         assert "github.event_name == 'workflow_run'" in concurrency["group"]
-        assert concurrency["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
+        assert "github.event_name == 'check_run'" in concurrency["group"]
+        assert "check-run-success" in concurrency["group"]
+        assert "check-run-non-success" in concurrency["group"]
+        assert "github.event_name == 'pull_request'" in concurrency["cancel-in-progress"]
+        assert "github.event.check_run.conclusion != 'success'" in concurrency["cancel-in-progress"]
+
+    def test_non_green_check_run_starts_early_cancellation(self, spec, script):
+        triggers = spec.get("on") or spec.get(True)
+        assert triggers["check_run"]["types"] == ["completed"]
+        condition = spec["jobs"]["notify"]["if"]
+        assert "github.event_name == 'check_run'" in condition
+        assert "github.event.check_run.conclusion != 'success'" in condition
+        assert "const checkRun = event.check_run;" in script
+        assert "checkRun.check_suite.head_branch" in script
+        assert "checkRun.pull_requests" in script
+        assert "cancelWorkflowRun" in script
 
     def test_every_completed_run_is_inspected(self, spec):
         """
