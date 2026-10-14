@@ -1,0 +1,23 @@
+flowchart TD
+  caller["Operator / approved runtime API client"]
+  route["src/api/main.py /runtime*"]
+  auth["API key role + operator second factor where required"]
+  change["ChangeManager.submit / request_desired"]
+  classify["Classification, dependency impact, validation, policy"]
+  approve{"Approval / policy permits?"}
+  stage["Optional shadow or canary stage"]
+  supervisor["SupervisorSet / per-component supervisor"]
+  controller["Declared controller capability"]
+  subsystem["Existing subsystem API / kill switch / scheduler"]
+  registry["RuntimeRegistry records actual state, version, health, history"]
+  reconcile["RuntimeLoop: discovery + desired vs actual"]
+  persist[("runtime_desired_state + audit records")]
+  audit["EventBus + hash-chained audit trail"]
+  caller --> route --> auth --> change --> classify --> approve
+  approve -- no --> audit
+  approve -- yes --> stage --> supervisor --> controller --> subsystem
+  subsystem --> registry
+  registry --> persist
+  registry --> audit
+  reconcile --> registry
+  persist --> reconcile

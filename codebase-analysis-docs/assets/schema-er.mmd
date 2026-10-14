@@ -1,0 +1,75 @@
+erDiagram
+  BARS {
+    string symbol
+    string timeframe
+    int ts_unix_ms
+    float open
+    float high
+    float low
+    float close
+    float volume
+  }
+  TRADES {
+    string id PK
+    string symbol
+    string timeframe
+    string trading_mode
+    int entry_ts
+    int exit_ts
+    float pnl_usd
+    float quantity
+  }
+  REGIME_SNAPSHOTS {
+    int id PK
+    string symbol
+    string timeframe
+    int ts
+    int regime_state
+  }
+  MODEL_METRICS {
+    int id PK
+    string model_name
+    string timeframe
+    string version
+    float oos_sharpe
+    float max_drawdown
+  }
+  EQUITY_CURVE {
+    int id PK
+    int ts
+    string trading_mode
+    float equity_usd
+    float drawdown_pct
+  }
+  AUDIT_LOG {
+    int id PK
+    int ts
+    string event_type
+    string operator
+  }
+  MISSED_TRADES {
+    string id PK
+    string symbol
+    string timeframe
+    int ts
+    string reason
+  }
+  INTELLIGENCE_FEATURES_HISTORY {
+    string symbol
+    string timeframe
+    int bar_ts
+    int fetched_at
+    float confidence
+    string source
+  }
+  RUNTIME_DESIRED_STATE {
+    string component_id PK
+    string desired
+    int updated_ms
+  }
+  BARS }o--o{ REGIME_SNAPSHOTS : "logical symbol/timeframe/time alignment"
+  BARS }o--o{ INTELLIGENCE_FEATURES_HISTORY : "logical symbol/timeframe/bar timestamp"
+  BARS }o--o{ TRADES : "logical symbol/timeframe association"
+  BARS }o--o{ MISSED_TRADES : "logical symbol/timeframe association"
+  MODEL_METRICS }o--o{ TRADES : "model quality informs live eligibility"
+  EQUITY_CURVE }o--o{ TRADES : "equity and realized outcomes correlate by time/mode"

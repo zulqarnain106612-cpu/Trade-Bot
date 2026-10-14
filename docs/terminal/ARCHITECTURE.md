@@ -1,10 +1,11 @@
 # Integrated terminal, process center, workspace and venue controls
 
-Architecture plan and implementation record. Every "current state" statement
-below was verified against the source at `bbe46cb6` before the design was
-chosen; nothing here is taken from documentation alone.
+Architecture plan and historical implementation record. The baseline below
+was verified against source at `bbe46cb6` before the design was chosen; it is
+not a statement of current repository state. For current behavior, verify the
+present source and tests. Historical design rationale is retained below.
 
-## 1. Current state (verified)
+## 1. Historical baseline at `bbe46cb6` (verified at that snapshot)
 
 | Area | What exists | Evidence |
 |---|---|---|

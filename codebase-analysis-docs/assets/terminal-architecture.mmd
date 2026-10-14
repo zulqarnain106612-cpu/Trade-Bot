@@ -1,0 +1,15 @@
+flowchart LR
+  browser["Browser dashboard (Vite)"] -->|"loopback WebSocket + first-frame token"| ws["TerminalServer"]
+  electron["Electron renderer"] --> preload["Narrow preload / IPC validation"]
+  preload --> main["Electron main process bridge"]
+  main -->|"Unix socket"| ws
+  cli["tradebot-term host CLI"] -->|"Unix socket + SO_PEERCRED"| ws
+  api["FastAPI job reporter"] -->|"Unix socket, bounded best-effort job events"| ws
+  ws --> sessions["SessionManager / actual Linux PTYs"]
+  sessions --> shell["User shell / process groups / subprocesses"]
+  ws --> registry["Bounded ProcessRegistry + history"]
+  sessions --> buffer["Bounded output buffers and replay"]
+  registry --> electron
+  buffer --> electron
+  registry --> browser
+  buffer --> browser

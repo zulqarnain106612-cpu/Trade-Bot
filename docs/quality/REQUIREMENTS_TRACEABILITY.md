@@ -48,10 +48,10 @@ deletion of the thing it points at.
 | Status | Entries |
 |---|---|
 | VERIFIED | 215 |
-| PARTIAL | 2 |
+| PARTIAL | 3 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **217** |
+| **Total** | **218** |
 
 ## Summary by subsystem
 
@@ -68,7 +68,7 @@ deletion of the thing it points at.
 | Supply chain and artifacts | 7 | 7 |
 | Resilience and recovery | 24 | 24 |
 | Release and production | 14 | 14 |
-| Governance | 59 | 59 |
+| Governance | 60 | 59 |
 | Terminal and process center | 12 | 12 |
 
 ## Outstanding work by phase
@@ -87,7 +87,7 @@ deletion of the thing it points at.
 | PR-010 | Recovery/Chaos/Performance | — |
 | PR-011 | Paper-Trading Qualification | — |
 | PR-012 | Production/Canary Security Gate | — |
-| PR-013 | Adaptive Horizon Intelligence | `DATA-006`, `REG-0030` |
+| PR-013 | Adaptive Horizon Intelligence | `DATA-006`, `GOV-066`, `REG-0030` |
 
 ---
 
@@ -380,7 +380,7 @@ When intelligence is enabled, an order from the existing primary timeframe proce
   - `tests/test_horizon_order_gate.py` (regression)
   - `tests/test_horizon_decision.py` (unit)
 
-> layer: test-suite
+> layer: test-suite. Regression hardening: NaN, infinite, and non-numeric prediction timestamps must abstain; NaN previously bypassed both age comparisons.
 
 ## Portfolio
 
@@ -2549,6 +2549,18 @@ scripts/agent_control.py exits 0 only when a check passes, 1 when a check ran an
 - **Verification:**
   - `tests/agent_control/test_cli.py` (integration)
 
+#### `GOV-066` — Codebase knowledge indexes have a deterministic integrity checker
+
+**PARTIAL → PR-013** · medium · requirement · source: OPS-2026-10-13
+
+The knowledge-index utility checks complete tracked-file coverage and current FILE_INDEX metadata, validates CHUNK_INDEX and CODEBASE_KNOWLEDGE source hashes and line ranges, verifies API_REFERENCE method/path/handler/line rows against AST-derived routes, and offers a safe refresh operation that preserves existing notes/priorities without rewriting semantic anchor ranges.
+
+- **If violated:** A stale index sends an agent to wrong code or makes old line ranges look authoritative, and no reproducible check identifies the drift before the index is trusted.
+- **Owned by:** `scripts/codebase_knowledge_index.py`
+- **Depends on:** `GOV-005`
+- **Verification:**
+  - `tests/test_codebase_knowledge_index.py` (unit)
+
 #### `REG-0005` — A test's result never depends on which tests ran before it
 
 **VERIFIED** · high · regression · source: QE-91
@@ -2811,4 +2823,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 217 entries.
+Registry version: 1.0.0 — 218 entries.
