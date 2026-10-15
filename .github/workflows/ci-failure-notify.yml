@@ -9,10 +9,10 @@ name: CI failure notice
 #
 # Three rules follow from being the only channel, and all three are load-bearing:
 #
-#   1. ONE mutable comment per PR head. A non-green check cancels other
-#      in-flight watched workflows and updates the comment with one actionable
-#      check. The success phrase appears only after every watched workflow has
-#      been observed and completed green.
+#   1. ONE mutable comment per PR head. A non-green job cancels all
+#      in-flight watched workflow runs, including its own run if sibling jobs
+#      are still executing, and publishes one actionable check. The success
+#      phrase appears only after every watched workflow has completed green.
 #
 #   2. Status and exact errors, nothing else. No advice, no instructions, no
 #      "consider checking" prose. The comment is read into an agent's context,
@@ -39,9 +39,10 @@ on:
       - "CodeQL"
       - "Workflow lint"
       - "Security"
-    # Completion events consolidate final verdicts. The PR-head watcher below
-    # handles early failure detection; lifecycle events must not restart it.
-    types: [completed]
+    # Start the watcher when a workflow begins, not only after it completes.
+    # The watcher polls individual job conclusions and cancels sibling runs as
+    # soon as a non-green job is visible; completed events consolidate verdicts.
+    types: [in_progress, completed]
   pull_request:
     types: [opened, synchronize, reopened, closed]
 
@@ -52,9 +53,9 @@ permissions:
   pull-requests: read
 
 concurrency:
-  # Keep the PR-head watcher separate from completion-event consolidation.
-  # New commits cancel the old PR watcher, but completion events must never
-  # cancel an active watcher or each other while they are collecting verdicts.
+  # Keep workflow lifecycle events separate from the PR-head watcher. A new
+  # commit cancels the stale PR watcher; workflow-run events never cancel the
+  # active watcher or each other while they are collecting verdicts.
   group: ci-notice-${{ github.event.workflow_run.head_branch || github.event.pull_request.head.ref || github.ref }}-${{ github.event_name == 'workflow_run' && 'workflow-run' || 'pull-request' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -317,8 +318,48 @@ jobs:
               stale: 4, skipped: 5, cancelled: 6,
             };
             const isSummaryGate = (job) => /gate|all jobs green/i.test(job.name);
+            // An in_progress event is an early-stop watcher for its own run.
+            // Do not infer this commit's verdict from older same-SHA runs of
+            // sibling workflows that have not started their current run yet.
+            const earlyFailureOnly = event.workflow_run && event.action === 'in_progress';
 
             for (let poll = 0; poll < 90; poll++) {
+              if (earlyFailureOnly) {
+                const triggerRunResponse = await github.rest.actions.getWorkflowRun({
+                  ...context.repo, run_id: trigger.id,
+                });
+                const triggerRun = triggerRunResponse.data;
+                const triggerJobs = await github.paginate(
+                  github.rest.actions.listJobsForWorkflowRun,
+                  { ...context.repo, run_id: trigger.id, per_page: 100 },
+                );
+                failing = triggerJobs
+                  .filter(job => job.conclusion || triggerRun.status === 'completed')
+                  .filter(job => isBad(job))
+                  .map(job => ({ workflow: triggerRun.name, run_id: triggerRun.id, job }));
+                if (failing.length > 0) {
+                  // Cancel sibling workflows after any non-green job is visible,
+                  // but keep this triggering run alive so its failure remains visible.
+                  const allRuns = await github.paginate(
+                    github.rest.actions.listWorkflowRunsForRepo,
+                    { ...context.repo, branch: currentHead.head.ref, per_page: 100 },
+                  );
+                  pending = allRuns.filter(r => {
+                    if (r.id === triggerRun.id) return false;
+                    if (!WATCHED.includes(r.name) || r.status === 'completed') return false;
+                    const linked = (r.pull_requests || []).some(pr =>
+                      prNumbers.includes(pr.number) && pr.head && pr.head.sha === headSha);
+                    return linked || (r.head_branch === currentHead.head.ref && r.head_sha === headSha);
+                  });
+                  break;
+                }
+                // A green completion is consolidated by its separate completed
+                // event. This early watcher has no success verdict to publish.
+                if (triggerRun.status === 'completed') return;
+                if (poll < 89) await new Promise(resolve => setTimeout(resolve, 10000));
+                continue;
+              }
+
               // Pull-request workflow runs may use GitHub's synthetic merge
               // SHA as head_sha. Query by branch, then bind runs to this exact
               // PR head through their associated pull-request head SHA.
@@ -365,7 +406,9 @@ jobs:
               Number(b.run_id === trigger.id) - Number(a.run_id === trigger.id));
             const actionable = failing;
             if (actionable.length > 0) {
+              const failingRunIds = new Set(actionable.map(entry => entry.run_id));
               for (const run of pending) {
+                if (failingRunIds.has(run.id)) continue;
                 try {
                   await github.rest.actions.cancelWorkflowRun({
                     ...context.repo, run_id: run.id,

@@ -1,8 +1,9 @@
 # Trade-Bot Codebase Knowledge
 
 **Purpose:** standalone architecture reference for engineers and code-generating LLMs changing this repository.  
-**Repository snapshot:** branch codex/adaptive-horizon-intelligence, commit 9128e3da8b9542efef5c89706b8f2e8f3512f054 (2026-10-12).  
-**Analysis date:** 2026-10-13. FILE_INDEX metadata was refreshed against the current PR worktree based on main HEAD `6232016c94db2025e9afddf4aa3e3e2331dc7b2f`. The CHUNK_INDEX section for `src/workers/orchestrator.py` was reconciled to main, including the five-line insertion; other semantic anchors remain manually maintained and are checked for hash/range drift by `scripts/codebase_knowledge_index.py`. The two source files changed between the audited baseline and main are documented in PHASE_2_SOURCE_AUDIT.md. This is source inspection, not a CI, live-exchange, deployment, or production-readiness certification.
+**Source audit baseline:** branch `codex/adaptive-horizon-intelligence`, commit `9128e3da8b9542efef5c89706b8f2e8f3512f054` (2026-10-12).
+
+**Indexed source baseline:** `main` source commit `6232016c94db2025e9afddf4aa3e3e2331dc7b2f`; this knowledge pack was merged into `main` by `7dc29702a728bc18365bfc41afae1a8017d8878b` on 2026-10-13. The documentation merge does not mean the source audit was rerun or that CI passed. FILE_INDEX metadata was refreshed against the PR worktree based on that source baseline. The CHUNK_INDEX section for `src/workers/orchestrator.py` was reconciled to main, including the five-line insertion; other semantic anchors remain manually maintained and are checked for hash/range drift by `scripts/codebase_knowledge_index.py`. The two source files changed between the audited baseline and main are documented in PHASE_2_SOURCE_AUDIT.md. This is source inspection, not a CI, live-exchange, deployment, or production-readiness certification.
 
 ## How to use this document
 

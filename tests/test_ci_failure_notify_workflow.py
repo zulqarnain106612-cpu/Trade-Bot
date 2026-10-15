@@ -43,12 +43,12 @@ def script(spec: dict) -> str:
 
 
 class TestTrigger:
-    def test_workflow_run_notifier_only_reacts_to_completed_events(self, spec):
-        # Lifecycle events used to cancel the active watcher through the shared
-        # cancel-in-progress group before it could publish a notice.
+    def test_workflow_run_starts_watcher_early_and_consolidates_on_completion(self, spec):
+        # Waiting for completed alone cannot stop sibling jobs while the first
+        # failing workflow is still running. in_progress starts the poller early.
         triggers = spec.get("on") or spec.get(True)
         assert "workflow_run" in triggers
-        assert triggers["workflow_run"]["types"] == ["completed"]
+        assert triggers["workflow_run"]["types"] == ["in_progress", "completed"]
         concurrency = spec["concurrency"]
         assert "workflow-run" in concurrency["group"]
         assert "pull-request" in concurrency["group"]
@@ -82,6 +82,19 @@ class TestTrigger:
         concurrency = spec["concurrency"]
         assert "github.event_name == 'workflow_run'" in concurrency["group"]
         assert concurrency["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
+
+    def test_in_progress_watcher_scopes_early_failure_to_its_trigger_run(self, script):
+        # Older same-commit failures must not cancel sibling runs that have
+        # not started yet; only the triggering run drives early cancellation.
+        assert (
+            "const earlyFailureOnly = event.workflow_run && event.action === 'in_progress';"
+        ) in script
+        assert "github.rest.actions.getWorkflowRun" in script
+        assert "if (earlyFailureOnly)" in script
+        assert "if (triggerRun.status === 'completed') return;" in script
+        assert "if (r.id === triggerRun.id) return false;" in script
+        assert "const failingRunIds = new Set(actionable.map(entry => entry.run_id));" in script
+        assert "if (failingRunIds.has(run.id)) continue;" in script
 
     def test_every_completed_run_is_inspected(self, spec):
         """

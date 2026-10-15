@@ -13,9 +13,9 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 
 | # | Priority | Path | Type | Lines | SHA8 | Why it matters |
 | ---: | --- | --- | --- | ---: | --- | --- |
-| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 501 | 40c0126b | SHA-bound compact CI notice |
+| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 544 | 649f5421 | SHA-bound compact CI notice |
 | 2 | P0 | .github/workflows/ci.yml | YAML | 404 | da238171 | CI jobs and gate composition |
-| 3 | P0 | AGENTS.md | Markdown | 34 | 9a24a0dc | Engineering workflow and safety contract |
+| 3 | P0 | AGENTS.md | Markdown | 46 | 91c46830 | Engineering workflow and safety contract |
 | 4 | P0 | CLAUDE.md | Markdown | 646 | 84eaf220 | Architecture, quality, CI and project policy |
 | 5 | P0 | Dockerfile | Other text/source | 135 | 27c44f78 | Container runtime, identity, healthcheck and entrypoint |
 | 6 | P0 | Makefile | Other text/source | 45 | f5f88b46 | Developer commands governed by repository policy |
@@ -28,7 +28,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 13 | P0 | config/risk.yaml | YAML | 26 | dd4766f8 | Horizon/intelligence risk, distinct from core Settings |
 | 14 | P0 | docker-compose.yml | YAML | 82 | 80ec3eca | API/Timescale/optional-worker composition |
 | 15 | P0 | docs/quality/CI_GATE_ARCHITECTURE.md | Markdown | 255 | 02726345 | CI gates |
-| 16 | P0 | docs/runtime/RUNTIME_PLATFORM.md | Markdown | 278 | 2ea1f81a | Runtime control plane architecture |
+| 16 | P0 | docs/runtime/RUNTIME_PLATFORM.md | Markdown | 296 | 37fde0ad | Runtime control plane architecture |
 | 17 | P0 | docs/security/THREAT_MODEL.md | Markdown | 341 | ab52c113 | Threat model |
 | 18 | P0 | docs/terminal/ARCHITECTURE.md | Markdown | 217 | ac1b11e0 | Terminal/workspace architecture; historical baseline clearly labeled |
 | 19 | P0 | frontend/package.json | JSON | 77 | f1ae54c1 | Node toolchain and frontend scripts |
@@ -68,9 +68,9 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 
 | # | Priority | Path | Type | Lines | SHA8 | Notes |
 | ---: | --- | --- | --- | ---: | --- | --- |
-| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 501 | 40c0126b | SHA-bound compact CI notice |
+| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 544 | 649f5421 | SHA-bound compact CI notice |
 | 2 | P0 | .github/workflows/ci.yml | YAML | 404 | da238171 | CI jobs and gate composition |
-| 3 | P0 | AGENTS.md | Markdown | 34 | 9a24a0dc | Engineering workflow and safety contract |
+| 3 | P0 | AGENTS.md | Markdown | 46 | 91c46830 | Engineering workflow and safety contract |
 | 4 | P0 | CLAUDE.md | Markdown | 646 | 84eaf220 | Architecture, quality, CI and project policy |
 | 5 | P0 | Dockerfile | Other text/source | 135 | 27c44f78 | Container runtime, identity, healthcheck and entrypoint |
 | 6 | P0 | Makefile | Other text/source | 45 | f5f88b46 | Developer commands governed by repository policy |
@@ -83,7 +83,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 13 | P0 | config/risk.yaml | YAML | 26 | dd4766f8 | Horizon/intelligence risk, distinct from core Settings |
 | 14 | P0 | docker-compose.yml | YAML | 82 | 80ec3eca | API/Timescale/optional-worker composition |
 | 15 | P0 | docs/quality/CI_GATE_ARCHITECTURE.md | Markdown | 255 | 02726345 | CI gates |
-| 16 | P0 | docs/runtime/RUNTIME_PLATFORM.md | Markdown | 278 | 2ea1f81a | Runtime control plane architecture |
+| 16 | P0 | docs/runtime/RUNTIME_PLATFORM.md | Markdown | 296 | 37fde0ad | Runtime control plane architecture |
 | 17 | P0 | docs/security/THREAT_MODEL.md | Markdown | 341 | ab52c113 | Threat model |
 | 18 | P0 | docs/terminal/ARCHITECTURE.md | Markdown | 217 | ac1b11e0 | Terminal/workspace architecture; historical baseline clearly labeled |
 | 19 | P0 | frontend/package.json | JSON | 77 | f1ae54c1 | Node toolchain and frontend scripts |
@@ -258,7 +258,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 188 | P1 | scripts/orchestration_template.py | Python | 81 | 592c1ba9 |  |
 | 189 | P1 | scripts/rag_smoke.py | Python | 76 | 409e0d0d |  |
 | 190 | P1 | scripts/resolve_registry_merge.py | Python | 121 | c6616f26 |  |
-| 191 | P1 | scripts/startup_preflight.py | Python | 601 | 7aff056b |  |
+| 191 | P1 | scripts/startup_preflight.py | Python | 605 | 8add17aa |  |
 | 192 | P1 | scripts/timescaledb.sh | Shell | 114 | 42208c43 |  |
 | 193 | P1 | scripts/write_provenance.py | Python | 172 | 0f8c8cdd |  |
 | 194 | P1 | src/__init__.py | Python | 1 | 01ba4719 |  |
@@ -809,7 +809,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 739 | P1 | tests/test_causal_inference.py | Python | 243 | 917865bc |  |
 | 740 | P1 | tests/test_causal_modules.py | Python | 214 | a86122e6 |  |
 | 741 | P1 | tests/test_changepoint.py | Python | 80 | abb1294c |  |
-| 742 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 424 | 595e1150 |  |
+| 742 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 437 | 9af12c87 |  |
 | 743 | P1 | tests/test_ci_log_access.py | Python | 276 | 6a215f51 |  |
 | 744 | P1 | tests/test_ci_notice_supersession.py | Python | 76 | 4727e57a |  |
 | 745 | P1 | tests/test_ci_workflow_cost.py | Python | 235 | fb0a0315 |  |
@@ -1082,7 +1082,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 1012 | P1 | tests/test_signal_engine_residual_paths.py | Python | 352 | 3a907c98 |  |
 | 1013 | P1 | tests/test_slippage.py | Python | 183 | 5e33dbf9 |  |
 | 1014 | P1 | tests/test_small_module_gaps.py | Python | 413 | d4829feb |  |
-| 1015 | P1 | tests/test_startup_readiness.py | Python | 800 | 2457ca97 |  |
+| 1015 | P1 | tests/test_startup_readiness.py | Python | 844 | 4829f182 |  |
 | 1016 | P1 | tests/test_static_invariants.py | Python | 1589 | cb1c834c |  |
 | 1017 | P1 | tests/test_storage.py | Python | 1071 | 61979b83 |  |
 | 1018 | P1 | tests/test_storage_write_rollback.py | Python | 102 | e5d9d7f3 |  |
@@ -1226,7 +1226,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 1156 | P2 | docs/agents/OPENAI_COOKBOOK_ADOPTION.md | Markdown | 41 | 4881215c |  |
 | 1157 | P2 | docs/next_plan_findings.md | Markdown | 21 | 3c715222 |  |
 | 1158 | P2 | frontend/.nvmrc | Text/config | 1 | f14b4987 |  |
-| 1159 | P2 | frontend/browser-e2e/dashboard.e2e.jsx | React JSX | 250 | f839084b |  |
+| 1159 | P2 | frontend/browser-e2e/dashboard.e2e.jsx | React JSX | 358 | 14fc37bc |  |
 | 1160 | P2 | frontend/electron/main.cjs | CommonJS | 166 | 2846114f |  |
 | 1161 | P2 | frontend/electron/preload.cjs | CommonJS | 28 | 5b584536 |  |
 | 1162 | P2 | frontend/electron/terminalBridge.cjs | CommonJS | 221 | df9b68c6 |  |
