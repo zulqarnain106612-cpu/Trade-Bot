@@ -73,10 +73,15 @@ from _gh_contract import (  # noqa: E402
     GITHUB_TOOL_PREFIX,
     HARD_MAX_NEW_FILE_LINES,
     HARD_MAX_PER_PAGE,
+    TARGET_ANCHOR_KEY,
+    TARGET_KEYS,
+    TARGET_LINES_KEY,
     VERIFIED_SERVER_TOOLS,
     BlobStore,
+    TargetStore,  # noqa: E402
     apply_delta,
     is_delta_payload,
+    parse_target_lines,
     unresolved_tools,
     write_within_budget,
 )
@@ -405,6 +410,59 @@ def _contract_violation(tail: str, contract: Any, data: dict[str, Any]) -> str:
     return ""
 
 
+def _github_read_plan(event: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+    """
+    A read names the block it wants, and receives that block.
+
+    A whole-repo result set or a whole file is not an answer to a question
+    about a few lines, so the call must carry either an explicit line range
+    (tb_lines) or a unique anchor (tb_anchor). Neither field exists on the
+    server schema, so the target is recorded here and stripped from the call
+    before it executes; PostToolUse cuts the response down to it.
+    """
+    tool = str(event.get("tool_name") or event.get("toolName") or "").strip().lower()
+    if tool != f"{GITHUB_TOOL_PREFIX}get_file_contents":
+        return "", None
+
+    data = _hook_input(event)
+    path = str(data.get("path") or "").strip()
+    ref = str(data.get("ref") or "").strip()
+    anchor = data.get(TARGET_ANCHOR_KEY)
+    lines = data.get(TARGET_LINES_KEY)
+
+    has_anchor = isinstance(anchor, str) and anchor.strip()
+    span = parse_target_lines(lines)
+    if not has_anchor and span is None:
+        return (
+            "Universal boundary: a read must name its target. Pass "
+            f"'{TARGET_LINES_KEY}' as \"start-end\" or '{TARGET_ANCHOR_KEY}' as a unique "
+            "line of the block you need. Search first if you do not know it.",
+            None,
+        )
+    if has_anchor and span is not None:
+        return (
+            f"Universal boundary: pass one of '{TARGET_LINES_KEY}' or "
+            f"'{TARGET_ANCHOR_KEY}', not both.",
+            None,
+        )
+
+    target: dict[str, Any] = (
+        {TARGET_ANCHOR_KEY: anchor.strip()}
+        if has_anchor
+        else {TARGET_LINES_KEY: f"{span[0]}-{span[1]}"}
+    )
+    try:
+        TargetStore(BLOB_ROOT).put(path, ref, target)
+    except OSError as exc:
+        return (
+            f"Universal boundary: the read target could not be recorded ({exc.__class__.__name__}).",
+            None,
+        )
+
+    stripped = {key: value for key, value in data.items() if key not in TARGET_KEYS}
+    return "", stripped
+
+
 def _github_write_plan(event: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
     """
     Reduce a file write to the candidates that changed.
@@ -476,6 +534,84 @@ def _github_write_plan(event: dict[str, Any]) -> tuple[str, dict[str, Any] | Non
         updated["sha"] = str(record["sha"])
         return "", updated
     return "", None
+
+
+# Any request whose subject is CI, logs, run records, reports or monitoring,
+# whatever tool carries it. The data never reaches the model; the agent
+# receives scripts/ci_verdict.py's verdict instead.
+CI_SUBJECT_RE = re.compile(
+    r"(?i)(workflow|check_run|check-run|check_suite|check-suite|job_log|run_log|"
+    r"\blogs?\b|artifact|annotation|combined_status|status_check|\bcheck[-_ ]?runs?\b|"
+    r"rerun|re-run|monitor|watch|\bcaches?\b|actions/runs|/actions\b)"
+)
+CI_METHODS = frozenset({"get_status", "get_check_runs"})
+
+
+def _ci_pr_hint(data: dict[str, Any]) -> int | None:
+    for key in ("pullNumber", "pull_number", "pr_number", "issue_number", "number"):
+        value = data.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    for key in ("url", "html_url", "raw_url"):
+        value = data.get(key)
+        if isinstance(value, str):
+            match = re.search(r"/(?:pulls?|issues)/(\d+)", value)
+            if match:
+                return int(match.group(1))
+    return None
+
+
+def _is_ci_request(tool: str, data: dict[str, Any]) -> bool:
+    if tool.startswith(GITHUB_TOOL_PREFIX):
+        tail = tool[len(GITHUB_TOOL_PREFIX) :]
+        if CI_SUBJECT_RE.search(tail):
+            return True
+        method = str(data.get("method") or "").strip().lower()
+        if method in CI_METHODS:
+            return True
+    for key in ("url", "html_url", "raw_url", "repository_url"):
+        value = data.get(key)
+        if isinstance(value, str) and GITHUB_CI_URL_RE.search(value):
+            return True
+    command = data.get("command")
+    if isinstance(command, str) and command.strip():
+        # The sanctioned SHA-pinned notice subscription keeps its own route.
+        if re.search(r"local_checks\.py\s+prepare", command):
+            return False
+        if is_ci_log_access(command) or CI_SUBJECT_RE.search(command):
+            return True
+    return False
+
+
+def _ci_interception(event: dict[str, Any]) -> str | None:
+    """
+    The verdict, or None when this request is not about CI.
+
+    The returned text is the entire answer the agent receives: either
+    ``merged successfully`` or the lines that name the failure. Nothing is
+    appended to it, and no record it was skimmed from is exposed.
+    """
+    tool = str(event.get("tool_name") or event.get("toolName") or "").strip().lower()
+    data = _hook_input(event)
+    if not _is_ci_request(tool, data):
+        return None
+    sys.path.insert(0, str(PROJECT_DIR / "scripts"))
+    try:
+        import ci_verdict
+    except Exception:
+        return "ci verdict unavailable: verdict module not importable"
+    if not ci_verdict.has_credentials():
+        # No credential, so no verdict can be established. Fall through to the
+        # ordinary route denial rather than inventing an answer.
+        return None
+    try:
+        return ci_verdict.verdict(_ci_pr_hint(data))
+    except ci_verdict.VerdictError as exc:
+        return f"ci verdict unavailable: {exc}"
+    except Exception as exc:  # fail closed: never fall through to raw data
+        return f"ci verdict unavailable: {type(exc).__name__}"
 
 
 def _fail_closed(note: str) -> None:
@@ -781,6 +917,16 @@ def main() -> None:
         _fail_closed("malformed hook payload")
         return
 
+    # Before any route decision: a CI request is answered with the verdict and
+    # never with the record it came from.
+    ci_answer: str | None = None
+    try:
+        ci_answer = _ci_interception(event)
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"[pre_tool_use] ci interception degraded: {exc!r}", file=sys.stderr)
+    if ci_answer is not None:
+        _emit("deny", ci_answer)
+
     try:
         route_problem = _github_route_violation(event)
         if route_problem:
@@ -796,6 +942,10 @@ def main() -> None:
         write_problem, updated_input = _github_write_plan(event)
         if write_problem:
             _emit("deny", write_problem)
+        if updated_input is None:
+            read_problem, updated_input = _github_read_plan(event)
+            if read_problem:
+                _emit("deny", read_problem)
         _emit("allow", updated_input=updated_input)
 
     reason = " ".join(dict.fromkeys(problems))

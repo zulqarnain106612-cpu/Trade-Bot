@@ -229,3 +229,200 @@ class TestWriteRouteEndToEnd:
         )
         assert decision["permissionDecision"] == "deny"
         assert "never fetched" in decision["permissionDecisionReason"]
+
+
+class _FakeVerdict:
+    """Stands in for scripts/ci_verdict.py so tests never reach the network."""
+
+    class VerdictError(RuntimeError):
+        pass
+
+    answer = "merged successfully"
+    seen_hint: object = "unset"
+
+    @staticmethod
+    def has_credentials() -> bool:
+        return True
+
+    @classmethod
+    def verdict(cls, hint=None):
+        cls.seen_hint = hint
+        if isinstance(cls.answer, Exception):
+            raise cls.answer
+        return cls.answer
+
+
+@pytest.fixture
+def fake_verdict(monkeypatch):
+    monkeypatch.setitem(sys.modules, "ci_verdict", _FakeVerdict)
+    _FakeVerdict.answer = "merged successfully"
+    _FakeVerdict.seen_hint = "unset"
+    return _FakeVerdict
+
+
+class TestCiRequestsReceiveOnlyTheVerdict:
+    """
+    Whatever the agent executes, a CI request is answered with the verdict and
+    never with the record behind it. The reason text is the whole answer, so
+    these assert equality rather than containment.
+    """
+
+    @pytest.mark.parametrize(
+        ("tool", "tool_input"),
+        [
+            ("mcp__github__pull_request_read", {**REPO, "method": "get_status", "pullNumber": 7}),
+            (
+                "mcp__github__pull_request_read",
+                {**REPO, "method": "get_check_runs", "pullNumber": 7},
+            ),
+            ("mcp__github__get_workflow_run_logs", {**REPO, "run_id": 1}),
+            ("mcp__github__list_workflow_run_artifacts", {**REPO, "run_id": 1}),
+            ("Bash", {"command": "gh run view --log"}),
+            ("Bash", {"command": "gh pr checks 7"}),
+            ("Bash", {"command": "curl https://api.github.com/repos/o/r/actions/runs/1"}),
+            ("Bash", {"command": "tail -f logs/app.log"}),
+        ],
+    )
+    def test_every_ci_route_returns_the_verdict_and_nothing_else(
+        self, fake_verdict, tool, tool_input
+    ) -> None:
+        decision = decide(tool, tool_input)
+        assert decision["permissionDecision"] == "deny"
+        assert decision["permissionDecisionReason"] == "merged successfully"
+
+    def test_failure_lines_are_passed_through_verbatim(self, fake_verdict) -> None:
+        lines = "CI / shard 5: FAILED tests/test_x.py::test_y\nCI / lint: error: bad import"
+        fake_verdict.answer = lines
+        decision = decide(
+            "mcp__github__pull_request_read", {**REPO, "method": "get_status", "pullNumber": 7}
+        )
+        assert decision["permissionDecisionReason"] == lines
+
+    def test_the_pull_request_number_is_carried_into_the_verdict(self, fake_verdict) -> None:
+        decide("mcp__github__pull_request_read", {**REPO, "method": "get_status", "pullNumber": 41})
+        assert fake_verdict.seen_hint == 41
+
+    def test_a_pull_request_url_also_identifies_the_target(self, fake_verdict) -> None:
+        decide(
+            "mcp__github__get_workflow_run_logs",
+            {**REPO, "url": "https://api.github.com/repos/o/r/pulls/88/checks"},
+        )
+        assert fake_verdict.seen_hint == 88
+
+    def test_a_broken_verdict_never_falls_through_to_raw_data(self, fake_verdict) -> None:
+        fake_verdict.answer = _FakeVerdict.VerdictError("GitHub API 500")
+        decision = decide(
+            "mcp__github__pull_request_read", {**REPO, "method": "get_status", "pullNumber": 7}
+        )
+        assert decision["permissionDecision"] == "deny"
+        assert decision["permissionDecisionReason"].startswith("ci verdict unavailable")
+
+    def test_the_sha_pinned_notice_subscription_keeps_its_own_route(self, fake_verdict) -> None:
+        decision = decide("Bash", {"command": "python3 scripts/local_checks.py prepare"})
+        assert decision["permissionDecision"] == "allow"
+
+    def test_an_ordinary_read_is_not_a_ci_request(self, fake_verdict) -> None:
+        decision = decide(
+            "mcp__github__get_file_contents",
+            {**REPO, "path": "CLAUDE.md", "ref": "main", "tb_lines": "1-5"},
+        )
+        assert decision["permissionDecision"] == "allow"
+
+
+class TestReadsReturnTheExactBlock:
+    """
+    A read names its target and receives that block, with real line numbers.
+    A whole file is not an answer to a question about a few lines.
+    """
+
+    def test_a_read_without_a_target_is_refused(self) -> None:
+        decision = decide(
+            "mcp__github__get_file_contents", {**REPO, "path": "CLAUDE.md", "ref": "main"}
+        )
+        assert decision["permissionDecision"] == "deny"
+        assert "must name its target" in decision["permissionDecisionReason"]
+
+    def test_a_target_may_not_be_given_twice(self) -> None:
+        decision = decide(
+            "mcp__github__get_file_contents",
+            {**REPO, "path": "a.py", "ref": "main", "tb_lines": "1-2", "tb_anchor": "def x"},
+        )
+        assert decision["permissionDecision"] == "deny"
+
+    def test_the_target_is_stripped_from_the_executed_call(self) -> None:
+        decision = decide(
+            "mcp__github__get_file_contents",
+            {**REPO, "path": "a.py", "ref": "main", "tb_anchor": "def enforce_live_gate"},
+        )
+        assert decision["permissionDecision"] == "allow"
+        assert set(decision["updatedInput"]) == {"owner", "repo", "path", "ref"}
+
+    @pytest.mark.parametrize(
+        ("target", "expected"),
+        [
+            ({"tb_lines": "3-5"}, "3| c\n4| d\n5| e"),
+            ({"tb_lines": "2"}, "2| b"),
+            ({"tb_anchor": "d"}, "1| a\n2| b\n3| c\n4| d\n5| e"),
+        ],
+    )
+    def test_only_the_named_block_comes_back_with_line_numbers(self, target, expected) -> None:
+        body = "a\nb\nc\nd\ne\n"
+        block, problem = ghc.slice_to_target(body, target)
+        assert not problem
+        assert block == expected
+
+    def test_an_ambiguous_anchor_returns_no_block(self) -> None:
+        block, problem = ghc.slice_to_target("x\nx\n", {"tb_anchor": "x"})
+        assert not block and "make it unique" in problem
+
+    def test_a_target_range_is_bounded(self) -> None:
+        body = "".join(f"line{i}\n" for i in range(500))
+        block, problem = ghc.slice_to_target(body, {"tb_lines": "1-500"})
+        assert not problem
+        assert len(block.splitlines()) == ghc.HARD_MAX_TARGET_LINES
+
+
+class TestCiUrlsAndMethodsAreAnsweredNotLeaked:
+    """
+    These moved here from the subprocess-driven module: the verdict is faked,
+    so asserting them never calls GitHub.
+    """
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/actions/runs/1",
+            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/check-runs/1",
+            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/commits/abc/status",
+            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/actions/artifacts",
+        ],
+    )
+    def test_a_ci_url_on_an_allowed_tool_returns_the_verdict(self, fake_verdict, url) -> None:
+        decision = decide(
+            "mcp__github__get_file_contents",
+            {**REPO, "path": "a.py", "ref": "main", "tb_lines": "1-5", "url": url},
+        )
+        assert decision["permissionDecision"] == "deny"
+        assert decision["permissionDecisionReason"] == "merged successfully"
+
+    def test_without_a_credential_there_is_no_verdict_and_the_route_still_denies(
+        self, monkeypatch
+    ) -> None:
+        class NoCreds:
+            class VerdictError(RuntimeError):
+                pass
+
+            @staticmethod
+            def has_credentials() -> bool:
+                return False
+
+            @staticmethod
+            def verdict(hint=None):  # pragma: no cover - must never be reached
+                raise AssertionError("verdict attempted without a credential")
+
+        monkeypatch.setitem(sys.modules, "ci_verdict", NoCreds)
+        decision = decide(
+            "mcp__github__pull_request_read", {**REPO, "method": "get_status", "pullNumber": 7}
+        )
+        assert decision["permissionDecision"] == "deny"
+        assert "get_status" in decision["permissionDecisionReason"]
