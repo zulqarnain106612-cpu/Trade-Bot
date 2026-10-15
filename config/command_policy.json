@@ -248,5 +248,11 @@
     ],
     "github_only": true
   },
-  "_gh_note": "gh is not exempt as a whole. CI run data and arbitrary PR comment reads are blocked; the only permitted comment route is the SHA-filtered local_checks.py prepare command. Ordinary PR metadata and PR comment writes remain separately governed."
+  "_gh_note": "gh is not exempt as a whole. CI run data and arbitrary PR comment reads are blocked; the only permitted comment route is the SHA-filtered local_checks.py prepare command. Ordinary PR metadata and PR comment writes remain separately governed.",
+  "github_route": {
+    "contract": ".claude/hooks/_gh_contract.py",
+    "_note": "The GitHub tool contract is code-owned. This section is documentary; it cannot widen a route.",
+    "ci_notice_route": "scripts/local_checks.py prepare (SHA-filtered, single comment)",
+    "pr_comment_reads": "deny (pull_request_read method=get_comments is refused)"
+  }
 }

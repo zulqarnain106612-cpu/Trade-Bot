@@ -109,22 +109,30 @@ class TestDefaultDeny:
 class TestApprovedGithubRoute:
     def test_repository_file_read_is_allowed_only_when_repo_scoped(self) -> None:
         decision = decide(
-            "mcp__GitHub__fetch_file",
-            {"repository_full_name": REPO, "path": "CLAUDE.md", "start_line": 1, "end_line": 30},
+            "mcp__github__get_file_contents",
+            {
+                "repository_full_name": REPO,
+                "path": "CLAUDE.md",
+                "ref": "main",
+                "tb_lines": "10-20",
+            },
         )
         assert decision["permissionDecision"] == "allow"
+        # The targeting field is not part of the server schema and is removed
+        # from the call that actually runs.
+        assert "tb_lines" not in decision["updatedInput"]
 
     def test_scoped_search_is_allowed(self) -> None:
         decision = decide(
-            "mcp__GitHub__search",
-            {"query": "observation_gate", "repository_name": REPO},
+            "mcp__github__search_code",
+            {"query": "observation_gate", "repository_name": REPO, "perPage": 10},
         )
         assert decision["permissionDecision"] == "allow"
 
     def test_arbitrary_pull_request_comment_reads_are_denied(self) -> None:
         decision = decide(
-            "mcp__GitHub__fetch_pr_comments",
-            {"repo_full_name": REPO, "pr_number": 439},
+            "mcp__github__pull_request_read",
+            {"repo_full_name": REPO, "method": "get_comments", "pullNumber": 439},
         )
         assert decision["permissionDecision"] == "deny"
 
@@ -135,52 +143,67 @@ class TestApprovedGithubRoute:
         )
         assert decision["permissionDecision"] == "allow"
 
-    def test_scoped_generic_contents_fetch_is_allowed(self) -> None:
-        decision = decide(
-            "mcp__GitHub__fetch",
+    def test_tool_names_outside_the_verified_inventory_are_denied(self) -> None:
+        # This server exposes no generic "fetch" tool. A name the verified
+        # inventory does not carry is refused as unverified rather than
+        # assumed to behave like one that does.
+        assert_denied(
+            "mcp__github__fetch",
             {
                 "url": (
                     "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/contents/CLAUDE.md"
                 )
             },
+            contains="unverified",
         )
-        assert decision["permissionDecision"] == "allow"
 
-    def test_generic_github_endpoint_outside_the_allowlist_is_denied(self) -> None:
+    @pytest.mark.parametrize(
+        "method", ["get_diff", "get_files", "get_commits", "get_reviews", "get_review_comments"]
+    )
+    def test_whole_pr_report_methods_are_denied(self, method: str) -> None:
         assert_denied(
-            "mcp__GitHub__fetch",
-            {"url": "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/releases"},
-            contains="endpoint is not allowlisted",
+            "mcp__github__pull_request_read",
+            {"repository_full_name": REPO, "method": method, "pullNumber": 439},
+            contains="is denied",
         )
 
     def test_search_cannot_smuggle_a_second_repository_in_the_query(self) -> None:
         assert_denied(
-            "mcp__GitHub__search",
-            {"repository_name": REPO, "query": "repo:another-owner/another-repo secret"},
+            "mcp__github__search_code",
+            {
+                "repository_name": REPO,
+                "query": "repo:another-owner/another-repo secret",
+                "perPage": 10,
+            },
             contains=REPO,
         )
 
     def test_unscoped_search_is_denied(self) -> None:
         assert_denied(
-            "mcp__GitHub__search",
-            {"query": "observation_gate"},
+            "mcp__github__search_code",
+            {"query": "observation_gate", "perPage": 10},
             contains="explicitly identify",
         )
 
     def test_other_repository_is_denied(self) -> None:
         assert_denied(
-            "mcp__GitHub__fetch_file",
-            {"repository_full_name": "another-owner/another-repo", "path": "README.md"},
+            "mcp__github__get_file_contents",
+            {
+                "repository_full_name": "another-owner/another-repo",
+                "path": "README.md",
+                "ref": "main",
+            },
             contains=REPO,
         )
 
     def test_conflicting_repository_references_are_denied(self) -> None:
         assert_denied(
-            "mcp__GitHub__fetch_file",
+            "mcp__github__get_file_contents",
             {
                 "repository_full_name": REPO,
                 "url": "https://github.com/other/repo/blob/main/a.py",
                 "path": "a.py",
+                "ref": "main",
             },
             contains=REPO,
         )
@@ -200,38 +223,17 @@ class TestCIBoundary:
     def test_ci_logs_artifacts_jobs_and_status_tools_are_denied(self, tool: str) -> None:
         assert_denied(tool, {"repository_full_name": REPO, "pull_number": 435})
 
-    @pytest.mark.parametrize(
-        "url",
-        [
-            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/actions/runs/1",
-            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/check-runs/1",
-            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/commits/abc/status",
-            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/actions/artifacts",
-        ],
-    )
-    def test_generic_github_fetch_cannot_read_ci_data(self, url: str) -> None:
-        assert_denied("mcp__github__fetch", {"url": url}, contains="CI logs")
-
-    def test_generic_fetch_rejects_encoded_path_traversal(self) -> None:
+    def test_comment_api_cannot_be_smuggled_through_an_allowed_tool(self) -> None:
         assert_denied(
-            "mcp__GitHub__fetch",
+            "mcp__github__get_file_contents",
             {
-                "url": (
-                    "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/"
-                    "contents/%2e%2e%2factions%2fruns"
-                )
-            },
-            contains="endpoint is not allowlisted",
-        )
-
-    def test_generic_fetch_cannot_read_pr_comment_api(self) -> None:
-        assert_denied(
-            "mcp__GitHub__fetch",
-            {
+                "repository_full_name": REPO,
+                "path": "a.py",
+                "ref": "main",
                 "url": (
                     "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/"
                     "issues/439/comments"
-                )
+                ),
             },
             contains="Arbitrary PR-comment",
         )
@@ -243,8 +245,8 @@ class TestBranchAndBoundaryWrites:
             "mcp__github__create_branch",
             {
                 "repository_full_name": REPO,
-                "branch_name": "security/observation-boundary-test",
-                "base_ref": "main",
+                "branch": "security/observation-boundary-test",
+                "from_branch": "main",
             },
         )
         assert decision["permissionDecision"] == "allow"
@@ -252,9 +254,9 @@ class TestBranchAndBoundaryWrites:
     @pytest.mark.parametrize(
         "args",
         [
-            {"branch_name": "security/other-base", "base_ref": "legacy"},
-            {"branch_name": "security/arbitrary-sha", "sha": "abc123"},
-            {"branch_name": "main", "base_ref": "main"},
+            {"branch": "security/other-base", "from_branch": "legacy"},
+            {"branch": "main", "from_branch": "main"},
+            {"branch": "", "from_branch": "main"},
         ],
     )
     def test_branch_creation_from_non_main_or_arbitrary_sha_is_denied(self, args: dict) -> None:
@@ -269,33 +271,32 @@ class TestBranchAndBoundaryWrites:
             "mcp__github__create_pull_request",
             {
                 "repository_full_name": REPO,
-                "head_branch": "security/observation-boundary",
-                "base_branch": "another-feature",
+                "title": "t",
+                "head": "security/observation-boundary",
+                "base": "another-feature",
             },
             contains="target main",
         )
 
-    def test_ref_update_requires_a_lease(self) -> None:
-        assert_denied(
-            "mcp__github__update_ref",
-            {
-                "repository_full_name": REPO,
-                "branch_name": "security/observation-boundary",
-                "sha": "abc123",
-                "force": False,
-            },
-            contains="expected_sha lease",
-        )
+    def test_ref_mutation_tools_are_not_in_the_verified_inventory(self) -> None:
+        # update_ref and create_tree are not served here. They are refused as
+        # unverified names, so no ref or tree route exists to lease or force.
+        for tool in ("mcp__github__update_ref", "mcp__github__create_tree"):
+            assert_denied(
+                tool,
+                {"repository_full_name": REPO, "branch": "security/x", "sha": "abc123"},
+                contains="unverified",
+            )
 
     def test_feature_branch_write_is_allowed(self) -> None:
         decision = decide(
-            "mcp__GitHub__update_file",
+            "mcp__github__create_or_update_file",
             {
                 "repository_full_name": REPO,
                 "branch": "security/observation-boundary",
                 "path": "docs/example.md",
                 "content": "x",
-                "sha": "a" * 40,
+                "message": "add example",
             },
         )
         assert decision["permissionDecision"] == "allow"
@@ -310,16 +311,19 @@ class TestBranchAndBoundaryWrites:
         }
         if branch is not None:
             args["branch"] = branch
-        assert_denied("mcp__GitHub__update_file", args, contains="non-main feature branch")
+        args["message"] = "m"
+        expected = "branch" if branch else "'branch'"
+        assert_denied("mcp__github__create_or_update_file", args, contains=expected)
 
     def test_boundary_files_cannot_be_changed_through_github_file_tools(self) -> None:
         assert_denied(
-            "mcp__github__update_file",
+            "mcp__github__create_or_update_file",
             {
                 "repository_full_name": REPO,
                 "branch": "security/agent-boundary",
                 "path": ".claude/hooks/pre_tool_use.py",
                 "content": "bypass",
+                "message": "m",
             },
             contains="Protected observation-boundary",
         )
@@ -339,54 +343,40 @@ class TestBranchAndBoundaryWrites:
     )
     def test_policy_directories_and_launch_configuration_are_protected(self, path: str) -> None:
         assert_denied(
-            "mcp__GitHub__update_file",
+            "mcp__github__create_or_update_file",
             {
                 "repository_full_name": REPO,
                 "branch": "security/test-boundary",
                 "path": path,
                 "content": "bypass",
-                "sha": "a" * 40,
+                "message": "m",
             },
             contains="Protected observation-boundary",
         )
 
-    def test_boundary_files_cannot_be_changed_inside_tree_writes(self) -> None:
+    def test_multi_file_and_deletion_routes_are_denied(self) -> None:
+        # push_files is a blind multi-file overwrite with no blob sha, and
+        # delete_file is destructive. Both exist on this server and both are
+        # denied by name with a stated reason.
         assert_denied(
-            "mcp__GitHub__create_tree",
+            "mcp__github__push_files",
             {
                 "repository_full_name": REPO,
-                "tree_elements": [
-                    {
-                        "path": ".claude/settings.json",
-                        "mode": "100644",
-                        "type": "blob",
-                        "sha": "a" * 40,
-                    }
-                ],
+                "branch": "security/agent-boundary",
+                "message": "m",
+                "files": [{"path": ".claude/settings.json", "content": "bypass"}],
             },
-            contains="Protected observation-boundary",
+            contains="blind multi-file overwrite",
         )
-
-    def test_tree_deletions_are_denied(self) -> None:
         assert_denied(
-            "mcp__github__create_tree",
+            "mcp__github__delete_file",
             {
                 "repository_full_name": REPO,
-                "tree_elements": [{"path": ".claude/settings.json", "sha": None}],
+                "branch": "security/agent-boundary",
+                "path": "docs/example.md",
+                "message": "m",
             },
-            contains="tree deletions are denied",
-        )
-
-    def test_force_ref_updates_are_denied(self) -> None:
-        assert_denied(
-            "mcp__github__update_ref",
-            {
-                "repository_full_name": REPO,
-                "branch_name": "security/agent-boundary",
-                "sha": "abc",
-                "force": True,
-            },
-            contains="force-updating",
+            contains="destructive",
         )
 
 
@@ -418,15 +408,38 @@ class TestSettingsWiring:
     def test_native_capability_tools_are_denied_in_settings_too(self) -> None:
         settings = json.loads((PROJECT_DIR / ".claude" / "settings.json").read_text())
         denied = set(settings["permissions"]["deny"])
-        for tool in (
-            "Bash",
-            "Read",
-            "Write",
-            "Edit",
-            "Glob",
-            "Grep",
-            "LS",
-            "WebFetch",
-            "WebSearch",
-        ):
+        for tool in ("Read", "Write", "Edit", "Glob", "Grep", "LS", "WebFetch", "WebSearch"):
             assert tool in denied
+
+    def test_bash_is_gated_by_the_hook_not_by_a_bare_denial(self) -> None:
+        # A bare "Bash" denial outranks every allow rule, which would kill the
+        # one SHA-filtered CI notice command. Bash is therefore denied for
+        # everything else by the hook, and a hook error or timeout leaves the
+        # call unexecuted.
+        settings = json.loads((PROJECT_DIR / ".claude" / "settings.json").read_text())
+        permissions = settings["permissions"]
+        assert "Bash" not in set(permissions["deny"])
+        assert "Bash(python3 scripts/local_checks.py prepare)" in set(permissions["allow"])
+        assert decide("Bash", {"command": "cat CLAUDE.md"})["permissionDecision"] == "deny"
+
+    def test_live_mcp_namespaces_are_denied(self) -> None:
+        settings = json.loads((PROJECT_DIR / ".claude" / "settings.json").read_text())
+        denied = set(settings["permissions"]["deny"])
+        # The namespace this host actually serves, plus the bare spelling used
+        # by a desktop-app session.
+        for pattern in (
+            "mcp__remote-devices__*",
+            "mcp__Desktop_Commander__*",
+            "mcp__vscode-debug__*",
+        ):
+            assert pattern in denied
+
+    def test_contracted_github_tools_are_explicitly_allowed(self) -> None:
+        settings = json.loads((PROJECT_DIR / ".claude" / "settings.json").read_text())
+        allowed = set(settings["permissions"]["allow"])
+        for tool in (
+            "mcp__github__get_file_contents",
+            "mcp__github__create_or_update_file",
+            "mcp__github__pull_request_read",
+        ):
+            assert tool in allowed
