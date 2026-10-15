@@ -240,6 +240,10 @@ class _FakeVerdict:
     answer = "merged successfully"
     seen_hint: object = "unset"
 
+    @staticmethod
+    def has_credentials() -> bool:
+        return True
+
     @classmethod
     def verdict(cls, hint=None):
         cls.seen_hint = hint
@@ -319,6 +323,106 @@ class TestCiRequestsReceiveOnlyTheVerdict:
 
     def test_an_ordinary_read_is_not_a_ci_request(self, fake_verdict) -> None:
         decision = decide(
-            "mcp__github__get_file_contents", {**REPO, "path": "CLAUDE.md", "ref": "main"}
+            "mcp__github__get_file_contents",
+            {**REPO, "path": "CLAUDE.md", "ref": "main", "tb_lines": "1-5"},
         )
         assert decision["permissionDecision"] == "allow"
+
+
+class TestReadsReturnTheExactBlock:
+    """
+    A read names its target and receives that block, with real line numbers.
+    A whole file is not an answer to a question about a few lines.
+    """
+
+    def test_a_read_without_a_target_is_refused(self) -> None:
+        decision = decide(
+            "mcp__github__get_file_contents", {**REPO, "path": "CLAUDE.md", "ref": "main"}
+        )
+        assert decision["permissionDecision"] == "deny"
+        assert "must name its target" in decision["permissionDecisionReason"]
+
+    def test_a_target_may_not_be_given_twice(self) -> None:
+        decision = decide(
+            "mcp__github__get_file_contents",
+            {**REPO, "path": "a.py", "ref": "main", "tb_lines": "1-2", "tb_anchor": "def x"},
+        )
+        assert decision["permissionDecision"] == "deny"
+
+    def test_the_target_is_stripped_from_the_executed_call(self) -> None:
+        decision = decide(
+            "mcp__github__get_file_contents",
+            {**REPO, "path": "a.py", "ref": "main", "tb_anchor": "def enforce_live_gate"},
+        )
+        assert decision["permissionDecision"] == "allow"
+        assert set(decision["updatedInput"]) == {"owner", "repo", "path", "ref"}
+
+    @pytest.mark.parametrize(
+        ("target", "expected"),
+        [
+            ({"tb_lines": "3-5"}, "3| c\n4| d\n5| e"),
+            ({"tb_lines": "2"}, "2| b"),
+            ({"tb_anchor": "d"}, "1| a\n2| b\n3| c\n4| d\n5| e"),
+        ],
+    )
+    def test_only_the_named_block_comes_back_with_line_numbers(self, target, expected) -> None:
+        body = "a\nb\nc\nd\ne\n"
+        block, problem = ghc.slice_to_target(body, target)
+        assert not problem
+        assert block == expected
+
+    def test_an_ambiguous_anchor_returns_no_block(self) -> None:
+        block, problem = ghc.slice_to_target("x\nx\n", {"tb_anchor": "x"})
+        assert not block and "make it unique" in problem
+
+    def test_a_target_range_is_bounded(self) -> None:
+        body = "".join(f"line{i}\n" for i in range(500))
+        block, problem = ghc.slice_to_target(body, {"tb_lines": "1-500"})
+        assert not problem
+        assert len(block.splitlines()) == ghc.HARD_MAX_TARGET_LINES
+
+
+class TestCiUrlsAndMethodsAreAnsweredNotLeaked:
+    """
+    These moved here from the subprocess-driven module: the verdict is faked,
+    so asserting them never calls GitHub.
+    """
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/actions/runs/1",
+            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/check-runs/1",
+            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/commits/abc/status",
+            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/actions/artifacts",
+        ],
+    )
+    def test_a_ci_url_on_an_allowed_tool_returns_the_verdict(self, fake_verdict, url) -> None:
+        decision = decide(
+            "mcp__github__get_file_contents",
+            {**REPO, "path": "a.py", "ref": "main", "tb_lines": "1-5", "url": url},
+        )
+        assert decision["permissionDecision"] == "deny"
+        assert decision["permissionDecisionReason"] == "merged successfully"
+
+    def test_without_a_credential_there_is_no_verdict_and_the_route_still_denies(
+        self, monkeypatch
+    ) -> None:
+        class NoCreds:
+            class VerdictError(RuntimeError):
+                pass
+
+            @staticmethod
+            def has_credentials() -> bool:
+                return False
+
+            @staticmethod
+            def verdict(hint=None):  # pragma: no cover - must never be reached
+                raise AssertionError("verdict attempted without a credential")
+
+        monkeypatch.setitem(sys.modules, "ci_verdict", NoCreds)
+        decision = decide(
+            "mcp__github__pull_request_read", {**REPO, "method": "get_status", "pullNumber": 7}
+        )
+        assert decision["permissionDecision"] == "deny"
+        assert "get_status" in decision["permissionDecisionReason"]

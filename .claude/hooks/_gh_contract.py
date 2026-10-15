@@ -395,3 +395,103 @@ def write_within_budget(
             f"'{DELTA_SENTINEL}' payload."
         )
     return True, ""
+
+
+# ---------------------------------------------------------------------------
+# Exact targets: a read returns the block asked for, not the file around it.
+# ---------------------------------------------------------------------------
+
+# Agent-supplied targeting fields. They are not part of the server schema, so
+# the hook records them and strips them from the call before it executes.
+TARGET_LINES_KEY = "tb_lines"
+TARGET_ANCHOR_KEY = "tb_anchor"
+TARGET_KEYS = (TARGET_LINES_KEY, TARGET_ANCHOR_KEY)
+
+HARD_MAX_TARGET_LINES = 80
+ANCHOR_CONTEXT_LINES = 8
+
+_LINES_RE = re.compile(r"^\s*(\d+)\s*(?:-|:|\.\.)\s*(\d+)\s*$")
+
+
+def parse_target_lines(value: object) -> tuple[int, int] | None:
+    """``"120-160"`` -> (120, 160). A single number targets that one line."""
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return (value, value)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text = value.strip()
+    if text.isdigit():
+        number = int(text)
+        return (number, number) if number > 0 else None
+    match = _LINES_RE.match(text)
+    if not match:
+        return None
+    start, end = int(match.group(1)), int(match.group(2))
+    if start < 1 or end < start:
+        return None
+    return (start, end)
+
+
+@dataclass
+class TargetStore:
+    """What the agent said it was after, recorded before the call runs."""
+
+    root: Path
+
+    def _key(self, path: str, ref: str) -> Path:
+        digest = hashlib.sha256(f"target\x00{ref}\x00{path}".encode()).hexdigest()[:32]
+        return self.root / f"t_{digest}.json"
+
+    def put(self, path: str, ref: str, target: dict[str, Any]) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        record = {"path": path, "ref": ref, "at": int(time.time()), **target}
+        destination = self._key(path, ref)
+        tmp = destination.with_suffix(".tmp")
+        tmp.write_text(json.dumps(record), encoding="utf-8")
+        tmp.replace(destination)
+
+    def get(self, path: str, ref: str) -> dict[str, Any] | None:
+        try:
+            with self._key(path, ref).open(encoding="utf-8") as fh:
+                data = json.load(fh)
+            return data if isinstance(data, dict) else None
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
+
+
+def slice_to_target(content: str, target: dict[str, Any] | None) -> tuple[str, str]:
+    """
+    The exact block, with real line numbers, or a reason it could not be cut.
+
+    Line numbers are carried so the agent can navigate to a precise location
+    instead of counting lines in an excerpt.
+    """
+    lines = content.splitlines()
+    if not target:
+        return "", "no target was recorded for this read"
+
+    anchor = target.get(TARGET_ANCHOR_KEY)
+    if isinstance(anchor, str) and anchor.strip():
+        needle = anchor.strip()
+        hits = [i for i, line in enumerate(lines, start=1) if needle in line]
+        if not hits:
+            return "", f"anchor {needle!r} is not present in the file"
+        if len(hits) > 1:
+            return "", f"anchor {needle!r} matches {len(hits)} lines; make it unique"
+        centre = hits[0]
+        start = max(1, centre - ANCHOR_CONTEXT_LINES)
+        end = min(len(lines), centre + ANCHOR_CONTEXT_LINES)
+    else:
+        span = parse_target_lines(target.get(TARGET_LINES_KEY))
+        if not span:
+            return "", "no usable target range was recorded"
+        start, end = span
+        if start > len(lines):
+            return "", f"line {start} is past the end of the file ({len(lines)} lines)"
+        end = min(end, len(lines))
+        if end - start + 1 > HARD_MAX_TARGET_LINES:
+            end = start + HARD_MAX_TARGET_LINES - 1
+
+    width = len(str(end))
+    body = "\n".join(f"{number:>{width}}| {lines[number - 1]}" for number in range(start, end + 1))
+    return body, ""

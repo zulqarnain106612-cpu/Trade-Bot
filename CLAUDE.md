@@ -277,11 +277,25 @@ This is an enforcement rule, not a prompt instruction:
 - Native shells, integrated terminals, filesystem tools, browser tools, agents,
   unlisted MCP tools, newly introduced tool names, and unscoped GitHub requests
   are refused before execution. Unknown routes do not inherit permission.
-- CI logs, workflow/job records, artifacts, caches, check runs, and status
-  endpoints are refused on every route, including a CI URL carried as a field on
-  an allowed tool. The SHA-filtered `scripts/local_checks.py prepare`
-  subscription remains the single CI diagnostic channel; direct PR-comment reads
-  stay denied.
+- A request whose subject is CI, logs, run records, reports or monitoring is
+  **answered, not just refused**, whatever tool carries it: a GitHub tool, a
+  shell command, or a CI URL on an allowed tool. `scripts/ci_verdict.py`
+  produces the whole answer the agent receives, and it is exactly one of two
+  things: the single line `merged successfully` when every check on the PR head
+  is green, or only the log lines that name the failure, each prefixed with its
+  workflow and job, deduped and capped at 80 distinct lines. The skim runs in
+  the mechanism; raw records never reach the model and nothing is appended. With
+  no credential there is no verdict, and the request falls back to the ordinary
+  route denial. The SHA-pinned `scripts/local_checks.py prepare` notice keeps
+  its own route; direct PR-comment reads stay denied.
+- A read names its target and receives that block. `get_file_contents` must
+  carry `tb_lines` (`"120-160"`) or `tb_anchor` (a unique line of the block);
+  neither exists on the server schema, so the hook records the target and strips
+  it from the executed call. PostToolUse returns only those lines, each with its
+  real line number, bounded to 80. `search_code` returns only the matched
+  fragments with their paths, never the surrounding result record. The full
+  fetched body is kept on disk, never in context, which is what the delta write
+  gate diffs against.
 - Repository writes require an explicit non-main branch and carry only the
   candidates that changed. The GitHub contents API has no partial-write
   endpoint, so a write sends anchored `@@TB-DELTA v1@@` OLD/NEW blocks, and the

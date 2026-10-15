@@ -69,6 +69,11 @@ def _token() -> str:
         return ""
 
 
+def has_credentials() -> bool:
+    """Whether a verdict can be produced at all."""
+    return bool(_token())
+
+
 def _git(*args: str) -> str:
     proc = subprocess.run(
         ["git", *args], cwd=ROOT, capture_output=True, text=True, check=False, timeout=15

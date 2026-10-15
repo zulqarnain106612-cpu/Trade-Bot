@@ -110,9 +110,17 @@ class TestApprovedGithubRoute:
     def test_repository_file_read_is_allowed_only_when_repo_scoped(self) -> None:
         decision = decide(
             "mcp__github__get_file_contents",
-            {"repository_full_name": REPO, "path": "CLAUDE.md", "ref": "main"},
+            {
+                "repository_full_name": REPO,
+                "path": "CLAUDE.md",
+                "ref": "main",
+                "tb_lines": "10-20",
+            },
         )
         assert decision["permissionDecision"] == "allow"
+        # The targeting field is not part of the server schema and is removed
+        # from the call that actually runs.
+        assert "tb_lines" not in decision["updatedInput"]
 
     def test_scoped_search_is_allowed(self) -> None:
         decision = decide(
@@ -153,14 +161,6 @@ class TestApprovedGithubRoute:
         "method", ["get_diff", "get_files", "get_commits", "get_reviews", "get_review_comments"]
     )
     def test_whole_pr_report_methods_are_denied(self, method: str) -> None:
-        assert_denied(
-            "mcp__github__pull_request_read",
-            {"repository_full_name": REPO, "method": method, "pullNumber": 439},
-            contains="is denied",
-        )
-
-    @pytest.mark.parametrize("method", ["get_status", "get_check_runs"])
-    def test_ci_methods_on_an_allowed_tool_are_denied(self, method: str) -> None:
         assert_denied(
             "mcp__github__pull_request_read",
             {"repository_full_name": REPO, "method": method, "pullNumber": 439},
@@ -222,22 +222,6 @@ class TestCIBoundary:
     )
     def test_ci_logs_artifacts_jobs_and_status_tools_are_denied(self, tool: str) -> None:
         assert_denied(tool, {"repository_full_name": REPO, "pull_number": 435})
-
-    @pytest.mark.parametrize(
-        "url",
-        [
-            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/actions/runs/1",
-            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/check-runs/1",
-            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/commits/abc/status",
-            "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/actions/artifacts",
-        ],
-    )
-    def test_generic_github_fetch_cannot_read_ci_data(self, url: str) -> None:
-        assert_denied(
-            "mcp__github__get_file_contents",
-            {"repository_full_name": REPO, "path": "a.py", "ref": "main", "url": url},
-            contains="CI logs",
-        )
 
     def test_comment_api_cannot_be_smuggled_through_an_allowed_tool(self) -> None:
         assert_denied(
