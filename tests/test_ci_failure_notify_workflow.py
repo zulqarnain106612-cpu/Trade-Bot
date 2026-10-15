@@ -93,6 +93,8 @@ class TestTrigger:
         assert "if (earlyFailureOnly)" in script
         assert "if (triggerRun.status === 'completed') return;" in script
         assert "if (r.id === triggerRun.id) return false;" in script
+        assert "const failingRunIds = new Set(actionable.map(entry => entry.run_id));" in script
+        assert "if (failingRunIds.has(run.id)) continue;" in script
 
     def test_every_completed_run_is_inspected(self, spec):
         """

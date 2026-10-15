@@ -406,7 +406,9 @@ jobs:
               Number(b.run_id === trigger.id) - Number(a.run_id === trigger.id));
             const actionable = failing;
             if (actionable.length > 0) {
+              const failingRunIds = new Set(actionable.map(entry => entry.run_id));
               for (const run of pending) {
+                if (failingRunIds.has(run.id)) continue;
                 try {
                   await github.rest.actions.cancelWorkflowRun({
                     ...context.repo, run_id: run.id,

@@ -13,7 +13,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 
 | # | Priority | Path | Type | Lines | SHA8 | Why it matters |
 | ---: | --- | --- | --- | ---: | --- | --- |
-| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 542 | 8ea6b595 | SHA-bound compact CI notice |
+| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 544 | 649f5421 | SHA-bound compact CI notice |
 | 2 | P0 | .github/workflows/ci.yml | YAML | 404 | da238171 | CI jobs and gate composition |
 | 3 | P0 | AGENTS.md | Markdown | 46 | 91c46830 | Engineering workflow and safety contract |
 | 4 | P0 | CLAUDE.md | Markdown | 646 | 84eaf220 | Architecture, quality, CI and project policy |
@@ -68,7 +68,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 
 | # | Priority | Path | Type | Lines | SHA8 | Notes |
 | ---: | --- | --- | --- | ---: | --- | --- |
-| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 542 | 8ea6b595 | SHA-bound compact CI notice |
+| 1 | P0 | .github/workflows/ci-failure-notify.yml | YAML | 544 | 649f5421 | SHA-bound compact CI notice |
 | 2 | P0 | .github/workflows/ci.yml | YAML | 404 | da238171 | CI jobs and gate composition |
 | 3 | P0 | AGENTS.md | Markdown | 46 | 91c46830 | Engineering workflow and safety contract |
 | 4 | P0 | CLAUDE.md | Markdown | 646 | 84eaf220 | Architecture, quality, CI and project policy |
@@ -809,7 +809,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 739 | P1 | tests/test_causal_inference.py | Python | 243 | 917865bc |  |
 | 740 | P1 | tests/test_causal_modules.py | Python | 214 | a86122e6 |  |
 | 741 | P1 | tests/test_changepoint.py | Python | 80 | abb1294c |  |
-| 742 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 435 | 8072177e |  |
+| 742 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 437 | 9af12c87 |  |
 | 743 | P1 | tests/test_ci_log_access.py | Python | 276 | 6a215f51 |  |
 | 744 | P1 | tests/test_ci_notice_supersession.py | Python | 76 | 4727e57a |  |
 | 745 | P1 | tests/test_ci_workflow_cost.py | Python | 235 | fb0a0315 |  |
