@@ -9,7 +9,6 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 PROJECT_DIR = Path(
     os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2])
@@ -234,56 +233,6 @@ def _github_boundary_write_violation(tool: str, data: dict[str, Any]) -> str:
     if matched and any(tool.endswith(f"__{name}") for name in GITHUB_BOUNDARY_TREE_TOOLS):
         return f"Protected observation-boundary file mutation denied: {matched}."
     return ""
-
-
-def _github_fetch_endpoint_allowed(url: str) -> bool:
-    try:
-        parsed = urlsplit(url)
-        port = parsed.port
-    except ValueError:
-        return False
-
-    if (
-        parsed.scheme.lower() != "https"
-        or parsed.username is not None
-        or parsed.password is not None
-        or port is not None
-        or parsed.fragment
-        or "%" in parsed.path
-        or "\\" in parsed.path
-    ):
-        return False
-
-    host = (parsed.hostname or "").lower()
-    parts = parsed.path.strip("/").split("/") if parsed.path.strip("/") else []
-    if any(part in {".", ".."} for part in parts):
-        return False
-
-    if host == "api.github.com":
-        if len(parts) < 3 or parts[0].lower() != "repos":
-            return False
-        suffix = [part.lower() for part in parts[3:]]
-        if not suffix:
-            return True
-        if suffix[0] in {"contents", "pulls", "issues", "commits", "branches"}:
-            return True
-        if suffix == ["readme"]:
-            return True
-        if (
-            len(suffix) >= 2
-            and suffix[0] == "git"
-            and suffix[1] in {"refs", "commits", "trees", "blobs"}
-        ):
-            return True
-        return suffix[0] == "compare"
-
-    if host == "github.com":
-        return len(parts) >= 4 and parts[2].lower() in {"blob", "tree", "commit"}
-
-    if host == "raw.githubusercontent.com":
-        return len(parts) >= 4 and all(parts[:3])
-
-    return False
 
 
 def _github_route_violation(event: dict[str, Any]) -> str:
