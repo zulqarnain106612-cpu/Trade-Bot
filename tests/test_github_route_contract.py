@@ -13,10 +13,10 @@ unconsidered.
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -39,20 +39,38 @@ def load_contract():
 ghc = load_contract()
 
 
+def load_hook():
+    """
+    The hook module, driven in-process.
+
+    tests/test_suite_speed_budget.py holds the suite to a ratcheted
+    subprocess budget, so this module imports the hook and calls main()
+    rather than spawning an interpreter per decision. The decision path is
+    identical: main() reads stdin, emits JSON on stdout and raises SystemExit.
+    """
+    spec = importlib.util.spec_from_file_location("pre_tool_use_under_test", HOOK)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+HOOK_MODULE = load_hook()
+
+
 def decide(tool: str, tool_input: dict) -> dict:
-    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(PROJECT_DIR)}
-    env.pop("TB_COMMAND_POLICY", None)
-    proc = subprocess.run(
-        [sys.executable, str(HOOK)],
-        input=json.dumps({"tool_name": tool, "tool_input": tool_input}),
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=30,
-        check=False,
-    )
-    assert proc.returncode == 0
-    return json.loads(proc.stdout)["hookSpecificOutput"]
+    payload = json.dumps({"tool_name": tool, "tool_input": tool_input})
+    captured = io.StringIO()
+    stdin = sys.stdin
+    sys.stdin = io.StringIO(payload)
+    try:
+        with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(io.StringIO()):
+            with pytest.raises(SystemExit) as exit_info:
+                HOOK_MODULE.main()
+    finally:
+        sys.stdin = stdin
+    assert exit_info.value.code == 0
+    return json.loads(captured.getvalue())["hookSpecificOutput"]
 
 
 class TestInventoryIsTotal:

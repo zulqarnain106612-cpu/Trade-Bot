@@ -897,7 +897,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 827 | P1 | tests/test_gates_advisory_scalar_aggregation.py | Python | 106 | e6e333c5 |  |
 | 828 | P1 | tests/test_gates_non_finite.py | Python | 273 | 6711fbaa |  |
 | 829 | P1 | tests/test_gaussian_lattice.py | Python | 176 | 91e52ba7 |  |
-| 830 | P1 | tests/test_github_route_contract.py | Python | 213 | 48a48b55 |  |
+| 830 | P1 | tests/test_github_route_contract.py | Python | 231 | 30a72b2e |  |
 | 831 | P1 | tests/test_granger_detector.py | Python | 113 | 5e6ab530 |  |
 | 832 | P1 | tests/test_greeks.py | Python | 86 | 4fa249eb |  |
 | 833 | P1 | tests/test_greeks_caps_wiring.py | Python | 165 | 110864bf |  |
