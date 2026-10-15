@@ -174,6 +174,19 @@ class TestSetControlCarriesTheSecondFactor:
     translate a ControlWriteError into the status it carries.
     """
 
+    def test_read_only_api_key_cannot_write_even_with_valid_operator_secret(self, api_client, monkeypatch):
+        """The second factor must not elevate a read-only API key."""
+        readonly_key = "readonly-key-" + "r" * 32
+        monkeypatch.setenv("API_READONLY_KEY", readonly_key)
+        api_client.headers["x-api-key"] = readonly_key
+
+        response = api_client.post(
+            "/controls/execution_mode",
+            json={"value": "manual", "operator": "alice", "operator_secret": _TEST_SECRET},
+        )
+
+        assert response.status_code == 403
+
     def test_a_wrong_operator_secret_is_rejected(self, api_client):
         response = api_client.post(
             "/controls/execution_mode",
