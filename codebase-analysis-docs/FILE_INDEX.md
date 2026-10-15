@@ -808,7 +808,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 738 | P1 | tests/test_causal_inference.py | Python | 243 | 917865bc |  |
 | 739 | P1 | tests/test_causal_modules.py | Python | 214 | a86122e6 |  |
 | 740 | P1 | tests/test_changepoint.py | Python | 80 | abb1294c |  |
-| 741 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 435 | 491cf7df |  |
+| 741 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 437 | a5ad7ff9 |  |
 | 742 | P1 | tests/test_ci_log_access.py | Python | 276 | 6a215f51 |  |
 | 743 | P1 | tests/test_ci_notice_supersession.py | Python | 76 | 4727e57a |  |
 | 744 | P1 | tests/test_ci_workflow_cost.py | Python | 235 | fb0a0315 |  |
