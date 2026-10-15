@@ -55,3 +55,11 @@ def test_the_role_permission_table_is_not_writable() -> None:
 def test_read_only_still_cannot_approve_trades() -> None:
     assert role_has_permission(Role.READ_ONLY, Permission.VIEW_STATUS) is True
     assert role_has_permission(Role.READ_ONLY, Permission.APPROVE_TRADE) is False
+
+
+def test_read_only_cannot_change_controls() -> None:
+    assert not role_has_permission(Role.READ_ONLY, Permission.CHANGE_CONTROLS)
+
+
+def test_trade_authorizing_can_change_controls() -> None:
+    assert role_has_permission(Role.TRADE_AUTHORIZING, Permission.CHANGE_CONTROLS)
