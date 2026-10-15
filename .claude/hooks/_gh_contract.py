@@ -145,6 +145,9 @@ class Contract:
     write: bool = False
     # A repo-relative path argument that must clear the protected-path check.
     path_arg: str = ""
+    # Parameter values that are refused even on an allowed tool, because the
+    # value itself selects a wider route than the tool name implies.
+    denied_values: tuple[tuple[str, frozenset[str]], ...] = ()
 
 
 CONTRACTS: dict[str, Contract] = {
@@ -154,7 +157,12 @@ CONTRACTS: dict[str, Contract] = {
     "search_pull_requests": Contract(required=("query",), bounded_page=True),
     "search_commits": Contract(required=("query",), bounded_page=True),
     "get_file_contents": Contract(required=("path", "ref"), path_arg="path"),
-    "get_commit": Contract(required=("sha",), bounded_page=True),
+    # detail=full_patch returns the whole commit patch, which is a full report.
+    "get_commit": Contract(
+        required=("sha",),
+        bounded_page=True,
+        denied_values=(("detail", frozenset({"full_patch"})),),
+    ),
     "list_branches": Contract(bounded_page=True),
     "list_commits": Contract(bounded_page=True),
     "list_pull_requests": Contract(bounded_page=True),
@@ -166,6 +174,8 @@ CONTRACTS: dict[str, Contract] = {
     "pull_request_read": Contract(methods=frozenset({"get"})),
     "issue_read": Contract(methods=frozenset({"get"})),
     # ---- writes: delta-checked ----------------------------------------
+    # Real parameters are branch and from_branch; branch_name/base_ref do not
+    # exist on this server and reading them denied every legitimate call.
     "create_branch": Contract(required=("branch",), write=True),
     "create_or_update_file": Contract(
         required=("path", "branch", "content", "message"),
@@ -173,8 +183,16 @@ CONTRACTS: dict[str, Contract] = {
         path_arg="path",
     ),
     "create_pull_request": Contract(required=("title", "head", "base"), write=True),
-    "update_pull_request": Contract(required=("pullNumber",), write=True),
-    "add_issue_comment": Contract(required=("issue_number", "body"), write=True),
+    # state=closed closes a PR and reviewers assigns people: both are human
+    # governance acts rather than code changes.
+    "update_pull_request": Contract(
+        required=("pullNumber",), forbidden=("state", "reviewers"), write=True
+    ),
+    # comment_id turns this into an edit of an existing comment, which can
+    # rewrite the CI notice the boundary depends on; reaction is not a message.
+    "add_issue_comment": Contract(
+        required=("issue_number", "body"), forbidden=("comment_id", "reaction"), write=True
+    ),
 }
 
 

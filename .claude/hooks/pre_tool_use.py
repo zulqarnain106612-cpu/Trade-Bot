@@ -363,13 +363,16 @@ def _github_route_violation(event: dict[str, Any]) -> str:
 
     if tail in GITHUB_BRANCH_WRITE_TOOLS:
         if tail == "create_branch":
-            branch_name = _owner_name(data.get("branch_name")).removeprefix("refs/heads/").lower()
-            base_ref = _owner_name(data.get("base_ref")).removeprefix("refs/heads/").lower()
+            # Verified server parameters: branch, from_branch. The previous
+            # names (branch_name, base_ref) do not exist here, so every
+            # legitimate branch creation was denied for a missing name.
+            branch_name = _owner_name(data.get("branch")).removeprefix("refs/heads/").lower()
+            from_branch = _owner_name(data.get("from_branch")).removeprefix("refs/heads/").lower()
             if not branch_name or branch_name in {"main", "master"}:
                 return (
                     "Universal boundary: branch creation requires a non-main feature-branch name."
                 )
-            if base_ref != "main" or data.get("sha"):
+            if from_branch and from_branch != "main":
                 return (
                     "Universal boundary: new Claude work branches must be based directly on main."
                 )
@@ -423,6 +426,13 @@ def _contract_violation(tail: str, contract: Any, data: dict[str, Any]) -> str:
     for key in contract.forbidden:
         if key in data:
             return f"Universal boundary: {tail} must not carry '{key}'."
+    for key, denied in contract.denied_values:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip().lower() in denied:
+            return (
+                f"Universal boundary: {tail} {key}='{value}' is denied; it returns a whole "
+                "report rather than the candidates needed."
+            )
     if contract.bounded_page:
         per_page = data.get("perPage")
         if isinstance(per_page, bool) or not isinstance(per_page, int):
