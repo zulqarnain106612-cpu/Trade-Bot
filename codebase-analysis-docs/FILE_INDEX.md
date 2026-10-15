@@ -1171,7 +1171,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 1101 | P2 | .claude/hooks/session-start.sh | Shell | 116 | 52bfdaa6 |  |
 | 1102 | P2 | .claude/hooks/task_lifecycle.py | Python | 35 | 74f6c16a |  |
 | 1103 | P2 | .claude/launch.json | JSON | 11 | 0983b089 |  |
-| 1104 | P2 | .claude/settings.json | JSON | 202 | 0ec1b333 |  |
+| 1104 | P2 | .claude/settings.json | JSON | 203 | 1b6aa660 |  |
 | 1105 | P2 | .claude/skills/crypto-architect/SKILL.md | Markdown | 316 | 0c59a8f5 |  |
 | 1106 | P2 | .claude/skills/crypto-architect/references/blockchain.md | Markdown | 169 | a06f27af |  |
 | 1107 | P2 | .claude/skills/crypto-architect/references/compliance.md | Markdown | 246 | 112e1ae4 |  |
