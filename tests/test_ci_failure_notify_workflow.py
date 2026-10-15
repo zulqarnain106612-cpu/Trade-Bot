@@ -43,9 +43,7 @@ def script(spec: dict) -> str:
 
 
 class TestTrigger:
-    def test_workflow_run_starts_watcher_early_and_consolidates_on_completion(
-        self, spec
-    ):
+    def test_workflow_run_starts_watcher_early_and_consolidates_on_completion(self, spec):
         # Waiting for completed alone cannot stop sibling jobs while the first
         # failing workflow is still running. in_progress starts the poller early.
         triggers = spec.get("on") or spec.get(True)
@@ -89,8 +87,7 @@ class TestTrigger:
         # Older same-commit failures must not cancel sibling runs that have
         # not started yet; only the triggering run drives early cancellation.
         assert (
-            "const earlyFailureOnly = event.workflow_run && "
-            "event.action === 'in_progress';"
+            "const earlyFailureOnly = event.workflow_run && event.action === 'in_progress';"
         ) in script
         assert "github.rest.actions.getWorkflowRun" in script
         assert "if (earlyFailureOnly)" in script
