@@ -42,6 +42,9 @@ class Permission(Enum):
     VIEW_TRADES = "view_trades"
     APPROVE_TRADE = "approve_trade"
     CHANGE_EXECUTION_MODE = "change_execution_mode"
+    # Change live operator controls through the unified /controls/{name} route.
+    # A second factor does not replace API-key role authorization.
+    CHANGE_CONTROLS = "change_controls"
     # Request, approve or roll back a runtime-platform change (src/runtime).
     # Operator authority, like the execution mode: a read-only key may watch
     # the runtime state but never move it.
@@ -65,6 +68,7 @@ _ROLE_PERMISSIONS: Final[Mapping[Role, frozenset[Permission]]] = MappingProxyTyp
                 Permission.VIEW_TRADES,
                 Permission.APPROVE_TRADE,
                 Permission.CHANGE_EXECUTION_MODE,
+                Permission.CHANGE_CONTROLS,
                 Permission.CHANGE_RUNTIME,
                 Permission.MANAGE_VENUES,
             }
