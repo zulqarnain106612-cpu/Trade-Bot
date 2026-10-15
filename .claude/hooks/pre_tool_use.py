@@ -9,7 +9,6 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 PROJECT_DIR = Path(
     os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2])
@@ -24,16 +23,25 @@ DEFAULT_MCP_READ_PATTERNS = [r"mcp__Desktop_Commander__read_file$"]
 PROTECTED_BOUNDARY_PATHS = frozenset(
     {
         ".claude/settings.json",
+        ".claude/settings.local.json",
+        ".claude/hooks/_gh_contract.py",
         ".claude/hooks/pre_tool_use.py",
         ".claude/hooks/observation_gate.py",
         ".claude/hooks/observation_failure.py",
+        ".claude/hooks/quality_gate.py",
+        ".claude/hooks/completion_gate.py",
+        ".claude/hooks/task_lifecycle.py",
+        ".claude/hooks/precompact_checkpoint.py",
+        ".claude/hooks/session-start.sh",
         "config/observation_boundary.json",
         "config/command_policy.json",
         "src/agent_control/reliability.py",
         "src/agent_control/completion.py",
         "tests/test_observation_boundary_contract.py",
         "tests/test_pre_tool_use_hook.py",
+        "tests/test_github_route_contract.py",
         "CLAUDE.md",
+        ".mcp.json",
     }
 )
 PROTECTED_MUTATION_TOOLS = {
@@ -41,9 +49,9 @@ PROTECTED_MUTATION_TOOLS = {
     "Edit",
     "MultiEdit",
     "NotebookEdit",
-    "mcp__GitHub__create_file",
-    "mcp__GitHub__update_file",
-    "mcp__GitHub__delete_file",
+    "mcp__github__create_or_update_file",
+    "mcp__github__push_files",
+    "mcp__github__delete_file",
 }
 
 BASH_MUTATOR_RE = re.compile(
@@ -53,61 +61,28 @@ BASH_MUTATOR_RE = re.compile(
 )
 
 
-# Hard, code-owned allowlist: configuration and policy mode cannot add routes.
-GITHUB_REPOSITORY = "zulqarnain106612-cpu/Trade-Bot"
-GITHUB_TOOL_PREFIX = "mcp__github__"
-ALLOWED_GITHUB_TOOL_NAMES = frozenset(
-    {
-        # Exact tool names verified against the connected GitHub MCP server.
-        # Unknown or future tool names remain denied unless deliberately reviewed here.
-        "search",
-        "search_issues",
-        "search_prs",
-        "search_commits",
-        "search_branches",
-        "fetch",
-        "fetch_file",
-        "fetch_blob",
-        "fetch_commit",
-        "fetch_pr_file_patch",
-        "get_pr_diff",
-        "get_pr_info",
-        "list_pr_changed_filenames",
-        "create_branch",
-        "create_blob",
-        "create_tree",
-        "create_commit",
-        "update_ref",
-        "create_file",
-        "update_file",
-        "create_pull_request",
-        "update_pull_request",
-        "add_comment_to_issue",
-        "add_review_to_pr",
-    }
+# Hard, code-owned allowlist lives in _gh_contract.py beside this hook so that
+# PreToolUse and PostToolUse enforce one inventory. Configuration and policy
+# mode cannot add a route; they can only narrow one.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _gh_contract import (  # noqa: E402
+    CONTRACTS,
+    DENIED_TOOLS,
+    GITHUB_REPOSITORY,
+    GITHUB_TOOL_PREFIX,
+    HARD_MAX_NEW_FILE_LINES,
+    HARD_MAX_PER_PAGE,
+    VERIFIED_SERVER_TOOLS,
+    BlobStore,
+    apply_delta,
+    is_delta_payload,
+    unresolved_tools,
+    write_within_budget,
 )
-GITHUB_ALWAYS_DENIED_MARKERS = (
-    "workflow",
-    "artifact",
-    "check_run",
-    "check_suite",
-    "combined_status",
-    "status_check",
-    "job_log",
-    "run_log",
-    "logs",
-    "rerun",
-    "cancel",
-    "cache",
-    "status",
-    "watch",
-    "subscribe",
-    "dispatch",
-    "monitor",
-    "download",
-    "delete",
-    "merge",
-)
+
+BLOB_ROOT = PROJECT_DIR / ".claude" / ".hook-state" / "gh_blobs"
+
 GITHUB_COMMENT_URL_RE = re.compile(
     r"(?i)(?:api\.github\.com/repos/[^/]+/[^/]+/(?:issues/(?:comments/\d+|\d+/comments)|pulls/\d+/(?:comments|reviews))|api\.github\.com/graphql)"
 )
@@ -260,56 +235,6 @@ def _github_boundary_write_violation(tool: str, data: dict[str, Any]) -> str:
     return ""
 
 
-def _github_fetch_endpoint_allowed(url: str) -> bool:
-    try:
-        parsed = urlsplit(url)
-        port = parsed.port
-    except ValueError:
-        return False
-
-    if (
-        parsed.scheme.lower() != "https"
-        or parsed.username is not None
-        or parsed.password is not None
-        or port is not None
-        or parsed.fragment
-        or "%" in parsed.path
-        or "\\" in parsed.path
-    ):
-        return False
-
-    host = (parsed.hostname or "").lower()
-    parts = parsed.path.strip("/").split("/") if parsed.path.strip("/") else []
-    if any(part in {".", ".."} for part in parts):
-        return False
-
-    if host == "api.github.com":
-        if len(parts) < 3 or parts[0].lower() != "repos":
-            return False
-        suffix = [part.lower() for part in parts[3:]]
-        if not suffix:
-            return True
-        if suffix[0] in {"contents", "pulls", "issues", "commits", "branches"}:
-            return True
-        if suffix == ["readme"]:
-            return True
-        if (
-            len(suffix) >= 2
-            and suffix[0] == "git"
-            and suffix[1] in {"refs", "commits", "trees", "blobs"}
-        ):
-            return True
-        return suffix[0] == "compare"
-
-    if host == "github.com":
-        return len(parts) >= 4 and parts[2].lower() in {"blob", "tree", "commit"}
-
-    if host == "raw.githubusercontent.com":
-        return len(parts) >= 4 and all(parts[:3])
-
-    return False
-
-
 def _github_route_violation(event: dict[str, Any]) -> str:
     tool = str(event.get("tool_name") or event.get("toolName") or "").strip().lower()
     if not tool:
@@ -340,16 +265,23 @@ def _github_route_violation(event: dict[str, Any]) -> str:
             "scripts/local_checks.py prepare subscription."
         )
     tail = tool[len(GITHUB_TOOL_PREFIX) :]
-    if tail not in ALLOWED_GITHUB_TOOL_NAMES:
+    gap = unresolved_tools()
+    if gap:
         return (
-            f"Universal GitHub-only boundary: GitHub tool '{tail}' is not "
-            "allowlisted and is denied."
+            "Universal boundary: the route contract is incomplete for "
+            f"{sorted(gap)[:3]}; every verified tool must be contracted or denied."
         )
-    if any(marker in tail for marker in GITHUB_ALWAYS_DENIED_MARKERS):
+    if tail not in VERIFIED_SERVER_TOOLS:
         return (
-            "Universal boundary: CI run data and destructive GitHub operations are denied "
-            f"({tail})."
+            f"Universal GitHub-only boundary: '{tail}' is not in the verified server tool "
+            "inventory and is denied as unverified. Re-verify the contract before any new "
+            "tool name is used."
         )
+    denial = DENIED_TOOLS.get(tail)
+    if denial:
+        return f"Universal boundary: {tail} is denied. {denial}"
+    if tail not in CONTRACTS:
+        return f"Universal boundary: {tail} has no argument contract; a contract gap fails closed."
 
     data = _hook_input(event)
     for key in ("url", "raw_url", "html_url", "repository_url"):
@@ -364,12 +296,9 @@ def _github_route_violation(event: dict[str, Any]) -> str:
                 "CI logs, jobs, artifacts, checks, caches and statuses are denied "
                 "on every GitHub route."
             )
-    if tail == "fetch":
-        url = data.get("url")
-        if not isinstance(url, str):
-            return "Universal boundary: GitHub fetch requires an explicit repository URL."
-        if not _github_fetch_endpoint_allowed(url):
-            return "Universal boundary: this generic GitHub endpoint is not allowlisted."
+    contract_problem = _contract_violation(tail, CONTRACTS[tail], data)
+    if contract_problem:
+        return contract_problem
 
     refs = _github_repo_refs(data)
     expected = GITHUB_REPOSITORY.lower()
@@ -383,13 +312,16 @@ def _github_route_violation(event: dict[str, Any]) -> str:
 
     if tail in GITHUB_BRANCH_WRITE_TOOLS:
         if tail == "create_branch":
-            branch_name = _owner_name(data.get("branch_name")).removeprefix("refs/heads/").lower()
-            base_ref = _owner_name(data.get("base_ref")).removeprefix("refs/heads/").lower()
+            # Verified server parameters: branch, from_branch. The previous
+            # names (branch_name, base_ref) do not exist here, so every
+            # legitimate branch creation was denied for a missing name.
+            branch_name = _owner_name(data.get("branch")).removeprefix("refs/heads/").lower()
+            from_branch = _owner_name(data.get("from_branch")).removeprefix("refs/heads/").lower()
             if not branch_name or branch_name in {"main", "master"}:
                 return (
                     "Universal boundary: branch creation requires a non-main feature-branch name."
                 )
-            if base_ref != "main" or data.get("sha"):
+            if from_branch and from_branch != "main":
                 return (
                     "Universal boundary: new Claude work branches must be based directly on main."
                 )
@@ -421,6 +353,129 @@ def _github_route_violation(event: dict[str, Any]) -> str:
             return "Universal boundary: feature pull requests must target main."
 
     return _github_boundary_write_violation(tool, data)
+
+
+def _contract_violation(tail: str, contract: Any, data: dict[str, Any]) -> str:
+    """Enforce one tool's argument contract. Every refusal states its reason."""
+    if contract.methods:
+        method = str(data.get("method") or "").strip().lower()
+        if not method:
+            return f"Universal boundary: {tail} requires an explicit method."
+        if method not in contract.methods:
+            return (
+                f"Universal boundary: {tail} method '{method}' is denied. Allowed: "
+                f"{', '.join(sorted(contract.methods))}. CI run data, whole-PR reports and "
+                "arbitrary comment bodies are not observation routes; the CI notice route is "
+                "the SHA-filtered scripts/local_checks.py prepare subscription."
+            )
+    for key in contract.required:
+        value = data.get(key)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return f"Universal boundary: {tail} requires an explicit '{key}'."
+    for key in contract.forbidden:
+        if key in data:
+            return f"Universal boundary: {tail} must not carry '{key}'."
+    for key, denied in contract.denied_values:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip().lower() in denied:
+            return (
+                f"Universal boundary: {tail} {key}='{value}' is denied; it returns a whole "
+                "report rather than the candidates needed."
+            )
+    if contract.bounded_page:
+        per_page = data.get("perPage")
+        if isinstance(per_page, bool) or not isinstance(per_page, int):
+            return (
+                f"Universal boundary: {tail} requires an explicit integer perPage of at most "
+                f"{HARD_MAX_PER_PAGE}; an unbounded result set is not a minimal-candidate route."
+            )
+        if per_page < 1 or per_page > HARD_MAX_PER_PAGE:
+            return f"Universal boundary: {tail} perPage is bounded to 1..{HARD_MAX_PER_PAGE}."
+    if contract.path_arg:
+        raw = data.get(contract.path_arg)
+        if not isinstance(raw, str) or not raw.strip():
+            return (
+                f"Universal boundary: {tail} requires an explicit repository '{contract.path_arg}'."
+            )
+        if raw.strip().endswith("/"):
+            return (
+                f"Universal boundary: {tail} must name exactly one file; a directory-wide "
+                "read is not a minimal-candidate route."
+            )
+    return ""
+
+
+def _github_write_plan(event: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
+    """
+    Reduce a file write to the candidates that changed.
+
+    A delta payload is reconstructed against the body the agent was shown,
+    which this hook kept on disk, so the model never has to hold a whole file
+    to change a few lines of it. A literal write is measured against that same
+    body and refused when it is a no-op or a bulk rewrite.
+    """
+    tool = str(event.get("tool_name") or event.get("toolName") or "").strip().lower()
+    if tool != f"{GITHUB_TOOL_PREFIX}create_or_update_file":
+        return "", None
+
+    data = _hook_input(event)
+    path = str(data.get("path") or "").strip()
+    content = data.get("content")
+    if not isinstance(content, str):
+        return "Universal boundary: create_or_update_file requires string content.", None
+
+    store = BlobStore(BLOB_ROOT)
+    record = store.get(path, str(data.get("branch") or "")) or store.any_ref(path)
+    base = str(record.get("content") or "") if record else ""
+
+    if is_delta_payload(content):
+        if record is None:
+            return (
+                "Universal boundary: a delta write needs the fetched file. Call "
+                f"get_file_contents for {path} at an explicit ref first.",
+                None,
+            )
+        result = apply_delta(base, content)
+        if not result.ok:
+            return f"Universal boundary: delta write refused. {result.reason}", None
+        allowed, reason = write_within_budget(base, result.content)
+        if not allowed:
+            return f"Universal boundary: {reason}", None
+        updated = dict(data)
+        updated["content"] = result.content
+        if record.get("sha"):
+            updated["sha"] = str(record["sha"])
+        print(
+            f"[pre_tool_use] delta write {path}: {result.blocks} block(s), "
+            f"{result.changed_ratio:.0%} of file rewritten",
+            file=sys.stderr,
+        )
+        return "", updated
+
+    if record is None:
+        if data.get("sha"):
+            return (
+                "Universal boundary: this write carries a blob sha for a file that was "
+                "never fetched in this session; re-read the exact current text first.",
+                None,
+            )
+        if len(content.splitlines()) > HARD_MAX_NEW_FILE_LINES:
+            return (
+                f"Universal boundary: a new file is bounded to {HARD_MAX_NEW_FILE_LINES} "
+                "lines; split the change.",
+                None,
+            )
+        print(f"[pre_tool_use] new file {path}", file=sys.stderr)
+        return "", None
+
+    allowed, reason = write_within_budget(base, content)
+    if not allowed:
+        return f"Universal boundary: {reason}", None
+    if not data.get("sha") and record.get("sha"):
+        updated = dict(data)
+        updated["sha"] = str(record["sha"])
+        return "", updated
+    return "", None
 
 
 def _fail_closed(note: str) -> None:
@@ -477,7 +532,7 @@ except Exception:  # pragma: no cover
         return False
 
 
-def _emit(decision: str, reason: str = "") -> None:
+def _emit(decision: str, reason: str = "", updated_input: dict[str, Any] | None = None) -> None:
     payload: dict[str, Any] = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -486,6 +541,8 @@ def _emit(decision: str, reason: str = "") -> None:
     }
     if reason:
         payload["hookSpecificOutput"]["permissionDecisionReason"] = reason
+    if decision == "allow" and updated_input is not None:
+        payload["hookSpecificOutput"]["updatedInput"] = updated_input
     json.dump(payload, sys.stdout)
     sys.stdout.write("\n")
     raise SystemExit(0)
@@ -736,7 +793,10 @@ def main() -> None:
         return
 
     if not problems:
-        _emit("allow")
+        write_problem, updated_input = _github_write_plan(event)
+        if write_problem:
+            _emit("deny", write_problem)
+        _emit("allow", updated_input=updated_input)
 
     reason = " ".join(dict.fromkeys(problems))
     hard = any(

@@ -204,11 +204,12 @@ def test_route_gate_allows_only_scoped_github_operations():
     assert (
         pre._github_route_violation(
             {
-                "tool_name": "mcp__github__fetch_file",
+                "tool_name": "mcp__github__get_file_contents",
                 "tool_input": {
                     "owner": "zulqarnain106612-cpu",
                     "repo": "Trade-Bot",
                     "path": "CLAUDE.md",
+                    "ref": "main",
                 },
             }
         )
@@ -216,8 +217,8 @@ def test_route_gate_allows_only_scoped_github_operations():
     )
     assert pre._github_route_violation(
         {
-            "tool_name": "mcp__github__fetch_file",
-            "tool_input": {"owner": "other", "repo": "repo", "path": "README.md"},
+            "tool_name": "mcp__github__get_file_contents",
+            "tool_input": {"owner": "other", "repo": "repo", "path": "README.md", "ref": "main"},
         }
     )
 
@@ -226,8 +227,14 @@ def test_route_gate_denies_generic_github_fetch_of_ci_data():
     pre = load_module(PRE, "pre_boundary_github_ci")
     reason = pre._github_route_violation(
         {
-            "tool_name": "mcp__github__fetch",
+            # Carried on an allowed tool: the CI-URL guard must fire even when
+            # the tool name itself is contracted.
+            "tool_name": "mcp__github__get_file_contents",
             "tool_input": {
+                "owner": "zulqarnain106612-cpu",
+                "repo": "Trade-Bot",
+                "path": "CLAUDE.md",
+                "ref": "main",
                 "url": "https://api.github.com/repos/zulqarnain106612-cpu/Trade-Bot/actions/runs/1",
             },
         }
