@@ -24,16 +24,25 @@ DEFAULT_MCP_READ_PATTERNS = [r"mcp__Desktop_Commander__read_file$"]
 PROTECTED_BOUNDARY_PATHS = frozenset(
     {
         ".claude/settings.json",
+        ".claude/settings.local.json",
+        ".claude/hooks/_gh_contract.py",
         ".claude/hooks/pre_tool_use.py",
         ".claude/hooks/observation_gate.py",
         ".claude/hooks/observation_failure.py",
+        ".claude/hooks/quality_gate.py",
+        ".claude/hooks/completion_gate.py",
+        ".claude/hooks/task_lifecycle.py",
+        ".claude/hooks/precompact_checkpoint.py",
+        ".claude/hooks/session-start.sh",
         "config/observation_boundary.json",
         "config/command_policy.json",
         "src/agent_control/reliability.py",
         "src/agent_control/completion.py",
         "tests/test_observation_boundary_contract.py",
         "tests/test_pre_tool_use_hook.py",
+        "tests/test_github_route_contract.py",
         "CLAUDE.md",
+        ".mcp.json",
     }
 )
 PROTECTED_MUTATION_TOOLS = {
