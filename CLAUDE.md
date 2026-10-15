@@ -257,21 +257,50 @@ Passing tests alone is insufficient if the wrong behavior was implemented.
 Trade-Bot Claude sessions use a **default-deny, GitHub-only tool boundary**.
 This is an enforcement rule, not a prompt instruction:
 
-- `.claude/hooks/pre_tool_use.py` denies every tool unless its exact, code-owned
-  name is in the GitHub tool allowlist and the request explicitly targets
-  `zulqarnain106612-cpu/Trade-Bot`.
+- `.claude/hooks/_gh_contract.py` is the code-owned contract: the verified
+  `tools/list` inventory of the connected server, which of those tools carry an
+  argument contract, and which are denied with a stated reason. The contract is
+  total over that inventory, so no tool is merely unconsidered; a gap fails
+  closed. A tool name outside the inventory is denied as unverified, so a
+  server-side rename cannot silently open a route.
+- `.claude/hooks/pre_tool_use.py` denies every tool unless the contract allows
+  it and the request explicitly targets `zulqarnain106612-cpu/Trade-Bot`.
+- An allowed tool is still gated on its arguments, because a name alone cannot
+  express the boundary. `pull_request_read` and `issue_read` are restricted to
+  `method=get`: `get_status` and `get_check_runs` are CI run data,
+  `get_diff`/`get_files`/`get_commits` are whole-PR reports, and
+  `get_comments`/`get_reviews` expose unrelated comment bodies. `get_commit`
+  refuses `detail=full_patch`, `update_pull_request` refuses `state` and
+  `reviewers`, and `add_issue_comment` refuses `comment_id` and `reaction`.
+  Searches and listings require a bounded `perPage`, and `get_file_contents`
+  requires one explicit file and `ref` rather than a directory.
 - Native shells, integrated terminals, filesystem tools, browser tools, agents,
   unlisted MCP tools, newly introduced tool names, and unscoped GitHub requests
   are refused before execution. Unknown routes do not inherit permission.
 - CI logs, workflow/job records, artifacts, caches, check runs, and status
-  endpoints are refused even through generic GitHub fetch calls. The PR notice
-  comment remains the approved compact CI diagnostic channel.
-- Repository writes require an explicit non-main branch. Force ref updates,
-  deletion operations, tree deletions, and mutations of the observation policy,
-  hooks, and boundary contract tests are denied.
-- `.claude/settings.json` additionally denies built-in execution and filesystem
-  tools. The wildcard PreToolUse hook remains the final route gate, so the
-  settings list is defense in depth rather than the complete tool inventory.
+  endpoints are refused on every route, including a CI URL carried as a field on
+  an allowed tool. The SHA-filtered `scripts/local_checks.py prepare`
+  subscription remains the single CI diagnostic channel; direct PR-comment reads
+  stay denied.
+- Repository writes require an explicit non-main branch and carry only the
+  candidates that changed. The GitHub contents API has no partial-write
+  endpoint, so a write sends anchored `@@TB-DELTA v1@@` OLD/NEW blocks, and the
+  hook reconstructs the full blob against the body it recorded when the agent
+  fetched the file. An ambiguous anchor, a no-op write, a bulk rewrite over the
+  cap, a blob sha for a file never fetched, multi-file `push_files`, deletion,
+  merging, and mutations of the observation policy, hooks, and boundary contract
+  tests are denied.
+- `.claude/settings.json` enumerates the contracted GitHub tools in
+  `permissions.allow`, so they are approved rather than merely unlisted, and
+  denies the live MCP namespaces (`mcp__remote-devices__*`,
+  `mcp__Desktop_Commander__*`, `mcp__vscode-debug__*`) alongside built-in
+  execution and filesystem tools. `permissions.defaultMode` has no deny value,
+  so settings cannot express default-deny; the wildcard PreToolUse hook is that
+  layer, and a hook error or timeout leaves the tool call unexecuted. Bare
+  `Bash` is deliberately absent from `deny`, because a bare tool denial outranks
+  every allow rule and would disable the one permitted CI notice command.
+  `.claude/settings.local.json` is untracked and must stay empty of policy:
+  `.claude/settings.json` is the single source of truth.
 - Every successful result from the authorized GitHub route is processed by the
   wildcard PostToolUse observation hook. Failure hooks add compact context, but
   do not claim to replace Claude Code's native failure record.

@@ -4,7 +4,6 @@ Contract tests for the code-owned GitHub route contract.
 Decides:
   - GOV-019 — CI run data is unreadable by every tool route
   - GOV-057 — every authorized tool observation crosses the repository boundary
-  - GOV-058 — a write carries only the candidates that changed
 
 The tool inventory here is the verified tools/list response of the connected
 server. These tests assert the contract is total over that inventory, so a
