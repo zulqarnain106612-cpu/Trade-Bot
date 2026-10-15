@@ -92,6 +92,7 @@ class TestTrigger:
         assert "github.rest.actions.getWorkflowRun" in script
         assert "if (earlyFailureOnly)" in script
         assert "if (triggerRun.status === 'completed') return;" in script
+        assert "if (r.id === triggerRun.id) return false;" in script
 
     def test_every_completed_run_is_inspected(self, spec):
         """

@@ -338,14 +338,14 @@ jobs:
                   .filter(job => isBad(job))
                   .map(job => ({ workflow: triggerRun.name, run_id: triggerRun.id, job }));
                 if (failing.length > 0) {
-                  // Once the triggering run itself has a non-green job,
-                  // cancel every still-running watched workflow for this PR
-                  // head, including the triggering run if it is still active.
+                  // Cancel sibling workflows after any non-green job is visible,
+                  // but keep this triggering run alive so its failure remains visible.
                   const allRuns = await github.paginate(
                     github.rest.actions.listWorkflowRunsForRepo,
                     { ...context.repo, branch: currentHead.head.ref, per_page: 100 },
                   );
                   pending = allRuns.filter(r => {
+                    if (r.id === triggerRun.id) return false;
                     if (!WATCHED.includes(r.name) || r.status === 'completed') return false;
                     const linked = (r.pull_requests || []).some(pr =>
                       prNumbers.includes(pr.number) && pr.head && pr.head.sha === headSha);
