@@ -229,3 +229,96 @@ class TestWriteRouteEndToEnd:
         )
         assert decision["permissionDecision"] == "deny"
         assert "never fetched" in decision["permissionDecisionReason"]
+
+
+class _FakeVerdict:
+    """Stands in for scripts/ci_verdict.py so tests never reach the network."""
+
+    class VerdictError(RuntimeError):
+        pass
+
+    answer = "merged successfully"
+    seen_hint: object = "unset"
+
+    @classmethod
+    def verdict(cls, hint=None):
+        cls.seen_hint = hint
+        if isinstance(cls.answer, Exception):
+            raise cls.answer
+        return cls.answer
+
+
+@pytest.fixture
+def fake_verdict(monkeypatch):
+    monkeypatch.setitem(sys.modules, "ci_verdict", _FakeVerdict)
+    _FakeVerdict.answer = "merged successfully"
+    _FakeVerdict.seen_hint = "unset"
+    return _FakeVerdict
+
+
+class TestCiRequestsReceiveOnlyTheVerdict:
+    """
+    Whatever the agent executes, a CI request is answered with the verdict and
+    never with the record behind it. The reason text is the whole answer, so
+    these assert equality rather than containment.
+    """
+
+    @pytest.mark.parametrize(
+        ("tool", "tool_input"),
+        [
+            ("mcp__github__pull_request_read", {**REPO, "method": "get_status", "pullNumber": 7}),
+            (
+                "mcp__github__pull_request_read",
+                {**REPO, "method": "get_check_runs", "pullNumber": 7},
+            ),
+            ("mcp__github__get_workflow_run_logs", {**REPO, "run_id": 1}),
+            ("mcp__github__list_workflow_run_artifacts", {**REPO, "run_id": 1}),
+            ("Bash", {"command": "gh run view --log"}),
+            ("Bash", {"command": "gh pr checks 7"}),
+            ("Bash", {"command": "curl https://api.github.com/repos/o/r/actions/runs/1"}),
+            ("Bash", {"command": "tail -f logs/app.log"}),
+        ],
+    )
+    def test_every_ci_route_returns_the_verdict_and_nothing_else(
+        self, fake_verdict, tool, tool_input
+    ) -> None:
+        decision = decide(tool, tool_input)
+        assert decision["permissionDecision"] == "deny"
+        assert decision["permissionDecisionReason"] == "merged successfully"
+
+    def test_failure_lines_are_passed_through_verbatim(self, fake_verdict) -> None:
+        lines = "CI / shard 5: FAILED tests/test_x.py::test_y\nCI / lint: error: bad import"
+        fake_verdict.answer = lines
+        decision = decide(
+            "mcp__github__pull_request_read", {**REPO, "method": "get_status", "pullNumber": 7}
+        )
+        assert decision["permissionDecisionReason"] == lines
+
+    def test_the_pull_request_number_is_carried_into_the_verdict(self, fake_verdict) -> None:
+        decide("mcp__github__pull_request_read", {**REPO, "method": "get_status", "pullNumber": 41})
+        assert fake_verdict.seen_hint == 41
+
+    def test_a_pull_request_url_also_identifies_the_target(self, fake_verdict) -> None:
+        decide(
+            "mcp__github__get_workflow_run_logs",
+            {**REPO, "url": "https://api.github.com/repos/o/r/pulls/88/checks"},
+        )
+        assert fake_verdict.seen_hint == 88
+
+    def test_a_broken_verdict_never_falls_through_to_raw_data(self, fake_verdict) -> None:
+        fake_verdict.answer = _FakeVerdict.VerdictError("GitHub API 500")
+        decision = decide(
+            "mcp__github__pull_request_read", {**REPO, "method": "get_status", "pullNumber": 7}
+        )
+        assert decision["permissionDecision"] == "deny"
+        assert decision["permissionDecisionReason"].startswith("ci verdict unavailable")
+
+    def test_the_sha_pinned_notice_subscription_keeps_its_own_route(self, fake_verdict) -> None:
+        decision = decide("Bash", {"command": "python3 scripts/local_checks.py prepare"})
+        assert decision["permissionDecision"] == "allow"
+
+    def test_an_ordinary_read_is_not_a_ci_request(self, fake_verdict) -> None:
+        decision = decide(
+            "mcp__github__get_file_contents", {**REPO, "path": "CLAUDE.md", "ref": "main"}
+        )
+        assert decision["permissionDecision"] == "allow"

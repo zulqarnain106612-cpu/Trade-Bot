@@ -478,6 +478,80 @@ def _github_write_plan(event: dict[str, Any]) -> tuple[str, dict[str, Any] | Non
     return "", None
 
 
+# Any request whose subject is CI, logs, run records, reports or monitoring,
+# whatever tool carries it. The data never reaches the model; the agent
+# receives scripts/ci_verdict.py's verdict instead.
+CI_SUBJECT_RE = re.compile(
+    r"(?i)(workflow|check_run|check-run|check_suite|check-suite|job_log|run_log|"
+    r"\blogs?\b|artifact|annotation|combined_status|status_check|\bcheck[-_ ]?runs?\b|"
+    r"rerun|re-run|monitor|watch|\bcaches?\b|actions/runs|/actions\b)"
+)
+CI_METHODS = frozenset({"get_status", "get_check_runs"})
+
+
+def _ci_pr_hint(data: dict[str, Any]) -> int | None:
+    for key in ("pullNumber", "pull_number", "pr_number", "issue_number", "number"):
+        value = data.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    for key in ("url", "html_url", "raw_url"):
+        value = data.get(key)
+        if isinstance(value, str):
+            match = re.search(r"/(?:pulls?|issues)/(\d+)", value)
+            if match:
+                return int(match.group(1))
+    return None
+
+
+def _is_ci_request(tool: str, data: dict[str, Any]) -> bool:
+    if tool.startswith(GITHUB_TOOL_PREFIX):
+        tail = tool[len(GITHUB_TOOL_PREFIX) :]
+        if CI_SUBJECT_RE.search(tail):
+            return True
+        method = str(data.get("method") or "").strip().lower()
+        if method in CI_METHODS:
+            return True
+    for key in ("url", "html_url", "raw_url", "repository_url"):
+        value = data.get(key)
+        if isinstance(value, str) and GITHUB_CI_URL_RE.search(value):
+            return True
+    command = data.get("command")
+    if isinstance(command, str) and command.strip():
+        # The sanctioned SHA-pinned notice subscription keeps its own route.
+        if re.search(r"local_checks\.py\s+prepare", command):
+            return False
+        if is_ci_log_access(command) or CI_SUBJECT_RE.search(command):
+            return True
+    return False
+
+
+def _ci_interception(event: dict[str, Any]) -> str | None:
+    """
+    The verdict, or None when this request is not about CI.
+
+    The returned text is the entire answer the agent receives: either
+    ``merged successfully`` or the lines that name the failure. Nothing is
+    appended to it, and no record it was skimmed from is exposed.
+    """
+    tool = str(event.get("tool_name") or event.get("toolName") or "").strip().lower()
+    data = _hook_input(event)
+    if not _is_ci_request(tool, data):
+        return None
+    sys.path.insert(0, str(PROJECT_DIR / "scripts"))
+    try:
+        import ci_verdict
+    except Exception:
+        return "ci verdict unavailable: verdict module not importable"
+    try:
+        return ci_verdict.verdict(_ci_pr_hint(data))
+    except ci_verdict.VerdictError as exc:
+        return f"ci verdict unavailable: {exc}"
+    except Exception as exc:  # fail closed: never fall through to raw data
+        return f"ci verdict unavailable: {type(exc).__name__}"
+
+
 def _fail_closed(note: str) -> None:
     print(f"[pre_tool_use] fail-closed: {note}", file=sys.stderr)
     _emit(
@@ -780,6 +854,16 @@ def main() -> None:
     except Exception:
         _fail_closed("malformed hook payload")
         return
+
+    # Before any route decision: a CI request is answered with the verdict and
+    # never with the record it came from.
+    ci_answer: str | None = None
+    try:
+        ci_answer = _ci_interception(event)
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"[pre_tool_use] ci interception degraded: {exc!r}", file=sys.stderr)
+    if ci_answer is not None:
+        _emit("deny", ci_answer)
 
     try:
         route_problem = _github_route_violation(event)
