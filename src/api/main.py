@@ -3691,7 +3691,7 @@ class SetControlRequest(BaseModel):
     operator_secret: str
 
 
-@app.post("/controls/{name}", dependencies=[Depends(api_key_header)])
+@app.post("/controls/{name}", dependencies=[Depends(requires(Permission.CHANGE_CONTROLS))])
 async def set_control(name: str, body: SetControlRequest, request: Request) -> dict[str, Any]:
     """
     Set one live control, routed to the setter that already owns it.
