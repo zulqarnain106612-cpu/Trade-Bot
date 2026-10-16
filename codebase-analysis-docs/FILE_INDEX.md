@@ -813,10 +813,10 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 743 | P1 | tests/test_causal_inference.py | Python | 243 | 917865bc |  |
 | 744 | P1 | tests/test_causal_modules.py | Python | 214 | a86122e6 |  |
 | 745 | P1 | tests/test_changepoint.py | Python | 80 | abb1294c |  |
-| 746 | P1 | tests/test_ci_diagnostics.py | Python | 680 | e82aaae7 |  |
+| 746 | P1 | tests/test_ci_diagnostics.py | Python | 680 | fc3a2c4c |  |
 | 747 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 58 | 0eaa4e26 |  |
 | 748 | P1 | tests/test_ci_log_access.py | Python | 301 | da598b09 |  |
-| 749 | P1 | tests/test_ci_notice_supersession.py | Python | 70 | 334a7854 |  |
+| 749 | P1 | tests/test_ci_notice_supersession.py | Python | 74 | 81c6cd7d |  |
 | 750 | P1 | tests/test_ci_workflow_cost.py | Python | 235 | fb0a0315 |  |
 | 751 | P1 | tests/test_codebase_knowledge_index.py | Python | 144 | 60913e09 |  |
 | 752 | P1 | tests/test_codex_plugin_assets.py | Python | 53 | e06c9c8b |  |

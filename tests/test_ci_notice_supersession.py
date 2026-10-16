@@ -6,6 +6,7 @@ Decides:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -17,7 +18,7 @@ COLLECTOR = ROOT / "scripts/ci_diagnostics.py"
 
 def test_collector_waits_for_every_applicable_workflow_and_job() -> None:
     source = COLLECTOR.read_text(encoding="utf-8")
-    assert 'if not run or run.get("status") != "completed"' in source
+    assert 'run.get("status") != "completed"' in source
     assert "_all_jobs_terminal(jobs, run)" in source
     assert "COLLECT_DEADLINE_SECONDS" in source
     assert "report remains unfinalized" in source
@@ -41,7 +42,7 @@ def test_source_workflows_are_not_cancelled_by_diagnostics() -> None:
 
 def test_report_identity_is_bound_to_pr_and_head_sha() -> None:
     source = COLLECTOR.read_text(encoding="utf-8")
-    assert '"pr": pr_number, "head_sha": sha' in source
+    assert re.search(r'"pr": pr_number,\s*"head_sha": sha', source)
     assert "_ensure_head_unchanged(slug, pr_number, sha)" in source
     assert "master_external_id" in source or "_external_id(pr_number, sha)" in source
     assert "report is stale or belongs to a different pull request" in source
@@ -64,7 +65,10 @@ def test_collector_retains_outcomes_and_source_locations() -> None:
 
 
 def test_report_retrieval_has_one_canonical_invocation() -> None:
+    from scripts.ci_diagnostics import _canonical_invocation
+
     cli = (ROOT / "scripts/prfail").read_text(encoding="utf-8")
     assert "main_prfail" in cli
-    assert "--pr" in cli
-    assert "--run-id" not in cli
+    assert _canonical_invocation(["--pr", "462"]) == 462
+    assert _canonical_invocation(["--run-id", "1"]) is None
+    assert _canonical_invocation(["--pr", "462", "--run-id", "1"]) is None

@@ -346,7 +346,8 @@ def test_report_cli_uses_existing_gh_auth_without_extra_token(monkeypatch) -> No
     import subprocess
 
     monkeypatch.setattr(
-        "ci_diagnostics.subprocess.run",
+        ci_diagnostics.subprocess,
+        "run",
         lambda *args, **kwargs: subprocess.CompletedProcess(
             args=args[0], returncode=0, stdout="existing_cli_token\n", stderr=""
         ),
@@ -461,14 +462,15 @@ def test_local_patch_applier_refuses_a_mismatched_checkout_head(monkeypatch) -> 
     from scripts import apply_ci_patch
     from scripts.apply_ci_patch import PatchError
 
+    # An ordinary, existing, unprotected file: only the HEAD check may refuse it.
     diff = (
-        "diff --git a/tests/test_ci_diagnostics.py b/tests/test_ci_diagnostics.py\\n"
-        "index 1111111..2222222 100644\\n"
-        "--- a/tests/test_ci_diagnostics.py\\n"
-        "+++ b/tests/test_ci_diagnostics.py\\n"
-        "@@ -1,1 +1,1 @@\\n"
-        "-old_value = 1\\n"
-        "+new_value = 1\\n"
+        "diff --git a/README.md b/README.md\n"
+        "index 1111111..2222222 100644\n"
+        "--- a/README.md\n"
+        "+++ b/README.md\n"
+        "@@ -1,1 +1,1 @@\n"
+        "-old_value = 1\n"
+        "+new_value = 1\n"
     )
     monkeypatch.setattr(apply_ci_patch, "_current_head", lambda: "a" * 40)
     try:
@@ -491,9 +493,7 @@ def test_local_patch_applier_validates_existing_paths_and_rejects_unsafe_paths()
         "-old_value = 1\n"
         "+new_value = 1\n"
     )
-    assert _validate_patch(diff.replace("src/example.py", "tests/test_ci_diagnostics.py")) == [
-        "tests/test_ci_diagnostics.py"
-    ]
+    assert _validate_patch(diff.replace("src/example.py", "README.md")) == ["README.md"]
 
     # Path validation requires an existing target, so exercise the guards that
     # do not require a repository file independently.
