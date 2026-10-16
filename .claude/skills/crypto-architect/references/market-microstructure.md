@@ -1,5 +1,12 @@
 # Market Microstructure Reference (New in v3)
 
+## Trade-Bot integration (verified against the repository)
+
+- Microstructure features (OFI, VPIN, Kyle's lambda): `src/features/microstructure.py`;
+  order-book stream: `src/data/orderbook_stream.py`; slippage model:
+  `src/risk/slippage.py`. Verify which features the active loops consume before
+  relying on any of them as an execution input.
+
 ## Core Concepts
 
 ### Bid-Ask Spread Decomposition
@@ -22,19 +29,15 @@ Price Impact = Effective Spread - Realized Spread
 ```python
 def order_flow_imbalance(bids: pd.DataFrame, asks: pd.DataFrame, level: int = 1) -> pd.Series:
     """
-    OFI at level L: change in bid quantity - change in ask quantity at best L levels.
+    OFI at level L (Cont, Kukanov & Stoikov 2014): quantity changes count only
+    with the matching price move. Needs both price and size at the level.
     Positive = buying pressure; Negative = selling pressure.
-    Cont et al. (2014), updated by Kolm, Turiel & Westray (2023).
     """
-    bid_change = bids[f"L{level}_qty"].diff().fillna(0)
-    ask_change = asks[f"L{level}_qty"].diff().fillna(0)
-    # Positive bid change (more bids) = buying pressure
-    bid_pressure = bid_change.clip(lower=0)
-    # Negative bid change (bids removed) = buying pressure leaving
-    bid_leave = bid_change.clip(upper=0)
-    ask_pressure = ask_change.clip(upper=0)  # More asks = selling pressure
-    ask_leave = ask_change.clip(lower=0)
-    return (bid_pressure + bid_leave) - (ask_pressure + ask_leave)
+    pb, qb = bids[f"L{level}_px"], bids[f"L{level}_qty"]
+    pa, qa = asks[f"L{level}_px"], asks[f"L{level}_qty"]
+    e_bid = qb.where(pb >= pb.shift(), 0.0) - qb.shift().where(pb <= pb.shift(), 0.0)
+    e_ask = qa.where(pa <= pa.shift(), 0.0) - qa.shift().where(pa >= pa.shift(), 0.0)
+    return (e_bid - e_ask).fillna(0.0)
 
 
 def multi_level_ofi(bids, asks, levels=5, weights=None) -> pd.Series:
@@ -87,10 +90,11 @@ where: α = probability of information event, μ = informed arrival rate, ε = u
 
 ## Market Impact
 
-### Almgren-Chriss (Linear Impact)
+### Almgren-Chriss
 ```
-Temporary impact: h(v) = η × σ × (v / V)^0.5     [square root model]
-Permanent impact: g(v) = γ × σ × v / V
+Temporary impact: h(v) = ε × sign(v) + η × v     [linear, original model]
+Permanent impact: g(v) = γ × v
+(Square-root/power-law temporary impact is a later empirical variant.)
 Total cost = Temporary × shares + Permanent × shares
 ```
 - `v` = trade rate (shares/time); `V` = market volume (shares/time)
@@ -101,7 +105,7 @@ Total cost = Temporary × shares + Permanent × shares
 ```
 Impact ≈ σ × k × √(Q / ADV)
 ```
-- `k ≈ 0.3–0.5` for crypto (higher than equities due to thinner books)
+- `k`: calibrate from own fills; published crypto values are historical; current status requires confirmation
 - `σ` = daily realized volatility; `ADV` = average daily volume
 - Use to pre-estimate execution cost before order; compare to edge
 
@@ -167,11 +171,11 @@ IS = Decision Price - Arrival Price    (opportunity cost of delay)
 ### Lee-Ready Algorithm (limit order data)
 ```python
 def classify_trade(price: float, bid: float, ask: float, prev_price: float = None) -> int:
-    """Returns +1 (buy) or -1 (sell)"""
+    """Returns +1 (buy), -1 (sell) or 0 (indeterminate)"""
     midpoint = (bid + ask) / 2
-    if price > midpoint + 0.001:
+    if price > midpoint:
         return +1  # Buyer-initiated
-    elif price < midpoint - 0.001:
+    elif price < midpoint:
         return -1  # Seller-initiated
     else:
         # Midpoint trade: use tick rule
@@ -195,7 +199,8 @@ P(buy | volume) = Φ(ΔP / σ_ΔP)  where Φ = standard normal CDF
 VPIN = Σ|V_buy - V_sell| / (n × V_bar)
 ```
 - Measures order flow toxicity; high VPIN = informed trading; precedes flash crashes
-- May 6, 2010 Flash Crash: VPIN elevated before crash (Easley, López de Prado, O'Hara)
+- May 6, 2010 Flash Crash: VPIN elevated before crash (Easley, López de Prado, O'Hara);
+  the predictive claim is contested (Andersen & Bondarenko)
 - Crypto VPIN: use 50-bar rolling window; threshold at 85th percentile → elevated toxicity
 - Integration with Law 13: VPIN spike + thin books + large OFI → LAW13 signal suppression
 
@@ -246,9 +251,8 @@ def kyle_lambda(price_changes: pd.Series, signed_volume: pd.Series, window: int 
 ### Market Making Mechanics
 ```
 Avellaneda-Stoikov inventory model:
-r(s, q) = s - q × γ × σ² × T   (reservation price adjusted for inventory)
-δ_bid = 1/γ × ln(1 + γ/k) + (2q+1)/2 × √(σ²γ/k × (1 + γ/k)^(1+k))
-δ_ask = similar, opposing direction
+r(s, q, t) = s - q × γ × σ² × (T - t)   (reservation price adjusted for inventory)
+spread    = γ × σ² × (T - t) + (2/γ) × ln(1 + γ/k)   (quotes centred on r)
 ```
 - `q` = current inventory (negative = short); `γ` = risk aversion; `k` = order arrival rate
 - Key insight: adjust spread asymmetrically based on inventory position

@@ -1,5 +1,13 @@
 # Probability & Statistical Methods Reference
 
+## Trade-Bot integration (verified against the repository)
+
+- Kelly sizing: `src/risk/kelly.py`; CVaR-Kelly horizon sizing: `src/risk/gate.py`.
+- Regime detection: `src/regime/detector.py`, `src/regime/changepoint.py`, `src/regime/garch.py`.
+- Probabilistic and deflated Sharpe ratios: `src/tuning/evaluator.py`.
+- Conformal coverage for sizing models is a LAW4 requirement the validator
+  reports as missing in `src/risk/kelly.py` (accepted debt in `config/arch_baseline.json`).
+
 ## Kelly Criterion
 
 ### Formula
@@ -61,7 +69,8 @@ Regimes: TRENDING (autocorrelated returns), RANGING (mean-reverting),
 ## Monte Carlo Simulation
 
 - Minimum 10,000 paths for VaR; 100,000 for CVaR tail estimation
-- Antithetic variates + control variates: 10–50× variance reduction
+- Antithetic variates + control variates: can reduce estimator variance; measure the
+  reduction on a pilot run rather than assuming a factor
 - Random seed recorded for reproducibility; separate seed per simulation run
 - Cholesky decomposition for correlated paths; fat tails: Student-t (ν = 3–5)
 - GBM + Jump process for crypto: `dS = μS dt + σS dW + J dN`
@@ -90,7 +99,10 @@ def weighted_conformal_quantile(
     sorted_w = weights[sorted_idx]
     cum_w = np.cumsum(sorted_w) / sorted_w.sum()
     idx = np.searchsorted(cum_w, 1 - alpha)
-    return sorted_r[idx]
+    # Clamp: without it, 1 - alpha above the last cumulative weight raises IndexError.
+    # For a coverage guarantee under weighting, also reserve weight for the test
+    # point (Barber et al. 2023) rather than normalizing over calibration points only.
+    return sorted_r[min(idx, len(sorted_r) - 1)]
 ```
 
 ### Coverage Guarantee
@@ -127,7 +139,8 @@ r_i = α_i + Σ_k β_{ik} × F_k + ε_i
 - BTC spot ETF (BlackRock IBIT, Fidelity FBTC) daily flows: available from Bloomberg,
   Bloomberg's ETF API, SoSoValue
 - Large positive flow → institutional buying signal; large redemption → risk-off
-- Correlation with BTC returns: significant positive correlation on 1-day lag
+- Correlation with BTC returns: a hypothesis to validate out-of-sample, not an
+  established relationship (historical; current status requires confirmation)
 - Include as factor in cross-sectional models; treat as slow-moving institutional signal
 
 ---

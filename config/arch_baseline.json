@@ -14,6 +14,7 @@
     "LAW13|Flash crash halt or circuit breaker reference \u2014 verify it is wired correctly|src/intel.py",
     "LAW13|Flash crash halt or circuit breaker reference \u2014 verify it is wired correctly|src/risk/gate.py",
     "LAW1|Risk function '_compute_risk_score' missing VaR/CVaR computation|src/risk/cognitive_engine.py",
+    "LAW1|VaR/CVaR computation present|src/risk/gates.py",
     "LAW2|Global variable mutation: _aggregator|src/intelligence/providers/aggregator.py",
     "LAW2|Global variable mutation: _controller|src/tuning/meta_allocator.py",
     "LAW2|Global variable mutation: _drift_monitor|src/diagnostics/signal_debugger.py",
