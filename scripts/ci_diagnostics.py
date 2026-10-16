@@ -938,7 +938,6 @@ def _collect() -> int:
         pull = _load_current_pr(slug, pr_number)
         if pull.get("state") != "open":
             raise DiagnosticError("diagnostic backfill requires an open pull request")
-        trigger = None
     elif event_name == "workflow_run":
         trigger = event.get("workflow_run")
         if not isinstance(trigger, dict):
