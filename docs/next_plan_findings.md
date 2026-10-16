@@ -16,6 +16,6 @@ Next-plan action: inspect ownership, branch reachability, and whether generated 
 
 ## 3. The approved CI-notice route depends on working public/API access
 
-`gh auth status` reports no logged-in GitHub host, and neither `GITHUB_TOKEN` nor `GH_TOKEN` was present in the inspected shell. The repository policy only permits CI diagnostic consumption through `python3 scripts/local_checks.py prepare`, which fetches the single notice whose hidden SHA marker exactly matches the open PR head.
+`gh auth status` reports no logged-in GitHub host, and neither `GITHUB_TOKEN` nor `GH_TOKEN` was present in the inspected shell. The repository policy only permits CI diagnostic consumption through `./scripts/prfail --pr <PR_NUMBER>`, which reads the finalized, SHA-bound Check Run report published by `.github/workflows/ci-diagnostics.yml` using the existing `gh` session (`local_checks.py prepare` is disabled).
 
 Next-plan action: verify that this supported notice path works on a fresh PR without widening CI-log access or pulling arbitrary comments into agent context; if authentication or API rate limits prevent it, establish a narrowly scoped, approved credential path rather than reading workflow logs directly.

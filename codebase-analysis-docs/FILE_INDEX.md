@@ -273,7 +273,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 203 | P1 | src/agent_control/gitstate.py | Python | 303 | 57485d18 |  |
 | 204 | P1 | src/agent_control/hooks.py | Python | 186 | d0297aad |  |
 | 205 | P1 | src/agent_control/model.py | Python | 654 | ff6d3393 |  |
-| 206 | P1 | src/agent_control/reliability.py | Python | 296 | 98403828 |  |
+| 206 | P1 | src/agent_control/reliability.py | Python | 298 | 4d3bc290 |  |
 | 207 | P1 | src/agent_control/store.py | Python | 152 | 4fac49db |  |
 | 208 | P1 | src/agent_control/workspace.py | Python | 716 | 4e0e96e2 |  |
 | 209 | P1 | src/api/__init__.py | Python | 1 | 01ba4719 |  |
@@ -1229,7 +1229,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 1159 | P2 | crypto-predictor/validation.py | Python | 127 | 34d667e1 |  |
 | 1160 | P2 | crypto-predictor/volatility.py | Python | 84 | bf46ec4a |  |
 | 1161 | P2 | docs/agents/OPENAI_COOKBOOK_ADOPTION.md | Markdown | 41 | 4881215c |  |
-| 1162 | P2 | docs/next_plan_findings.md | Markdown | 21 | 3c715222 |  |
+| 1162 | P2 | docs/next_plan_findings.md | Markdown | 21 | 620b7b2a |  |
 | 1163 | P2 | docs/security/ci-diagnostics.md | Markdown | 136 | e32af5f7 |  |
 | 1164 | P2 | frontend/.nvmrc | Text/config | 1 | f14b4987 |  |
 | 1165 | P2 | frontend/browser-e2e/dashboard.e2e.jsx | React JSX | 358 | 14fc37bc |  |
