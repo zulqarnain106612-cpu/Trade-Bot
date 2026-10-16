@@ -788,7 +788,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 718 | P1 | tests/test_api_role_enforcement.py | Python | 174 | 4e7cff8d |  |
 | 719 | P1 | tests/test_api_signer_audit.py | Python | 173 | e33cc0db |  |
 | 720 | P1 | tests/test_api_terminal_jobs.py | Python | 196 | ba84a1ac |  |
-| 721 | P1 | tests/test_apply_ci_patch.py | Python | 55 | 74187c98 |  |
+| 721 | P1 | tests/test_apply_ci_patch.py | Python | 56 | ab033f7d |  |
 | 722 | P1 | tests/test_apply_repo_ruleset.py | Python | 288 | e1799986 |  |
 | 723 | P1 | tests/test_arch_baseline_is_current.py | Python | 79 | 1ae91139 |  |
 | 724 | P1 | tests/test_architecture_layers.py | Python | 181 | 954aa9c3 |  |
@@ -813,10 +813,10 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 743 | P1 | tests/test_causal_inference.py | Python | 243 | 917865bc |  |
 | 744 | P1 | tests/test_causal_modules.py | Python | 214 | a86122e6 |  |
 | 745 | P1 | tests/test_changepoint.py | Python | 80 | abb1294c |  |
-| 746 | P1 | tests/test_ci_diagnostics.py | Python | 511 | 60c2587e |  |
-| 747 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 45 | 746dccf2 |  |
+| 746 | P1 | tests/test_ci_diagnostics.py | Python | 511 | 858752ed |  |
+| 747 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 46 | 661f7e30 |  |
 | 748 | P1 | tests/test_ci_log_access.py | Python | 294 | 46d4aa1f |  |
-| 749 | P1 | tests/test_ci_notice_supersession.py | Python | 57 | 7a9b1dc6 |  |
+| 749 | P1 | tests/test_ci_notice_supersession.py | Python | 58 | c8bfbee2 |  |
 | 750 | P1 | tests/test_ci_workflow_cost.py | Python | 235 | fb0a0315 |  |
 | 751 | P1 | tests/test_codebase_knowledge_index.py | Python | 144 | 60913e09 |  |
 | 752 | P1 | tests/test_codex_plugin_assets.py | Python | 53 | e06c9c8b |  |

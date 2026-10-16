@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +18,7 @@ def test_collector_waits_for_every_applicable_workflow_and_job() -> None:
     assert "report remains unfinalized" in source
 
 
-def test_collector_has_no_manual_dispatch_or_agent-triggered_collection() -> None:
+def test_collector_has_no_manual_dispatch_or_agent_triggered_collection() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     triggers = workflow.get("on") or workflow.get(True) or {}
     source = COLLECTOR.read_text(encoding="utf-8")

@@ -10,21 +10,21 @@ import yaml
 from scripts import ci_diagnostics
 from scripts.ci_diagnostics import (
     REPORT_PAGE_BYTES,
+    WORKFLOW_INVENTORY,
+    DiagnosticError,
     _add_record,
     _add_structured_outcomes,
     _all_jobs_terminal,
-    _canonical_json,
     _canonical_invocation,
-    _decode_report_pages,
+    _canonical_json,
     _decode_job_log_payload,
-    _matches_pr_run,
+    _decode_report_pages,
     _external_id,
-    _page_external_id,
-    _token,
-    DiagnosticError,
-    WORKFLOW_INVENTORY,
+    _matches_pr_run,
     _pack_pages,
+    _page_external_id,
     _redact_message,
+    _token,
     parse_log_lines,
 )
 
