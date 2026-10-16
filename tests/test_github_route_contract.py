@@ -317,8 +317,8 @@ class TestCiRequestsReceiveOnlyTheVerdict:
         assert decision["permissionDecision"] == "deny"
         assert decision["permissionDecisionReason"].startswith("ci verdict unavailable")
 
-    def test_the_sha_pinned_notice_subscription_keeps_its_own_route(self, fake_verdict) -> None:
-        decision = decide("Bash", {"command": "python3 scripts/local_checks.py prepare"})
+    def test_the_exact_pr_report_command_keeps_its_own_route(self, fake_verdict) -> None:
+        decision = decide("Bash", {"command": "./scripts/prfail --pr 458"})
         assert decision["permissionDecision"] == "allow"
 
     def test_an_ordinary_read_is_not_a_ci_request(self, fake_verdict) -> None:

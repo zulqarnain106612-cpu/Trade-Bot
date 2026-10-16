@@ -1,35 +1,19 @@
 """
-CI run data is unreadable from a session, and the comment channel is not.
+CI run data is not a model-observation route. The sole diagnostic route is the
+exact ./scripts/prfail --pr <PR_NUMBER> invocation, which reads the finalized
+filtered Check Run report and never downloads logs or falls back to the
+historical PR-comment notice.
 
-The previous policy capped CI log retrieval instead of banning it: "the
-minimum number of lines that explains the failure is always permitted". That
-bound was the loophole. The minimum number of lines is a judgement made by the
-party that wants the lines, and it decayed into paging logs a few lines at a
-time -- which is the context cost the cap existed to prevent, paid in
-instalments.
-
-So the rule is now unconditional, and these tests pin the two halves that make
-an unconditional rule survive contact with use:
-
-**Nothing gets through.** Not with a bound, not with a filter, not through a
-different verb, not by dispatching a run and reading what it prints, and not
-via a check-results flag on a subcommand whose comment form is allowed.
-
-**The comment channel stays open.** With logs unreadable, the notice comment is
-the only way to learn why a run failed. A guard that closed it too would leave
-no route at all, and a guard with no route is a guard the next session turns
-off -- so the allowlist is part of the control rather than an exception to it.
-
-The third half is that the two enforcement points agree. The PreToolUse hook
-imports the shared implementation when the project is importable and falls back
-to the policy file's patterns when it is not, so the same command must be
-refused either way.
+The command-policy classifier and JSON fallback must agree. The active
+pre-execution hook is a separate runtime layer; this checkout has pre-existing
+deletions of that hook and its settings, so these tests do not claim host-wide
+enforcement.
 
 Decides:
-  - GOV-019 — CI run data is unreadable from a session under every condition
-  - GOV-020 — One comment per commit carries the status and the exact failing lines
+  - GOV-019 — direct CI run data remains inaccessible; the filtered report is the sole CLI route
+  - GOV-020 — terminal workflow outcomes are consolidated into one SHA-bound report
   - GOV-057 — all model-visible tool observations cross the repository boundary
-  - REG-0024 — local checks are CI-only and the prepare route exposes only the current HEAD notice
+  - REG-0024 — local checks are CI-only and the legacy prepare route is retired
 """
 
 from __future__ import annotations
@@ -46,6 +30,7 @@ from common.command_schema import (
     CI_LOG_PATTERNS,
     CI_LOG_REFUSAL,
     is_ci_log_access,
+    is_exact_patch_apply_command,
 )
 from common.shell_exec import run
 
@@ -98,6 +83,16 @@ BLOCKED = [
     "curl -s https://api.github.com/graphql",
     "python3 -c 'import urllib.request; urllib.request.urlopen(\"https://api.github.com/repos/o/r/issues/313/comments\")'",
     "gh run view 9 --json jobs",
+    "python3 scripts/ci_verdict.py",
+    "python3 scripts/ci_diagnostics.py collect",
+    "python3 -m scripts.ci_diagnostics collect",
+    "python3 -c 'from scripts.ci_diagnostics import _collect; _collect()'",
+    "python3 - <<'PY'\nfrom scripts import ci_diagnostics\nci_diagnostics._collect()\nPY",
+    "python3 scripts/local_checks.py prepare",
+    "./scripts/prfail --pr 0",
+    "./scripts/prfail --pr 313 --run-id 9",
+    "cd /tmp && ./scripts/prfail --pr 313",
+    "./scripts/prfail --pr 313 | cat",
     "curl -s https://api.github.com/repos/o/r/actions/runs/1/logs",
     "curl https://api.github.com/repos/o/r/actions/jobs/2/logs -o log.zip",
     "curl -s https://api.github.com/repos/o/r/check-runs/3",
@@ -107,11 +102,11 @@ BLOCKED = [
 # The sanctioned channel, plus ordinary pull-request work that must not be
 # swept up by a broad `gh api` rule.
 ALLOWED = [
+    "./scripts/prfail --pr 313",
     "gh pr comment 313 --body 'pushed a fix'",
     "gh issue view 42",
     "gh issue comment 42 --body hi",
     "gh pr view 313 --json state,title,mergeStateStatus",
-    "python3 scripts/local_checks.py prepare",
     "gh pr merge 313 --squash --auto",
     "gh pr create --base main --title x --body y",
     "gh pr list --state open",
@@ -169,10 +164,29 @@ class TestNothingGetsThrough:
         assert is_ci_log_access(command)
 
 
-class TestTheCommentChannelStaysOpen:
+class TestTheCanonicalReportCommandStaysOpen:
     @pytest.mark.parametrize("command", ALLOWED, ids=ALLOWED)
     def test_it_is_not_treated_as_ci_access(self, command: str) -> None:
         assert not is_ci_log_access(command)
+
+    def test_only_the_quoted_report_bound_patch_heredoc_is_exempt(self) -> None:
+        command = "\n".join(
+            [
+                "python3 scripts/apply_ci_patch.py --pr 458 --head-sha "
+                + "a" * 40
+                + " --patch-stdin <<'TB_CI_PATCH'",
+                "diff --git a/src/example.py b/src/example.py",
+                "--- a/src/example.py",
+                "+++ b/src/example.py",
+                "@@ -1,1 +1,1 @@",
+                "-before = 1",
+                "+after = 1",
+                "TB_CI_PATCH",
+            ]
+        )
+        assert is_exact_patch_apply_command(command)
+        assert not is_ci_log_access(command)
+        assert not is_exact_patch_apply_command("cd /tmp && " + command)
 
     def test_the_refusal_names_the_remaining_route(self) -> None:
         """
@@ -180,8 +194,12 @@ class TestTheCommentChannelStaysOpen:
         makes the next session set TB_COMMAND_POLICY=off. The message has to
         say where the answer actually is.
         """
-        assert "comment" in CI_LOG_REFUSAL.lower()
-        assert "local_checks.py prepare" in CI_LOG_REFUSAL
+        assert CI_LOG_REFUSAL == (
+            "THAPPAR — CI DIAGNOSTIC ACCESS BLOCKED. Use only: "
+            "./scripts/prfail --pr <PR_NUMBER>. "
+            "Direct or alternative diagnostic retrieval is prohibited."
+        )
+        assert "./scripts/prfail --pr <PR_NUMBER>" in CI_LOG_REFUSAL
         # And it must not suggest a smaller read would work.
         assert "30 lines" not in CI_LOG_REFUSAL
 
@@ -200,6 +218,14 @@ class TestTheRuntimeRefusesToo:
         assert result["attempt_count"] == 0, "the command must not have run"
         assert "blocked" in (result["error"] or "").lower()
 
+    def test_noncanonical_patch_applier_invocations_are_refused(self) -> None:
+        from common.command_schema import is_local_check_execution
+
+        assert is_local_check_execution("python3 scripts/apply_ci_patch.py --help")
+        assert is_local_check_execution(
+            "python3 scripts/apply_ci_patch.py --pr 1 --head-sha " + "a" * 40
+        )
+
     def test_run_refuses_arbitrary_comment_fetches(self) -> None:
         result = run(
             {
@@ -214,10 +240,8 @@ class TestTheRuntimeRefusesToo:
 class TestEnforcementPointsAgree:
     def test_the_policy_file_mirrors_the_shared_patterns(self, policy: dict) -> None:
         """
-        The hook falls back to the policy file when the project is not
-        importable -- a bare session, a detached checkout. If the two lists
-        drifted, the block would hold in one kind of session and not the other,
-        and nobody would notice which.
+        The active hook may need the policy file when the project is not importable.
+        The shared classifier and fallback patterns must remain identical.
         """
         assert tuple(policy["banned_patterns"]) == CI_LOG_PATTERNS
         assert tuple(policy["hard_deny_patterns"]) == CI_HARD_DENY_PATTERNS
@@ -226,8 +250,9 @@ class TestEnforcementPointsAgree:
     def test_the_policy_is_enabled(self, policy: dict) -> None:
         assert policy["enabled"] is True
 
-    def test_only_current_notice_preparation_is_allowed(self) -> None:
-        assert not is_ci_log_access("python3 scripts/local_checks.py prepare")
+    def test_only_the_canonical_report_command_is_allowed(self) -> None:
+        assert not is_ci_log_access("./scripts/prfail --pr 313")
+        assert is_ci_log_access("python3 scripts/local_checks.py prepare")
         assert is_ci_log_access("gh pr view 313 --json comments")
         assert is_ci_log_access("gh api repos/o/r/issues/313/comments")
 
@@ -262,15 +287,15 @@ class TestEnforcementPointsAgree:
             assert by_policy(command) == is_ci_log_access(command), command
 
 
-class TestTheNoticeIsTheOnlyChannel:
-    def test_the_notice_workflow_exists(self) -> None:
+class TestTheFilteredReportIsTheOnlyAgentChannel:
+    def test_the_diagnostic_collector_workflow_exists(self) -> None:
         """
-        The rule and the notice are one decision. Blocking log access without
-        a notice that carries the failure leaves a contributor with no way to
-        learn why their pull request is red.
+        The report interface and policy are one decision. A collector that is not
+        wired to the retrieval command cannot give a contributor actionable
+        diagnostics.
         """
-        assert (PROJECT_ROOT / ".github" / "workflows" / "ci-failure-notify.yml").is_file()
+        assert (PROJECT_ROOT / ".github" / "workflows" / "ci-diagnostics.yml").is_file()
 
-    def test_the_policy_points_at_it(self) -> None:
+    def test_the_policy_points_at_the_collector(self) -> None:
         note = json.loads(POLICY_PATH.read_text(encoding="utf-8"))["ci_log_access"]["_note"]
-        assert "ci-failure-notify.yml" in note
+        assert "ci-diagnostics.yml" in note

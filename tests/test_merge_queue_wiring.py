@@ -30,8 +30,8 @@ WORKFLOWS = PROJECT_ROOT / ".github" / "workflows"
 # workflow may run Claude again.
 ADVISORY: set[str] = set()
 
-# Reports on a failed run of another workflow; it has no place in a queue.
-NOT_A_GATE = {"ci-failure-notify.yml"}
+# The autonomous diagnostics collector reports on other workflows; it is not a gate.
+NOT_A_GATE = {"ci-diagnostics.yml"}
 
 
 def _triggers(spec: dict) -> dict:

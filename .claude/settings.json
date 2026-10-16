@@ -17,10 +17,8 @@
       "mcp__github__search_issues",
       "mcp__github__search_pull_requests",
       "mcp__github__update_pull_request",
-      "Bash(python3 scripts/local_checks.py prepare)",
-      "Bash(python scripts/local_checks.py prepare)",
-      "Bash(.venv/bin/python scripts/local_checks.py prepare)",
-      "Bash(.venv/bin/python3 scripts/local_checks.py prepare)"
+      "Bash(./scripts/prfail --pr *)",
+      "Bash(python3 scripts/apply_ci_patch.py *)"
     ],
     "deny": [
       "Agent",

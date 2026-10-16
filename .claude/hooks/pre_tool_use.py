@@ -42,6 +42,25 @@ PROTECTED_BOUNDARY_PATHS = frozenset(
         "tests/test_github_route_contract.py",
         "CLAUDE.md",
         ".mcp.json",
+        ".github/workflows",
+        ".github/CODEOWNERS",
+        "config/quality_registry.json",
+        "common/command_schema.py",
+        "common/shell_exec.py",
+        "scripts/ci_diagnostics.py",
+        "scripts/prfail",
+        "scripts/apply_ci_patch.py",
+        "scripts/ci_verdict.py",
+        "scripts/local_checks.py",
+        "tests/test_ci_diagnostics.py",
+        "tests/test_ci_log_access.py",
+        "tests/test_local_checks.py",
+        "tests/test_apply_ci_patch.py",
+        "tests/test_ci_failure_notify_workflow.py",
+        "tests/test_ci_notice_supersession.py",
+        "tests/test_merge_queue_wiring.py",
+        "docs/quality/REQUIREMENTS_TRACEABILITY.md",
+        "AGENTS.md",
     }
 )
 PROTECTED_MUTATION_TOOLS = {
@@ -240,6 +259,23 @@ def _github_boundary_write_violation(tool: str, data: dict[str, Any]) -> str:
     return ""
 
 
+def _is_exact_patch_apply_command(command: str) -> bool:
+    """Allow only the reviewed patcher with a quoted heredoc and one final terminator."""
+    lines = command.strip().splitlines()
+    if len(lines) < 4 or lines[-1] != "TB_CI_PATCH" or lines.count("TB_CI_PATCH") != 1:
+        return False
+    header = re.fullmatch(
+        r"python3 scripts/apply_ci_patch\.py --pr [1-9][0-9]* --head-sha [0-9a-f]{40} --patch-stdin <<'TB_CI_PATCH'",
+        lines[0],
+    )
+    if not header:
+        return False
+    body = lines[1:-1]
+    return any(line.startswith("diff --git a/") for line in body) and any(
+        line.startswith("@@ ") for line in body
+    )
+
+
 def _github_route_violation(event: dict[str, Any]) -> str:
     tool = str(event.get("tool_name") or event.get("toolName") or "").strip().lower()
     if not tool:
@@ -248,26 +284,27 @@ def _github_route_violation(event: dict[str, Any]) -> str:
             "Use an approved GitHub MCP tool and retry."
         )
     if not tool.startswith(GITHUB_TOOL_PREFIX):
-        # The one non-GitHub route is an exact read-only subscription to the
-        # current-head CI notice. Every other local or external tool stays denied.
+        # Non-GitHub routes are limited to exact report retrieval and the
+        # report-bound patcher; neither is a raw Actions-log access route.
         if tool == "bash":
             data = _hook_input(event)
             command = data.get("command", "")
-            prepare = re.compile(
-                r"^\s*(?:cd\s+[^;&|]+\s*&&\s*)?(?:python|python3|\.venv/bin/python|\.venv/bin/python3)\s+scripts/local_checks\.py\s+prepare\s*$",
-                re.IGNORECASE,
-            )
+            canonical_report = re.compile(r"^\s*\./scripts/prfail\s+--pr\s+[1-9][0-9]*\s*$")
             if (
                 isinstance(command, str)
-                and prepare.fullmatch(command.strip())
+                and canonical_report.fullmatch(command.strip())
                 and not is_ci_log_access(command)
                 and not _local_check_violation(command, _load_policy())
             ):
                 return ""
+            if isinstance(command, str) and _is_exact_patch_apply_command(command):
+                header = command.splitlines()[0]
+                if not _local_check_violation(header, _load_policy()):
+                    return ""
         return (
             "Universal GitHub-only boundary: denied. Use an approved GitHub MCP tool; "
-            "the only local exception is the exact SHA-filtered "
-            "scripts/local_checks.py prepare subscription."
+            "local exceptions are the exact report command "
+            "./scripts/prfail --pr <PR_NUMBER> and the report-bound patch applier."
         )
     tail = tool[len(GITHUB_TOOL_PREFIX) :]
     gap = unresolved_tools()
@@ -294,7 +331,7 @@ def _github_route_violation(event: dict[str, Any]) -> str:
         if isinstance(url, str) and GITHUB_COMMENT_URL_RE.search(url):
             return (
                 "Arbitrary PR-comment and review reads are denied. Use only the "
-                "SHA-filtered scripts/local_checks.py prepare subscription."
+                "./scripts/prfail --pr <PR_NUMBER> report command."
             )
         if isinstance(url, str) and GITHUB_CI_URL_RE.search(url):
             return (
@@ -370,8 +407,8 @@ def _contract_violation(tail: str, contract: Any, data: dict[str, Any]) -> str:
             return (
                 f"Universal boundary: {tail} method '{method}' is denied. Allowed: "
                 f"{', '.join(sorted(contract.methods))}. CI run data, whole-PR reports and "
-                "arbitrary comment bodies are not observation routes; the CI notice route is "
-                "the SHA-filtered scripts/local_checks.py prepare subscription."
+                "arbitrary comment bodies are not observation routes; use only "
+                "./scripts/prfail --pr <PR_NUMBER> for finalized diagnostics."
             )
     for key in contract.required:
         value = data.get(key)
@@ -537,8 +574,8 @@ def _github_write_plan(event: dict[str, Any]) -> tuple[str, dict[str, Any] | Non
 
 
 # Any request whose subject is CI, logs, run records, reports or monitoring,
-# whatever tool carries it. The data never reaches the model; the agent
-# receives scripts/ci_verdict.py's verdict instead.
+# whatever tool carries it. Direct GitHub observations remain blocked; the one
+# authorized local route is the exact report-only ./scripts/prfail command.
 CI_SUBJECT_RE = re.compile(
     r"(?i)(workflow|check_run|check-run|check_suite|check-suite|job_log|run_log|"
     r"\blogs?\b|artifact|annotation|combined_status|status_check|\bcheck[-_ ]?runs?\b|"
@@ -577,8 +614,10 @@ def _is_ci_request(tool: str, data: dict[str, Any]) -> bool:
             return True
     command = data.get("command")
     if isinstance(command, str) and command.strip():
-        # The sanctioned SHA-pinned notice subscription keeps its own route.
-        if re.search(r"local_checks\.py\s+prepare", command):
+        # The canonical report and report-bound patcher have exact allow rules.
+        if re.fullmatch(
+            r"\s*\./scripts/prfail\s+--pr\s+[1-9][0-9]*\s*", command
+        ) or _is_exact_patch_apply_command(command):
             return False
         if is_ci_log_access(command) or CI_SUBJECT_RE.search(command):
             return True
@@ -587,11 +626,11 @@ def _is_ci_request(tool: str, data: dict[str, Any]) -> bool:
 
 def _ci_interception(event: dict[str, Any]) -> str | None:
     """
-    The verdict, or None when this request is not about CI.
+    Retain the fail-closed denial for direct CI connector observations.
 
-    The returned text is the entire answer the agent receives: either
-    ``merged successfully`` or the lines that name the failure. Nothing is
-    appended to it, and no record it was skimmed from is exposed.
+    The exact local ./scripts/prfail --pr <N> command and the report-bound
+    patcher are exempted in _is_ci_request and handled by the route gate; direct
+    GitHub run/check/log observations never expose the underlying records.
     """
     tool = str(event.get("tool_name") or event.get("toolName") or "").strip().lower()
     data = _hook_input(event)
@@ -633,7 +672,7 @@ try:
     )
 except Exception:  # pragma: no cover
     CI_LOG_REFUSAL = (
-        "CI run data is not an allowed model-observation channel; use the PR notice comment."
+        "THAPPAR — CI DIAGNOSTIC ACCESS BLOCKED. Use only ./scripts/prfail --pr <PR_NUMBER>."
     )
     classify = None  # type: ignore[assignment]
 
@@ -723,19 +762,7 @@ def _local_check_violation(command: str, policy: dict[str, Any]) -> str:
     cfg = policy.get("local_checks", {})
     wrapper = str(cfg.get("wrapper", "scripts/local_checks.py"))
     if wrapper in command:
-        parts = [part.strip() for part in re.split(r"&&|;|\|\|", command) if part.strip()]
-        allowed = (
-            len(parts) in {1, 2}
-            and all(part.startswith("cd ") for part in parts[:-1])
-            and re.fullmatch(
-                r"(?:python|python3|\.venv/bin/python|\.venv/bin/python3)\s+scripts/local_checks\.py\s+prepare",
-                parts[-1],
-            )
-            is not None
-        )
-        if not allowed:
-            return "Local check execution is disabled by repository policy; only the exact local_checks.py prepare operation may read the current SHA-bound PR notice."
-        return ""
+        return "Local check execution is disabled by repository policy; legacy local_checks.py commands are retired."
     patterns = set(LOCAL_CHECK_PATTERNS) | set(cfg.get("blocked_patterns", []))
     for pattern in patterns:
         if re.search(pattern, command, re.IGNORECASE):
@@ -823,12 +850,28 @@ def _protected_boundary_violation(event: dict[str, Any]) -> str:
 
     if tool == "Bash":
         command = str(tool_input.get("command", ""))
-        for protected_path in PROTECTED_BOUNDARY_PATHS:
-            absolute_path = (PROJECT_DIR / protected_path).as_posix()
-            if (protected_path in command or absolute_path in command) and BASH_MUTATOR_RE.search(
-                command
-            ):
-                return f"Protected observation-boundary file mutation denied: {protected_path}."
+        if _is_exact_patch_apply_command(command):
+            # The command necessarily names the protected patcher itself. Inspect
+            # each diff target instead; the patcher independently enforces the
+            # same denylist before applying anything.
+            for line in command.strip().splitlines():
+                match = re.fullmatch(r"diff --git a/(\S+) b/(\S+)", line)
+                if not match:
+                    continue
+                target = match.group(1)
+                if target != match.group(2):
+                    return "Report-bound patcher denied a diff that changes file paths."
+                if target in PROTECTED_BOUNDARY_PATHS or target.startswith(
+                    (".claude/", ".github/workflows/", "src/agent_control/")
+                ):
+                    return f"Protected observation-boundary file mutation denied: {target}."
+        else:
+            for protected_path in PROTECTED_BOUNDARY_PATHS:
+                absolute_path = (PROJECT_DIR / protected_path).as_posix()
+                if (
+                    protected_path in command or absolute_path in command
+                ) and BASH_MUTATOR_RE.search(command):
+                    return f"Protected observation-boundary file mutation denied: {protected_path}."
 
     if not protected:
         return ""
@@ -860,13 +903,19 @@ def _violations(event: dict[str, Any], policy: dict[str, Any]) -> list[str]:
     tool_input = event.get("tool_input") or {}
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
 
-    if tool == "Bash" and isinstance(command, str) and is_ci_log_access(command):
+    exact_patch_apply = isinstance(command, str) and _is_exact_patch_apply_command(command)
+    if (
+        tool == "Bash"
+        and isinstance(command, str)
+        and not exact_patch_apply
+        and is_ci_log_access(command)
+    ):
         problems.append(CI_LOG_REFUSAL)
 
     if not isinstance(command, str) or not command.strip():
         return problems
 
-    local_check = _local_check_violation(command, policy)
+    local_check = "" if exact_patch_apply else _local_check_violation(command, policy)
     if local_check:
         problems.append(local_check)
 
@@ -883,7 +932,8 @@ def _violations(event: dict[str, Any], policy: dict[str, Any]) -> list[str]:
     destructive_cfg = policy.get("destructive", {})
     if destructive_cfg.get("enabled", True) and classify is not None:
         marker = destructive_cfg.get("allow_marker", "TB_DESTRUCTIVE_OK=1")
-        if classify(command) == "destructive" and marker not in command:
+        classification_command = command.splitlines()[0] if exact_patch_apply else command
+        if classify(classification_command) == "destructive" and marker not in command:
             problems.append(
                 "Destructive command. Use the project's authorized destructive "
                 "execution path, or prefix it with "
@@ -894,7 +944,11 @@ def _violations(event: dict[str, Any], policy: dict[str, Any]) -> list[str]:
         try:
             from src.agent_control.hooks import git_guard
 
-            guard = git_guard(event) if tool == "Bash" and "git" in command else ""
+            guard = (
+                git_guard(event)
+                if tool == "Bash" and "git" in command and not exact_patch_apply
+                else ""
+            )
             if guard:
                 problems.append(guard)
         except Exception as exc:  # pragma: no cover

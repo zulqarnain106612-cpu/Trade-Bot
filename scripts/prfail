@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Canonical, report-only PR CI diagnostic retrieval command."""
+from __future__ import annotations
+import sys
+from ci_diagnostics import main_prfail
+if __name__ == "__main__":
+    raise SystemExit(main_prfail(sys.argv[1:]))
+

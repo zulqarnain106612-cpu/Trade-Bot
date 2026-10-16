@@ -1757,33 +1757,33 @@ SHA8 4995ee3c; total lines 500.
 
 ## common/command_schema.py
 
-SHA8 89765ed4; total lines 601.
+SHA8 1de280b9; total lines 616.
 
-- is_local_check_execution (function, lines 173-177): CHUNK_ID = common/command_schema.py#173-177#89765ed4 — [[F:common/command_schema.py#173-177#89765ed4]].
-- classify (function, lines 491-507): CHUNK_ID = common/command_schema.py#491-507#89765ed4 — [[F:common/command_schema.py#491-507#89765ed4]].
-- is_ci_log_access (function, lines 521-533): CHUNK_ID = common/command_schema.py#521-533#89765ed4 — [[F:common/command_schema.py#521-533#89765ed4]].
-- rank (function, lines 536-541): CHUNK_ID = common/command_schema.py#536-541#89765ed4 — [[F:common/command_schema.py#536-541#89765ed4]].
-- redact (function, lines 544-574): CHUNK_ID = common/command_schema.py#544-574#89765ed4 — [[F:common/command_schema.py#544-574#89765ed4]].
-- build_env (function, lines 577-601): CHUNK_ID = common/command_schema.py#577-601#89765ed4 — [[F:common/command_schema.py#577-601#89765ed4]].
+- is_local_check_execution (function, lines 169-175): CHUNK_ID = common/command_schema.py#169-175#1de280b9 — [[F:common/command_schema.py#169-175#1de280b9]].
+- classify (function, lines 489-505): CHUNK_ID = common/command_schema.py#489-505#1de280b9 — [[F:common/command_schema.py#489-505#1de280b9]].
+- is_ci_log_access (function, lines 535-548): CHUNK_ID = common/command_schema.py#535-548#1de280b9 — [[F:common/command_schema.py#535-548#1de280b9]].
+- rank (function, lines 551-556): CHUNK_ID = common/command_schema.py#551-556#1de280b9 — [[F:common/command_schema.py#551-556#1de280b9]].
+- redact (function, lines 559-589): CHUNK_ID = common/command_schema.py#559-589#1de280b9 — [[F:common/command_schema.py#559-589#1de280b9]].
+- build_env (function, lines 592-616): CHUNK_ID = common/command_schema.py#592-616#1de280b9 — [[F:common/command_schema.py#592-616#1de280b9]].
 
 ## common/shell_exec.py
 
-SHA8 f93c4248; total lines 464.
+SHA8 cc45e7b8; total lines 464.
 
-- _command_hash (function, lines 87-95): CHUNK_ID = common/shell_exec.py#87-95#f93c4248 — [[F:common/shell_exec.py#87-95#f93c4248]].
-- _refused (function, lines 98-119): CHUNK_ID = common/shell_exec.py#98-119#f93c4248 — [[F:common/shell_exec.py#98-119#f93c4248]].
-- _capture (function, lines 122-159, slice 1): CHUNK_ID = common/shell_exec.py#122-159#f93c4248 — [[F:common/shell_exec.py#122-159#f93c4248]].
-- _capture (function, lines 160-177, slice 2): CHUNK_ID = common/shell_exec.py#160-177#f93c4248 — [[F:common/shell_exec.py#160-177#f93c4248]].
-- _filter (function, lines 185-222, slice 1): CHUNK_ID = common/shell_exec.py#185-222#f93c4248 — [[F:common/shell_exec.py#185-222#f93c4248]].
-- _filter (function, lines 223-249, slice 2): CHUNK_ID = common/shell_exec.py#223-249#f93c4248 — [[F:common/shell_exec.py#223-249#f93c4248]].
-- _cap_bytes (function, lines 257-272): CHUNK_ID = common/shell_exec.py#257-272#f93c4248 — [[F:common/shell_exec.py#257-272#f93c4248]].
-- _cap (function, lines 275-283): CHUNK_ID = common/shell_exec.py#275-283#f93c4248 — [[F:common/shell_exec.py#275-283#f93c4248]].
-- _should_retry (function, lines 291-303): CHUNK_ID = common/shell_exec.py#291-303#f93c4248 — [[F:common/shell_exec.py#291-303#f93c4248]].
-- run (function, lines 311-348, slice 1): CHUNK_ID = common/shell_exec.py#311-348#f93c4248 — [[F:common/shell_exec.py#311-348#f93c4248]].
-- run (function, lines 349-386, slice 2): CHUNK_ID = common/shell_exec.py#349-386#f93c4248 — [[F:common/shell_exec.py#349-386#f93c4248]].
-- run (function, lines 387-424, slice 3): CHUNK_ID = common/shell_exec.py#387-424#f93c4248 — [[F:common/shell_exec.py#387-424#f93c4248]].
-- run (function, lines 425-462, slice 4): CHUNK_ID = common/shell_exec.py#425-462#f93c4248 — [[F:common/shell_exec.py#425-462#f93c4248]].
-- run (function, lines 463-464, slice 5): CHUNK_ID = common/shell_exec.py#463-464#f93c4248 — [[F:common/shell_exec.py#463-464#f93c4248]].
+- _command_hash (function, lines 88-96): CHUNK_ID = common/shell_exec.py#88-96#cc45e7b8 — [[F:common/shell_exec.py#88-96#cc45e7b8]].
+- _refused (function, lines 99-120): CHUNK_ID = common/shell_exec.py#99-120#cc45e7b8 — [[F:common/shell_exec.py#99-120#cc45e7b8]].
+- _capture (function, lines 123-160, slice 1): CHUNK_ID = common/shell_exec.py#123-160#cc45e7b8 — [[F:common/shell_exec.py#123-160#cc45e7b8]].
+- _capture (function, lines 161-178, slice 2): CHUNK_ID = common/shell_exec.py#161-178#cc45e7b8 — [[F:common/shell_exec.py#161-178#cc45e7b8]].
+- _filter (function, lines 186-223, slice 1): CHUNK_ID = common/shell_exec.py#186-223#cc45e7b8 — [[F:common/shell_exec.py#186-223#cc45e7b8]].
+- _filter (function, lines 224-250, slice 2): CHUNK_ID = common/shell_exec.py#224-250#cc45e7b8 — [[F:common/shell_exec.py#224-250#cc45e7b8]].
+- _cap_bytes (function, lines 258-273): CHUNK_ID = common/shell_exec.py#258-273#cc45e7b8 — [[F:common/shell_exec.py#258-273#cc45e7b8]].
+- _cap (function, lines 276-284): CHUNK_ID = common/shell_exec.py#276-284#cc45e7b8 — [[F:common/shell_exec.py#276-284#cc45e7b8]].
+- _should_retry (function, lines 292-304): CHUNK_ID = common/shell_exec.py#292-304#cc45e7b8 — [[F:common/shell_exec.py#292-304#cc45e7b8]].
+- run (function, lines 312-349, slice 1): CHUNK_ID = common/shell_exec.py#312-349#cc45e7b8 — [[F:common/shell_exec.py#312-349#cc45e7b8]].
+- run (function, lines 350-387, slice 2): CHUNK_ID = common/shell_exec.py#350-387#cc45e7b8 — [[F:common/shell_exec.py#350-387#cc45e7b8]].
+- run (function, lines 388-425, slice 3): CHUNK_ID = common/shell_exec.py#388-425#cc45e7b8 — [[F:common/shell_exec.py#388-425#cc45e7b8]].
+- run (function, lines 426-463, slice 4): CHUNK_ID = common/shell_exec.py#426-463#cc45e7b8 — [[F:common/shell_exec.py#426-463#cc45e7b8]].
+- run (function, lines 464-464, slice 5): CHUNK_ID = common/shell_exec.py#464-464#cc45e7b8 — [[F:common/shell_exec.py#464-464#cc45e7b8]].
 
 ## src/engines/orchestrator.py
 
