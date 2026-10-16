@@ -288,9 +288,13 @@ def _github_route_violation(event: dict[str, Any]) -> str:
             data = _hook_input(event)
             command = data.get("command", "")
             canonical_report = re.compile(r"^\s*\./scripts/prfail\s+--pr\s+[1-9][0-9]*\s*$")
-            if isinstance(command, str) and canonical_report.fullmatch(command.strip()):
-                if not is_ci_log_access(command) and not _local_check_violation(command, _load_policy()):
-                    return ""
+            if (
+                isinstance(command, str)
+                and canonical_report.fullmatch(command.strip())
+                and not is_ci_log_access(command)
+                and not _local_check_violation(command, _load_policy())
+            ):
+                return ""
             if isinstance(command, str) and _is_exact_patch_apply_command(command):
                 header = command.splitlines()[0]
                 if not _local_check_violation(header, _load_policy()):

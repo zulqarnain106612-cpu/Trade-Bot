@@ -1171,7 +1171,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 1101 | P2 | .claude/hooks/completion_gate.py | Python | 25 | 4753b1c8 |  |
 | 1102 | P2 | .claude/hooks/observation_failure.py | Python | 93 | 6a2ba65b |  |
 | 1103 | P2 | .claude/hooks/observation_gate.py | Python | 615 | 93085de5 |  |
-| 1104 | P2 | .claude/hooks/pre_tool_use.py | Python | 1008 | 126d4f79 |  |
+| 1104 | P2 | .claude/hooks/pre_tool_use.py | Python | 1012 | 765cb4e9 |  |
 | 1105 | P2 | .claude/hooks/precompact_checkpoint.py | Python | 25 | d68a10de |  |
 | 1106 | P2 | .claude/hooks/quality_gate.py | Python | 27 | 2c809a53 |  |
 | 1107 | P2 | .claude/hooks/session-start.sh | Shell | 116 | 52bfdaa6 |  |
