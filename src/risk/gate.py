@@ -114,7 +114,9 @@ class RiskGate:
         """
         Update ADWIN for the given horizon with a new metric observation.
 
-        Returns True when drift is detected → triggers retrain pipeline.
+        Returns True when drift is detected. src/intel.py then suppresses the
+        horizon signal and records the drift; matured-label retraining runs on its
+        own schedule (HorizonLearningStore.train_pending).
         """
         adwin = self._adwin[horizon_idx]
         if adwin is None:

@@ -1,4 +1,8 @@
-"""Covers horizon dispatch, honest abstention, and the risk-gated signal path."""
+"""Covers horizon dispatch, honest abstention, and the risk-gated signal path.
+
+Decides:
+  - REG-0031 — Horizon drift detection suppresses the signal and is persisted as measured
+"""
 
 from __future__ import annotations
 
@@ -366,6 +370,56 @@ def test_on_bar_persists_timestamped_learning_and_emits_only_after_risk_gate(int
     assert calls == ["record", "evaluate", "evaluate", "evaluate"]
     assert scheduled == ["BTC/USDT"]
     assert len(writes) == 1
+    assert writes[0]["drift_detected"] is False
+
+
+def test_detected_drift_suppresses_the_horizon_signal_and_is_persisted(intel, monkeypatch):
+    results = [_result(i, status="PROMOTED") for i in range(3)]
+    _deliver_results(intel, results)
+    store = intel._learning_store
+    scheduled = []
+    writes = []
+    calls = []
+    monkeypatch.setattr(store, "source_cadence_seconds", lambda symbol, timeframe: 60.0)
+    monkeypatch.setattr(
+        store,
+        "observe_event",
+        lambda **kwargs: {"updated": 1, "matured": 0, "rejected": 0},
+    )
+    monkeypatch.setattr(
+        store,
+        "stats",
+        lambda symbol, source_timeframe: {
+            horizon_id: {"oos_by_regime": {2: {"directional_accuracy": 0.75, "samples": 100}}}
+            for horizon_id in range(3)
+        },
+    )
+    monkeypatch.setattr(store, "record_predictions", lambda **kwargs: calls.append("record"))
+    monkeypatch.setattr(store, "evaluate_candidate", lambda **kwargs: calls.append("evaluate"))
+    monkeypatch.setattr(intel, "_schedule_training", lambda symbol, specs: scheduled.append(symbol))
+    intel._risk_gate.size = lambda **kwargs: SimpleNamespace(
+        suppressed=False, size_pct=0.02, reason=None
+    )
+    intel._risk_gate.circuit_breaker = lambda drawdown, daily_loss: False
+    intel._risk_gate.check_drift = lambda *args: True
+    intel._duckdb.write_horizon_metric = lambda **kwargs: writes.append(kwargs)
+
+    signal = asyncio.run(
+        intel.on_bar(
+            "BTC/USDT",
+            _ohlcv(),
+            regime_id=2,
+            event_ts=1_700_000_000_000.0,
+            event_id="coverage-event-1",
+            source_timeframe="1m",
+            risk_context=_risk_context(),
+        )
+    )
+
+    assert signal is None
+    assert intel._last_decision.action == "ABSTAIN"
+    assert "drift" in intel._last_decision.abstain_reason
+    assert len(writes) == 1 and writes[0]["drift_detected"] is True
 
 
 def test_on_bar_clears_previous_symbol_results_and_cadence(intel, monkeypatch):

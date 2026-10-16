@@ -47,17 +47,17 @@ deletion of the thing it points at.
 
 | Status | Entries |
 |---|---|
-| VERIFIED | 215 |
+| VERIFIED | 216 |
 | PARTIAL | 3 |
 | PLANNED | 0 |
 | ACCEPTED GAP | 0 |
-| **Total** | **218** |
+| **Total** | **219** |
 
 ## Summary by subsystem
 
 | Subsystem | Entries | Verified |
 |---|---|---|
-| Risk | 10 | 10 |
+| Risk | 11 | 11 |
 | Execution | 13 | 12 |
 | Portfolio | 1 | 1 |
 | Signal and features | 6 | 6 |
@@ -214,6 +214,17 @@ Nightly mutation testing of the risk modules kills at least 90% of generated mut
 - **Owned by:** `config/mutation_thresholds.json`, `scripts/check_mutation_score.py`
 - **Verification:**
   - `tests/regression/test_regression_registry_contract.py` (mutation) — The 90% risk and sizing floors are declared, every target exists on disk, a run with no mutants is not a pass, and a timeout counts against the score.
+
+#### `REG-0031` — Horizon drift detection suppresses the signal and is persisted as measured
+
+**VERIFIED** · high · regression · source: OPS-2026-10-17
+
+When RiskGate.check_drift reports drift for the contributing horizon, CryptoIntelligence.on_bar records drift_detected=True and returns no signal with an ABSTAIN decision; without drift it records drift_detected=False.
+
+- **If violated:** The ADWIN result was discarded and every metric row recorded drift_detected=False, so a drifting horizon kept trading and the record claimed no drift, contrary to the RiskGate contract.
+- **Owned by:** `src/intel.py`, `src/risk/gate.py`
+- **Verification:**
+  - `tests/test_crypto_intel_signal_path.py` (regression)
 
 ## Execution
 
@@ -2825,4 +2836,4 @@ To add or change an entry, edit the registry and regenerate this file. See
 `docs/quality/TEST_STRATEGY.md` for the taxonomy the `test_type` column draws
 on, and `docs/quality/IMPLEMENTATION_PLAN.md` for what each phase delivers.
 
-Registry version: 1.0.0 — 218 entries.
+Registry version: 1.0.0 — 219 entries.
