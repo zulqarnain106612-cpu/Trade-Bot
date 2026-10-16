@@ -245,7 +245,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 175 | P1 | scripts/check_production_readiness.py | Python | 178 | 6c642773 |  |
 | 176 | P1 | scripts/check_static_invariants.py | Python | 1778 | 2d74913a |  |
 | 177 | P1 | scripts/check_supply_chain.py | Python | 367 | 02350a53 |  |
-| 178 | P1 | scripts/ci_diagnostics.py | Python | 1547 | 85e58e1e |  |
+| 178 | P1 | scripts/ci_diagnostics.py | Python | 1614 | 945d05c3 |  |
 | 179 | P1 | scripts/ci_verdict.py | Python | 43 | ede141de |  |
 | 180 | P1 | scripts/codebase_knowledge_index.py | Python | 373 | ec1da0e3 |  |
 | 181 | P1 | scripts/collect_quality_metrics.py | Python | 210 | 8afb524c |  |
@@ -813,7 +813,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 743 | P1 | tests/test_causal_inference.py | Python | 243 | 917865bc |  |
 | 744 | P1 | tests/test_causal_modules.py | Python | 214 | a86122e6 |  |
 | 745 | P1 | tests/test_changepoint.py | Python | 80 | abb1294c |  |
-| 746 | P1 | tests/test_ci_diagnostics.py | Python | 646 | 15e0bb0d |  |
+| 746 | P1 | tests/test_ci_diagnostics.py | Python | 680 | e82aaae7 |  |
 | 747 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 58 | 0eaa4e26 |  |
 | 748 | P1 | tests/test_ci_log_access.py | Python | 301 | da598b09 |  |
 | 749 | P1 | tests/test_ci_notice_supersession.py | Python | 70 | 334a7854 |  |
@@ -1230,7 +1230,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 1160 | P2 | crypto-predictor/volatility.py | Python | 84 | bf46ec4a |  |
 | 1161 | P2 | docs/agents/OPENAI_COOKBOOK_ADOPTION.md | Markdown | 41 | 4881215c |  |
 | 1162 | P2 | docs/next_plan_findings.md | Markdown | 21 | 3c715222 |  |
-| 1163 | P2 | docs/security/ci-diagnostics.md | Markdown | 134 | 5995c788 |  |
+| 1163 | P2 | docs/security/ci-diagnostics.md | Markdown | 136 | e32af5f7 |  |
 | 1164 | P2 | frontend/.nvmrc | Text/config | 1 | f14b4987 |  |
 | 1165 | P2 | frontend/browser-e2e/dashboard.e2e.jsx | React JSX | 358 | 14fc37bc |  |
 | 1166 | P2 | frontend/electron/main.cjs | CommonJS | 166 | 2846114f |  |

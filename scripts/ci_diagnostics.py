@@ -63,6 +63,20 @@ PAREN_COMPILER_RE = re.compile(
     r"(?P<message>\S.*)$",
     re.IGNORECASE,
 )
+# Linter diagnostics (ruff, flake8, mypy --show-column-numbers):
+# path:line:col: CODE message. The rule code is required so prose never matches.
+LINTER_RE = re.compile(
+    r"^(?P<path>[^:\s][^:\n]*?\.[A-Za-z0-9_-]+):(?P<line>\d+):(?P<column>\d+):\s+"
+    r"(?P<code>[A-Z]{1,4}\d{2,4})\b\s*(?P<message>\S.*)$"
+)
+FORMAT_RE = re.compile(r"^Would reformat:\s+(?P<path>\S+)$")
+# ruff "full" output: a head line (`I001 [*] message` or `unformatted: message`)
+# followed by ` --> path:line:col`. Format findings point at 1:1 by convention,
+# which is not a location of the difference, so no line is recorded for them.
+RUFF_HEAD_RE = re.compile(
+    r"^(?P<code>[A-Z]{1,4}\d{2,4}|unformatted)(?:\s+\[\*\])?:?\s+(?P<message>\S.*)$"
+)
+RUFF_ARROW_RE = re.compile(r"^-->\s+(?P<path>[^:\s]+):(?P<line>\d+):(?P<column>\d+)$")
 PYTEST_RESULT_RE = re.compile(
     r"^(?P<kind>FAILED|ERROR)\s+(?P<node>\S+)(?:\s+-\s*(?P<message>.*))?$"
 )
@@ -422,9 +436,32 @@ def parse_log_lines(raw: str) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     last_python_frame: tuple[str, int] | None = None
     last_pytest_source: tuple[str, int | None, int | None] | None = None
+    ruff_head: tuple[str, str] | None = None
     for original in raw.splitlines():
         line = TIMESTAMP_RE.sub("", original, count=1)
         if not line.strip() or NOISE_RE.fullmatch(line.strip()):
+            continue
+        arrow = RUFF_ARROW_RE.match(line.strip())
+        if arrow and ruff_head:
+            code, head_message = ruff_head
+            ruff_head = None
+            is_format = code == "unformatted"
+            found.append(
+                {
+                    "category": "format_check" if is_format else "lint_" + code,
+                    "path": arrow.group("path"),
+                    "start_line": None if is_format else int(arrow.group("line")),
+                    "start_column": None if is_format else int(arrow.group("column")),
+                    "end_line": None,
+                    "end_column": None,
+                    "message": f"{code}: {head_message}",
+                    "source": "GitHub Actions job log",
+                }
+            )
+            continue
+        head = RUFF_HEAD_RE.match(line.strip())
+        ruff_head = (head.group("code"), head.group("message")) if head else None
+        if head:
             continue
         annotation = _annotation_from_log(line)
         if annotation:
@@ -491,6 +528,36 @@ def parse_log_lines(raw: str) -> list[dict[str, Any]]:
                     "end_line": None,
                     "end_column": None,
                     "message": line,
+                    "source": "GitHub Actions job log",
+                }
+            )
+            continue
+        linter = LINTER_RE.match(line.strip())
+        if linter:
+            found.append(
+                {
+                    "category": "lint_" + linter.group("code"),
+                    "path": linter.group("path"),
+                    "start_line": int(linter.group("line")),
+                    "start_column": int(linter.group("column")),
+                    "end_line": None,
+                    "end_column": None,
+                    "message": line.strip(),
+                    "source": "GitHub Actions job log",
+                }
+            )
+            continue
+        unformatted = FORMAT_RE.match(line.strip())
+        if unformatted:
+            found.append(
+                {
+                    "category": "format_check",
+                    "path": unformatted.group("path"),
+                    "start_line": None,
+                    "start_column": None,
+                    "end_line": None,
+                    "end_column": None,
+                    "message": line.strip(),
                     "source": "GitHub Actions job log",
                 }
             )

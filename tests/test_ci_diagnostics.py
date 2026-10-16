@@ -1,4 +1,6 @@
-"""Decides:
+"""Collector, report reader and patch-applier contracts for CI diagnostics.
+
+Decides:
   - GOV-013 — CI diagnostics are collected autonomously and never require log polling
   - GOV-020 — One SHA-bound report carries filtered diagnostics and exact source locations
   - REG-0020 — The collector extracts diagnostics server-side and discards ordinary success noise
@@ -644,3 +646,35 @@ def test_outcome_without_source_location_says_so_and_invents_none() -> None:
         },
     )
     assert {item["location_evidence"] for item in located.values()} == {"source path from evidence"}
+
+
+def test_linter_diagnostic_keeps_exact_path_line_and_column() -> None:
+    result = parse_log_lines(
+        "tests/test_x.py:2:1: I001 [*] Import block is un-sorted or un-formatted\nFound 1 error.\n"
+    )
+    assert [(r["category"], r["path"], r["start_line"], r["start_column"]) for r in result] == [
+        ("lint_I001", "tests/test_x.py", 2, 1)
+    ]
+
+
+def test_format_check_names_the_unformatted_file_without_inventing_a_line() -> None:
+    result = parse_log_lines(
+        "Would reformat: scripts/x.py\n1 file would be reformatted, 9 files already formatted\n"
+    )
+    assert [(r["category"], r["path"], r["start_line"]) for r in result] == [
+        ("format_check", "scripts/x.py", None)
+    ]
+
+
+def test_ruff_full_output_attaches_the_arrow_location_to_its_rule() -> None:
+    result = parse_log_lines(
+        "I001 [*] Import block is un-sorted or un-formatted\n"
+        " --> tests/test_apply_ci_patch.py:2:1\n"
+        "  |\n"
+        "unformatted: File would be reformatted\n"
+        " --> scripts/ci_diagnostics.py:1:1\n"
+    )
+    assert [(r["category"], r["path"], r["start_line"], r["start_column"]) for r in result] == [
+        ("lint_I001", "tests/test_apply_ci_patch.py", 2, 1),
+        ("format_check", "scripts/ci_diagnostics.py", None, None),
+    ]
