@@ -265,6 +265,12 @@ def _add_record(records: dict[str, dict[str, Any]], record: dict[str, Any]) -> N
     # Preserve structured identities and source paths byte-for-byte; redact only
     # the original free-text diagnostic message before report serialization.
     record["message"] = _redact_message(record.get("message"))
+    # Infrastructure, cancellation and outcome-only records carry no path; say
+    # so explicitly rather than leaving the agent to guess at a location.
+    record["location_evidence"] = (
+        "source path from evidence" if record.get("path")
+        else "no source location exists in the evidence"
+    )
     key = _record_key(record)
     existing = records.get(key)
     if existing is None or _source_priority(str(record.get("source", ""))) < _source_priority(str(existing.get("source", ""))):

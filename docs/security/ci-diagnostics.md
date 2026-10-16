@@ -72,7 +72,9 @@ pytest failure/error summaries, pytest assertion details and Python exception
 locations. It does not classify ordinary log text merely because it contains
 words such as error, failed, or success. Structured non-success outcomes
 remain even when no diagnostic message was emitted. Unknown locations are
-null; the collector never invents columns or line numbers.
+null; the collector never invents columns or line numbers. Every record carries
+`location_evidence`; a record without a path states that no source location
+exists in the evidence, and reports only its workflow/job/step outcome.
 
 ## Local repair after report retrieval
 

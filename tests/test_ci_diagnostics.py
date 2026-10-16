@@ -10,6 +10,7 @@ import yaml
 from scripts import ci_diagnostics
 from scripts.ci_diagnostics import (
     REPORT_PAGE_BYTES,
+    _add_record,
     _add_structured_outcomes,
     _all_jobs_terminal,
     _canonical_json,
@@ -428,3 +429,83 @@ def test_local_patch_applier_validates_existing_paths_and_rejects_unsafe_paths()
         assert "existing regular file" in str(exc)
     else:
         raise AssertionError("a patch targeting a nonexistent path was accepted")
+
+
+def _single_record_report(sha: str = "a" * 40) -> tuple[dict, dict]:
+    record = {
+        "repository": "owner/repo", "pr": 9, "head_sha": sha,
+        "workflow_name": "CI", "workflow_run_id": 10, "run_attempt": 1,
+        "job_id": None, "job_name": None, "step_name": None,
+        "outcome_level": "workflow", "conclusion": "failure",
+        "category": "workflow_outcome", "path": None, "start_line": None,
+        "start_column": None, "end_line": None, "end_column": None,
+        "message": None, "source": "GitHub Actions workflow-run API",
+    }
+    digest = hashlib.sha256(_canonical_json([record]).encode()).hexdigest()
+    page = {
+        "status": "completed", "conclusion": "success", "head_sha": sha,
+        "output": {
+            "summary": _canonical_json({"schema_version": 1, "generation_id": digest[:24], "page": 1, "page_count": 1}),
+            "text": _canonical_json(_pack_pages([record])[0]),
+        },
+    }
+    manifest = {"page_count": 1, "generation_id": digest[:24], "diagnostic_count": 1, "digest": digest}
+    return manifest, page
+
+
+def test_report_reader_accepts_an_intact_report() -> None:
+    manifest, page = _single_record_report()
+    assert len(_decode_report_pages(9, "a" * 40, manifest, {1: page})) == 1
+
+
+def test_report_reader_rejects_digest_mismatch() -> None:
+    manifest, page = _single_record_report()
+    manifest["digest"] = "0" * 64
+    try:
+        _decode_report_pages(9, "a" * 40, manifest, {1: page})
+    except DiagnosticError as exc:
+        assert "digest" in str(exc)
+    else:
+        raise AssertionError("a report with a mismatched digest was accepted")
+
+
+def test_report_reader_rejects_incomplete_report() -> None:
+    manifest, _page = _single_record_report()
+    try:
+        _decode_report_pages(9, "a" * 40, manifest, {})
+    except DiagnosticError as exc:
+        assert "incomplete" in str(exc)
+    else:
+        raise AssertionError("a report with a missing page was accepted")
+
+
+def test_report_for_a_previous_head_sha_is_rejected(monkeypatch, capsys) -> None:
+    old, new = "a" * 40, "b" * 40
+    digest = hashlib.sha256(_canonical_json([]).encode()).hexdigest()
+    manifest = {
+        "schema_version": 1, "status": "finalized", "pr": 313, "head_sha": old,
+        "generation_id": digest[:24], "diagnostic_count": 0, "page_count": 0, "digest": digest,
+    }
+    master = {"status": "completed", "conclusion": "success", "head_sha": new,
+              "output": {"summary": _canonical_json(manifest)}}
+    monkeypatch.setattr(ci_diagnostics, "_repo_slug", lambda: "owner/repo")
+    monkeypatch.setattr(ci_diagnostics, "_load_current_pr",
+                        lambda slug, pr: {"number": pr, "state": "open", "head": {"sha": new}})
+    monkeypatch.setattr(ci_diagnostics, "_report_runs", lambda slug, head, pr: (master, {}))
+    assert ci_diagnostics._retrieve(313) != 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "stale" in captured.err
+
+
+def test_outcome_without_source_location_says_so_and_invents_none() -> None:
+    records = {}
+    run = {"id": 501, "run_attempt": 1, "conclusion": "cancelled"}
+    _add_structured_outcomes(records, "owner/repo", 313, "a" * 40, "CI", run, [])
+    (record,) = records.values()
+    assert record["path"] is None and record["start_line"] is None and record["start_column"] is None
+    assert record["location_evidence"] == "no source location exists in the evidence"
+    located = {}
+    _add_record(located, {**record, "path": "src/engine.py", "start_line": 42,
+                          "category": "compiler_error", "message": "src/engine.py:42: error: x"})
+    assert {item["location_evidence"] for item in located.values()} == {"source path from evidence"}
