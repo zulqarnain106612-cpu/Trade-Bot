@@ -14,6 +14,15 @@ on:
       - "Security"
       - "Workflow lint"
     types: [completed]
+  # Recovery/backfill for an already-open PR whose source workflows completed
+  # before this collector was merged to the default branch. Normal collection
+  # remains autonomous and never depends on an agent dispatching this workflow.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Open PR number to backfill after autonomous collector activation"
+        required: true
+        type: string
 
 permissions:
   contents: read
