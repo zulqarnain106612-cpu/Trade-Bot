@@ -1,5 +1,17 @@
 # Security Reference
 
+## Trade-Bot integration (verified against the repository)
+
+- Credentials and signing: `src/security/credential_vault.py`,
+  `src/security/api_signer.py`, `src/security/key_lifecycle.py`,
+  `src/security/exchange_key_posture.py`; transport: `src/security/tls.py`;
+  SSRF guard: `src/security/ssrf.py`; at-rest encryption: `src/security/at_rest.py`.
+- `src/security/pq_transport.py` is a stub that validates ML-KEM-768 parameters;
+  it is not a deployed PQC transport. `tests/test_security_pqc_posture.py`
+  checks that modules document their post-quantum posture.
+- The repository signs exchange API requests only; it does not sign on-chain
+  transactions. The Bybit/multisig controls below apply if that changes.
+
 ## Threat Model (required artifact per Law 13)
 
 Every system must produce and maintain a threat model covering:
@@ -79,9 +91,11 @@ def signing_workflow(raw_tx: bytes, hw_signer) -> bytes:
 ## Hardware Security Modules (HSMs)
 
 ### Selection Criteria
-- FIPS 140-2 Level 3 minimum (Level 4 for root CA / master key)
-- PQC roadmap: require ML-KEM/ML-DSA firmware upgrade path (2025–2026 timeframe)
-- Supported vendors: AWS CloudHSM (FIPS 140-2 L3), Thales Luna (L3/L4),
+- FIPS 140-3 Level 3 minimum (Level 4 for root CA / master key). FIPS 140-2
+  validations are being retired to historical status; confirm module status on
+  the NIST CMVP list (historical; current status requires confirmation)
+- PQC roadmap: require an ML-KEM/ML-DSA firmware upgrade path (vendor dates: historical; current status requires confirmation)
+- Example vendors (validation levels: historical; current status requires confirmation): AWS CloudHSM, Thales Luna,
   Yubico YubiHSM2 (L3, lower cost), Securosys Primus
 
 ### Key Operations Model
@@ -145,8 +159,10 @@ Application → Vault API → HSM Driver → HSM Hardware
 [tool.pip-tools]
 generate-hashes = true  # Include hash for every package
 
-# XZ utils (Apr 2024) — supply chain attack case study:
-# Pinning + hash verification would have detected the tampered liblzma
+# XZ utils (disclosed Mar 2024) — supply chain attack case study:
+# the backdoor shipped in official release tarballs, so hash pinning would NOT
+# have detected it; pinning only delays adopting a new malicious release.
+# Review of release artifacts vs. repository source is the relevant control.
 ```
 
 ### Reproducible Builds
@@ -217,7 +233,7 @@ Generate → Store (Vault) → Rotate (automated, ≤ 90d) → Revoke
 | Signing attempt on undecodable tx | Immediate: halt signing session | Security |
 | Sanctions match | Immediate: block; 30 days: SAR | Compliance + Legal |
 | Dependency CVE Critical | 24h patch | Security + Engineering |
-| DORA Major Incident | 4h notify regulator | Compliance + CISO |
+| DORA Major Incident | Initial notice per DORA RTS/ITS (4h from classification is historical; current status requires confirmation) | Compliance + CISO |
 | Blind signing path discovered | PR blocked; fix same day | Security |
 
 ### Forensics Readiness

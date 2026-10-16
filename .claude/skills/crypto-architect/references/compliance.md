@@ -1,10 +1,19 @@
 # Regulatory Compliance Reference
 
+## Trade-Bot integration (verified against the repository)
+
+- No pre-submission self-trade (wash) guard exists in `src/execution/`; the
+  validator's LAW10 finding is accepted debt in `config/arch_baseline.json`.
+  `src/engines/e16_adversarial.py` detects wash trading in *market* data
+  (Benford analysis); it does not block our own orders.
+- Reporting, AML screening and Travel Rule integrations are not implemented.
+- This reference covers technical patterns only; it is not legal advice.
+
 ## Jurisdiction Matrix
 
 | Jurisdiction | Framework | Key Obligations | Effective |
 |---|---|---|---|
-| EU | MiFID II, MiCA, DORA | Best execution, CASP registration, ICT resilience | MiCA: Jun 2024 / DORA: Jan 2025 |
+| EU | MiFID II, MiCA, DORA | Best execution, CASP authorisation, ICT resilience | MiCA: stablecoin titles Jun 2024, CASP regime Dec 2024 (transitional periods vary) / DORA: Jan 2025 — historical; current status requires confirmation |
 | US | SEC, CFTC, FinCEN | MSB registration, SAR filing, position limits | Ongoing |
 | UK | FCA | Crypto asset registration, market abuse rules | Ongoing |
 | Singapore | MAS PS Act | Digital Payment Token licence, AML/CFT | Ongoing |
@@ -18,11 +27,13 @@ This reference covers technical implementation patterns; legal advice is separat
 
 ## MiCA (Markets in Crypto-Assets Regulation) — EU
 
-### CASP Registration (Jun 2024 onwards)
+### CASP Authorisation (application dates: historical; current status requires confirmation)
 - Crypto-Asset Service Providers: exchange, custody, trading, transfer, advice, portfolio mgmt
 - Single passport: register in one EU member state; operate across all EU
-- Capital requirements: tier by service type (€50K–€150K; €125K for trading)
-- Whitelist enforcement: only MiCA-compliant asset classes permitted; stablecoins
+- Capital requirements: tiered by service class (€50K / €125K / €150K; operating a
+  trading platform is in the highest class — historical; current status requires confirmation)
+- Asset eligibility: MiCA has no single asset whitelist; maintain an internal
+  eligibility list (white-paper status, authorised EMT/ART issuers); stablecoins
   (e-money tokens, asset-referenced tokens) have additional issuer requirements
 - Technical obligation: order entry system must enforce asset whitelist at pre-trade level;
   MiCA-non-compliant tokens blocked before order submission
@@ -35,7 +46,7 @@ This reference covers technical implementation patterns; legal advice is separat
 - Non-MiCA-compliant stablecoins (USDT status uncertain in EU): assess before including
   in EU-facing strategies
 
-### Record-Keeping (MiCA Art. 72-75)
+### Record-Keeping (MiCA; governing articles: historical; current status requires confirmation)
 - All orders, quotes, positions logged; available to regulator on request
 - 5-year retention minimum; tamper-evident storage
 - Client order handling: fair order routing; conflicts of interest documented
@@ -70,7 +81,7 @@ This reference covers technical implementation patterns; legal advice is separat
 ### Incident Classification
 | Category | Definition | Notification |
 |---|---|---|
-| Major | > 5% users affected, > 2h downtime, > €100K impact | 4h (initial) + 72h (intermediate) + 1 month (final) |
+| Major | Criteria set by the DORA classification RTS (values here are illustrative) | Initial / intermediate / final reports per DORA RTS/ITS — historical; current status requires confirmation |
 | Significant | Repeated incidents, data integrity issues | Internal escalation only |
 | Minor | Single user, short duration | Log only |
 
@@ -163,6 +174,8 @@ Trade Event → Reporting Adapter → Regulatory Report Format → ARM/SDR
 ## AML / KYC
 
 ### Transaction Monitoring
+Thresholds below are illustrative internal policy, not legal requirements.
+
 | Trigger | Threshold | Action |
 |---|---|---|
 | Single withdrawal | > $10,000 equivalent | Enhanced review |
@@ -171,7 +184,9 @@ Trade Event → Reporting Adapter → Regulatory Report Format → ARM/SDR
 | Sanctions match | Any OFAC/UN/EU hit | Block, freeze, report immediately |
 
 ### Travel Rule (FATF R.16)
-- Wire transfers > $3,000: originator and beneficiary VASP information must travel with transfer
+- Thresholds differ by regime (FATF R.16 sets a USD/EUR 1,000 de minimis; the US rule
+  uses $3,000; the EU Transfer of Funds Regulation applies regardless of amount) —
+  historical; current status requires confirmation; apply the strictest regime in scope
 - Implementation: OpenVASP, TRP, TRUST, Notabene protocols for VASP-to-VASP messaging
 - Counterparty VASP verification: verify licence status before transfer; maintain registry
 - Non-custodial wallet: enhanced due diligence required; some jurisdictions require proof
@@ -242,5 +257,5 @@ async def screen_withdrawal(address: str, amount: float, currency: str) -> Scree
   3. Multisig ceremony: video recording mandatory; all signers verify independently
   4. Out-of-band confirmation: for any multisig tx > $500K, confirm via separate
      authenticated channel before signing session begins
-- Incident classification under DORA: this attack class constitutes a major ICT incident;
-  mandatory regulatory notification within 4h of classification
+- Incident classification under DORA: for an in-scope EU entity this attack class would
+  likely classify as a major ICT incident, triggering notification per the DORA RTS

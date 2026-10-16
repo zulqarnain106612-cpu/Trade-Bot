@@ -1,5 +1,19 @@
 # Real-Time Systems Reference
 
+## Trade-Bot integration (verified against the repository)
+
+Trade-Bot is a Python asyncio system. LMAX, Rust/tokio, DPDK, OpenOnload,
+io_uring, eBPF and QUIC below are optional designs, not implemented components.
+
+- Order state machine: `src/execution/order_fsm.py`; idempotency:
+  `src/execution/idempotency.py`; throttling: `src/execution/order_throttler.py`.
+- Reconciliation and runtime control plane: `src/runtime/reconcile.py`,
+  `src/runtime/supervisor.py`.
+- Storage: SQLite (`src/data/storage.py`), TimescaleDB (`src/data/timescale_storage.py`),
+  DuckDB (`src/data/duckdb_store.py`) — not the Redis/Postgres stack sketched below.
+- Clocks: `src/data/clock.py`. Horizon worker processes and the ECC thread:
+  `src/workers/orchestrator.py`.
+
 ## Architecture Pattern: Event-Driven Pipeline
 
 ```
@@ -52,7 +66,7 @@ Audit Logger (immutable, HMAC-signed, append-only event log, sequence-numbered)
 Producer → Ring Buffer → [Normalizer] → [Feature Engine] → [Signal Engine] → ...
                               ↑ Sequence tracking; no locks after initial claim
 ```
-- Throughput: 6M+ events/sec on commodity hardware
+- Throughput: published LMAX figures (~6M events/sec) are historical; current status requires confirmation
 
 ---
 
@@ -197,6 +211,8 @@ bid, ask, ts = struct.unpack("!ddd", shm.read(24))  # consumer: no copy
 
 ## Message Queue Architecture
 
+Latencies are order-of-magnitude guides, not measurements of this system.
+
 | Queue | Latency | Persistence | Use Case |
 |---|---|---|---|
 | In-process ring buffer (Disruptor) | ~100 ns | No | Hot path intra-process |
@@ -224,12 +240,13 @@ CLOSED → [N failures in window] → OPEN → [timeout] → HALF-OPEN → [succ
 ### Retry with Exponential Backoff + Jitter
 ```python
 delay = min(cap, base * (2**attempt)) + random.uniform(0, jitter)
-# Base: 100ms, Cap: 60s, Jitter: ±20%
+# Base: 100ms, Cap: 60s; jitter added on top (e.g. up to 20% of the delay)
 ```
 - Idempotency key mandatory before retrying any order submission
 
 ### Graceful Degradation
-- Feed lag > threshold → switch to cached/synthetic; log DEGRADED
+- Feed lag > threshold → use cached data only where staleness is bounded and marked;
+  never feed synthetic data to a trading decision; log DEGRADED
 - Exchange API down → halt new orders; manage existing positions; alert
 - Risk engine failure → suspend all auto-execution; manual-only mode
 - Flash crash detected → halt new entries; log FLASH_CRASH_HALT; reassess after 10s
