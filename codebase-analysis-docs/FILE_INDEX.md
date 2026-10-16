@@ -1024,7 +1024,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 954 | P1 | tests/test_post_trade_bounded_history.py | Python | 116 | efe91648 |  |
 | 955 | P1 | tests/test_pq_transport_honesty.py | Python | 71 | 192085cb |  |
 | 956 | P1 | tests/test_pr_auto_update_workflow.py | Python | 305 | 6fca044a |  |
-| 957 | P1 | tests/test_pre_tool_use_hook.py | Python | 498 | 72f5fd41 |  |
+| 957 | P1 | tests/test_pre_tool_use_hook.py | Python | 498 | 399c5a23 |  |
 | 958 | P1 | tests/test_price_preview_path.py | Python | 477 | 01b18608 |  |
 | 959 | P1 | tests/test_primality.py | Python | 292 | 5aa66d08 |  |
 | 960 | P1 | tests/test_prime_field.py | Python | 311 | abe47d09 |  |
@@ -1171,7 +1171,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 1101 | P2 | .claude/hooks/completion_gate.py | Python | 25 | 4753b1c8 |  |
 | 1102 | P2 | .claude/hooks/observation_failure.py | Python | 93 | 6a2ba65b |  |
 | 1103 | P2 | .claude/hooks/observation_gate.py | Python | 615 | 93085de5 |  |
-| 1104 | P2 | .claude/hooks/pre_tool_use.py | Python | 1024 | 26fb461b |  |
+| 1104 | P2 | .claude/hooks/pre_tool_use.py | Python | 1024 | 355088fc |  |
 | 1105 | P2 | .claude/hooks/precompact_checkpoint.py | Python | 25 | d68a10de |  |
 | 1106 | P2 | .claude/hooks/quality_gate.py | Python | 27 | 2c809a53 |  |
 | 1107 | P2 | .claude/hooks/session-start.sh | Shell | 116 | 52bfdaa6 |  |

@@ -303,8 +303,8 @@ def _github_route_violation(event: dict[str, Any]) -> str:
                     return ""
         return (
             "Universal GitHub-only boundary: denied. Use an approved GitHub MCP tool; "
-            "local exceptions are the exact prfail report command and the "
-            "report-bound patch applier."
+            "local exceptions are the exact report command "
+            "./scripts/prfail --pr <PR_NUMBER> and the report-bound patch applier."
         )
     tail = tool[len(GITHUB_TOOL_PREFIX) :]
     gap = unresolved_tools()

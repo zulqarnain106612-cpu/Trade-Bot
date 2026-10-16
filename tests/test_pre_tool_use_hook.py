@@ -171,7 +171,7 @@ class TestApprovedGithubRoute:
         )
         decision = decide("Bash", {"command": command})
         assert decision["permissionDecision"] == "deny"
-        assert "Protected observation-boundary" in decision["reason"]
+        assert "Protected observation-boundary" in decision["permissionDecisionReason"]
 
     def test_patch_command_wrappers_and_early_heredoc_terminators_are_denied(self) -> None:
         header = (
