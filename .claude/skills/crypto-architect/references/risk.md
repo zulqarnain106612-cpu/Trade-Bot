@@ -1,5 +1,17 @@
 # Risk Reference
 
+## Trade-Bot integration (verified against the repository)
+
+- Hard-limit gates (capital-preservation floor, slippage/EV veto, drawdown and
+  loss halts, regime gate, position cap, live gate): `src/risk/gates.py`. The
+  validator reports that this module computes no VaR/CVaR (accepted debt in
+  `config/arch_baseline.json`); do not cite it as a VaR implementation.
+- CVaR-Kelly horizon sizing and ADWIN drift: `src/risk/gate.py`.
+- Also: `src/risk/capital_preservation_floor.py`, `src/risk/strategy_kill_switch.py`,
+  `src/risk/greeks.py`, `src/risk/portfolio_correlation.py`, `src/risk/vol_target_sizer.py`.
+- Limits in the tables below are reference values, not repository configuration;
+  the effective values live in `src/config.py` `RiskSettings` and `config/risk.yaml`.
+
 ## Value at Risk (VaR)
 
 ### Methods
@@ -19,7 +31,7 @@
 - Lookback: 252 days minimum; 500 recommended
 - Re-estimate daily; intraday for HFT
 - Backtest: Kupiec test (LR test) — violation rate must match α
-  Traffic light: green (< 5 exceedances/250 days), yellow (5–9), red (> 9) → recalibrate
+  Basel traffic light (99% VaR, 250 days): green 0–4 exceptions, yellow 5–9, red ≥ 10 → recalibrate
 
 ---
 
@@ -30,6 +42,9 @@ CVaR_α = E[R | R ≤ -VaR_α]
 ```
 - CVaR is coherent (subadditive); VaR is not — ES is primary metric (Basel III / FRTB)
 - Always compute both; large gap (CVaR >> VaR) = heavy tail → investigate distribution
+
+Sign convention: the code below works on returns, so VaR and CVaR come out
+negative (losses); the formula above states VaR as a positive loss.
 
 ```python
 def cvar(returns: np.ndarray, alpha: float = 0.05) -> float:
@@ -124,7 +139,8 @@ Apply in order — each step can only reduce size, never increase:
 
 ## Liquidation Cascade Modeling
 
-### Hyperliquid Dec 2024 — Reference Scenario
+### Hyperliquid ETH whale liquidation — Reference Scenario
+(Date and figures: historical; current status requires confirmation; the qualitative lessons stand independently.)
 - A single large ETH position (~$200M notional) was opened with extreme leverage
 - Position was too large relative to market depth; no sufficient counterpart liquidity
 - Funding flipped; position was liquidated; HLP (liquidity pool) absorbed losses
@@ -144,7 +160,7 @@ Scenario:
   - Model market impact of forced liquidations (square-root model)
   - Estimate second-order price impact from concurrent liquidations
   - Assess portfolio survival under full cascade (assume ρ → 1.0)
-  - Reference: Hyperliquid Dec 2024, LUNA May 2022, 3AC Jun 2022
+  - Reference: Hyperliquid ETH whale liquidation, LUNA May 2022, 3AC Jun 2022
 ```
 
 ### ADL (Auto-Deleveraging) Risk
@@ -179,7 +195,7 @@ Historical:
 - FTX collapse (Nov 2022): exchange counterparty risk, ADA/SOL -80%
 - 3AC liquidation (Jun 2022): leveraged crypto fund cascade; BTC -40% in weeks
 - Bybit hack (Feb 2025): $1.5B ETH drained; ETH price declined; market uncertainty
-- Hyperliquid cascade (Dec 2024): perp exchange insurance model stress
+- Hyperliquid whale liquidation (historical; current status requires confirmation): perp exchange insurance model stress
 - BTC ETF launch vol (Jan 2024): vol spike on approval; reversal trap
 
 Hypothetical:

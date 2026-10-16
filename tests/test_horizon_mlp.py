@@ -8,13 +8,21 @@ from __future__ import annotations
 
 import hashlib
 import math
+<<<<<<< HEAD
+=======
+import sqlite3
+>>>>>>> origin/main
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 import torch
 
+<<<<<<< HEAD
 from src.models.horizon_learning import HorizonLearningStore
+=======
+from src.models.horizon_learning import HorizonLearningStore, _ensure_column
+>>>>>>> origin/main
 from src.models.horizon_mlp import HorizonMLPExpert
 from src.models.mlp import MLPHead
 from src.workers.orchestrator import WorkerTask, _run_horizon_inference
@@ -1351,3 +1359,34 @@ def test_deferred_training_does_not_count_a_duplicate_model_update(tmp_path, mon
         model_root=root,
     )
     assert result == {"updated": 0, "rejected": 0, "attempted": 1}
+<<<<<<< HEAD
+=======
+
+
+def test_schema_migration_tolerates_concurrent_duplicate_column():
+    connection = sqlite3.connect(":memory:")
+    connection.execute("CREATE TABLE horizon_samples (sample_id TEXT PRIMARY KEY)")
+
+    class RacingConnection:
+        def __init__(self, wrapped):
+            self.wrapped = wrapped
+            self.raced = False
+
+        def execute(self, statement, *args):
+            target = "ALTER TABLE horizon_samples ADD COLUMN candidate_oos_squared_error REAL"
+            if statement == target and not self.raced:
+                self.wrapped.execute(statement, *args)
+                self.raced = True
+                raise sqlite3.OperationalError("duplicate column name: candidate_oos_squared_error")
+            return self.wrapped.execute(statement, *args)
+
+    _ensure_column(
+        RacingConnection(connection),
+        "horizon_samples",
+        "candidate_oos_squared_error",
+        "REAL",
+    )
+
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(horizon_samples)")}
+    assert "candidate_oos_squared_error" in columns
+>>>>>>> origin/main

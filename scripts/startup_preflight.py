@@ -514,6 +514,10 @@ def main(argv: list[str] | None = None) -> int:
             "readiness_endpoint_missing": readiness_endpoint_missing,
             "phases": phases,
             "state": _summarise(ready_report),
+            "required_timeframes": required_ticks,
+            "missing_required_timeframes": [
+                tf for tf in required_ticks if tf not in logs["first_tick_s"]
+            ],
             "first_tick_s": logs["first_tick_s"],
             "rss_mb": {"peak": peak_mb, "at_ready": rss_at_ready_mb, "last": rss_mb},
             "critical_rss_mb": critical_mb,

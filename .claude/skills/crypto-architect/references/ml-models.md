@@ -1,5 +1,22 @@
 # ML Model Governance Reference
 
+## Trade-Bot integration (verified against the repository)
+
+- Prediction horizons: `config/horizons.yaml` declares ten horizons, all `mlp`.
+  `src/models/horizon_config.py` rejects any other architecture because only the
+  MLP has a compatible trainer; `src/models/architectures.py` can *resolve*
+  TFT, PatchTST, CNN, etc., but resolvable is not trainable. The architectures
+  below are design options, not active models.
+- Direction/meta models: `src/models/trainer.py` (XGBoost direction + meta-label,
+  CPCV with purge and embargo, provenance manifest).
+- Matured-label learning, paired champion/challenger evaluation, activation and
+  rollback: `src/models/horizon_learning.py`, `src/runtime/horizon_models.py`.
+- Shadow registry for the signal engine: `src/models/model_registry.py`.
+  `src/upgrade/shadow_deploy.py` has no production caller (inactive).
+- Drift: `src/risk/gate.py` `check_drift` (ADWIN) exists, but its result is
+  discarded in `src/intel.py`; treat drift-triggered retraining as a gap.
+- Model-family years below are publication history, not claims about currency.
+
 ## Model Registry Schema
 
 Every model in production requires a registry entry:
@@ -124,7 +141,6 @@ where `C(x)` is the prediction interval and `α` is the error rate (e.g., 0.1 fo
 
 ### Implementation (Split Conformal)
 ```python
-from sklearn.model_selection import train_test_split
 import numpy as np
 
 # Step 1: Fit model on training data; compute residuals on calibration set
@@ -134,8 +150,9 @@ residuals = np.abs(y_cal - y_pred_cal)
 # Step 2: Compute conformal quantile
 alpha = 0.10  # 90% coverage
 n = len(residuals)
-q_level = np.ceil((n + 1) * (1 - alpha)) / n
-q_hat = np.quantile(residuals, q_level)
+q_level = min(1.0, np.ceil((n + 1) * (1 - alpha)) / n)
+# method="higher" keeps the finite-sample guarantee; interpolation can undercover
+q_hat = np.quantile(residuals, q_level, method="higher")
 
 # Step 3: Form prediction interval on new data
 y_pred = model.predict(X_test)
@@ -186,11 +203,19 @@ PSI = Σ (A_i - E_i) × ln(A_i / E_i)
 ### Concept Drift
 - ADWIN (Adaptive Windowing): detects change in mean of performance metric
 - Page-Hinkley: sequential drift detection; lower false alarm rate than CUSUM
-- Rolling Sharpe: 30-day OOS Sharpe < 0.5 → auto-suspend
+- Rolling Sharpe: example policy — 30-day OOS Sharpe < 0.5 → auto-suspend (set the
+  real threshold from documented policy)
+- A detector whose result is discarded is not a control: map each detection to a
+  suspension, retraining trigger or alert (see SKILL.md, Retraining triggers)
 
 ---
 
 ## Champion / Challenger Deployment
+
+Illustrative pipeline; the sample counts, p-value, canary size and Sharpe deltas
+below are examples, not repository policy. Trade-Bot's existing policy is the
+paired-evaluation minimum (`candidate_minimum_oos_samples`, default 100) and the
+evidence-age limit in `HorizonLearningStore.evaluate_candidate`.
 
 ```
 Challenger → Shadow Mode (log predictions, no orders; min 2000 samples or 30d)
@@ -224,5 +249,10 @@ volatility (Jan 2024), ETH ETF launch (Jul 2024).
 - Gradient clipping: ‖∇‖ > threshold → skip update (not clip) — prevents poisoning
 - Rollback buffer: keep last N model states; revert if rolling Sharpe degrades
 - Poison detection: update improves training loss but degrades validation → reject
+- Maturity: an observation updates a model only after its label horizon has elapsed
+  and the realized outcome is recorded; unmatured rows are never outcomes
+- Bounded and reproducible: fixed update order, bounded batch size, explicit
+  accept/reject result per update, persisted learning state that survives restart
+- An online update never by itself authorizes additional live risk
 - LLM in online learning: never update LLM weights online in production;
   only prompt engineering and retrieval allowed for live systems

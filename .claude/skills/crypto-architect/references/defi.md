@@ -1,12 +1,18 @@
 # DeFi Reference
 
+## Trade-Bot integration (verified against the repository)
+
+The repository has no DeFi position management or on-chain execution. This
+reference is a design and threat-model guide; nothing below describes an
+implemented Trade-Bot component.
+
 ## AMM Mechanics
 
 ### Constant Product (Uniswap v2)
 ```
 x × y = k
 Price = y / x
-Price impact = ΔP/P = order_size / (pool_depth + order_size)
+Execution slippage vs spot = Δx / (x + Δx)   (Δx = input amount, x = input reserve, fees ignored)
 ```
 - Slippage grows super-linearly with order size relative to pool depth
 
@@ -94,7 +100,8 @@ bundle = {
 
 ### Mechanics
 - Borrow arbitrary amount within single transaction; repay + fee in same tx
-- Aave v3 = 0.05%; dYdX = 0; Uniswap v3 = 0.05%
+- Fees are protocol- and governance-set (Aave v3 has used 0.05%; Uniswap v3 flash
+  swaps pay the pool's fee tier); historical; current status requires confirmation
 - Atomicity: if repayment fails, entire tx reverts — zero credit risk
 
 ### Flash Loan Attack Defense (positions at risk)
@@ -117,10 +124,11 @@ bundle = {
   across all AVSes that operator secures; treat as correlated risk factor
 - Operator concentration: check if > 30% of staked ETH flows through single operator
 - AVS security audit: treat unaudited AVS contracts as HIGH smart contract risk
-- Capital allocation: restaked ETH is illiquid during challenge window (7 days);
+- Capital allocation: restaked ETH is illiquid during the withdrawal delay
+  (duration: historical; current status requires confirmation);
   exclude from liquid capital calculations
-- Eigen slashing (live 2024): first mainnet slashings demonstrate real risk;
-  update yield strategies to subtract realistic slashing probability
+- EigenLayer slashing activation and observed slashing events: historical; current status requires confirmation;
+  subtract a realistic slashing probability in any yield model
 
 ### Liquid Restaking Tokens (LRTs) — 2024
 - LRT protocols (EtherFi, Puffer, Renzo, Kelp, Swell): issue ERC-20 representing
@@ -158,13 +166,13 @@ Liquidation threshold: HF < 1.0
 ```
 - Monitor HF in real-time for any leveraged DeFi position
 - Alert at HF < 1.3 (30% buffer); auto-deleverage at HF < 1.15
-- Aave v3 e-mode: allows higher LTV between correlated assets (ETH/wstETH 93% LTV)
+- Aave v3 e-mode: allows higher LTV between correlated assets (current LTVs: historical; current status requires confirmation)
   — increases liquidation cascade risk; model accordingly
 
 ### Liquidation Cascade
 - Correlated collateral (wstETH/ETH e-mode): ETH price drop → mass liquidation
 - Cascade amplification: our liquidation + others → price drops further → more liquidations
-- Hyperliquid Dec 2024 reference: $200M whale, ETH-heavy, cascaded on funding flip
+- Hyperliquid ETH whale liquidation reference (date and figures: historical; current status requires confirmation)
   Lesson: monitor OI/open leverage ratio on perp exchanges; elevated = cascade risk
 
 ---

@@ -1645,6 +1645,7 @@ SHA8 687738d8; total lines 138.
 
 ## src/workers/orchestrator.py
 
+<<<<<<< HEAD
 SHA8 217c9114; total lines 800.
 
 - WorkerTask (class, lines 42-54): CHUNK_ID = src/workers/orchestrator.py#42-54#217c9114 — [[F:src/workers/orchestrator.py#42-54#217c9114]].
@@ -1679,6 +1680,42 @@ SHA8 217c9114; total lines 800.
 - WorkerOrchestrator.worker_count (method, lines 775-776): CHUNK_ID = src/workers/orchestrator.py#775-776#217c9114 — [[F:src/workers/orchestrator.py#775-776#217c9114]].
 - WorkerOrchestrator.dropped_tasks (method, lines 779-780): CHUNK_ID = src/workers/orchestrator.py#779-780#217c9114 — [[F:src/workers/orchestrator.py#779-780#217c9114]].
 - WorkerOrchestrator.health_snapshot (method, lines 782-800): CHUNK_ID = src/workers/orchestrator.py#782-800#217c9114 — [[F:src/workers/orchestrator.py#782-800#217c9114]].
+=======
+SHA8 a2efe8f2; total lines 805.
+
+- WorkerTask (class, lines 42-54): CHUNK_ID = src/workers/orchestrator.py#42-54#a2efe8f2 — [[F:src/workers/orchestrator.py#42-54#a2efe8f2]].
+- WorkerResult (class, lines 58-88): CHUNK_ID = src/workers/orchestrator.py#58-88#a2efe8f2 — [[F:src/workers/orchestrator.py#58-88#a2efe8f2]].
+- _model_worker (function, lines 96-135): CHUNK_ID = src/workers/orchestrator.py#96-135#a2efe8f2 — [[F:src/workers/orchestrator.py#96-135#a2efe8f2]].
+- _run_horizon_inference (function, lines 138-175, slice 1): CHUNK_ID = src/workers/orchestrator.py#138-175#a2efe8f2 — [[F:src/workers/orchestrator.py#138-175#a2efe8f2]].
+- _run_horizon_inference (function, lines 176-213, slice 2): CHUNK_ID = src/workers/orchestrator.py#176-213#a2efe8f2 — [[F:src/workers/orchestrator.py#176-213#a2efe8f2]].
+- _run_horizon_inference (function, lines 214-251, slice 3): CHUNK_ID = src/workers/orchestrator.py#214-251#a2efe8f2 — [[F:src/workers/orchestrator.py#214-251#a2efe8f2]].
+- _run_horizon_inference (function, lines 252-289, slice 4): CHUNK_ID = src/workers/orchestrator.py#252-289#a2efe8f2 — [[F:src/workers/orchestrator.py#252-289#a2efe8f2]].
+- _run_horizon_inference (function, lines 290-327, slice 5): CHUNK_ID = src/workers/orchestrator.py#290-327#a2efe8f2 — [[F:src/workers/orchestrator.py#290-327#a2efe8f2]].
+- _run_horizon_inference (function, lines 328-365, slice 6): CHUNK_ID = src/workers/orchestrator.py#328-365#a2efe8f2 — [[F:src/workers/orchestrator.py#328-365#a2efe8f2]].
+- _run_horizon_inference (function, lines 366-397, slice 7): CHUNK_ID = src/workers/orchestrator.py#366-397#a2efe8f2 — [[F:src/workers/orchestrator.py#366-397#a2efe8f2]].
+- _utxos_with_ages (function, lines 439-456): CHUNK_ID = src/workers/orchestrator.py#439-456#a2efe8f2 — [[F:src/workers/orchestrator.py#439-456#a2efe8f2]].
+- _fetch_recent_block_transactions (function, lines 459-487): CHUNK_ID = src/workers/orchestrator.py#459-487#a2efe8f2 — [[F:src/workers/orchestrator.py#459-487#a2efe8f2]].
+- _ecc_worker (function, lines 490-528): CHUNK_ID = src/workers/orchestrator.py#490-528#a2efe8f2 — [[F:src/workers/orchestrator.py#490-528#a2efe8f2]].
+- _run_ecc_cycle (function, lines 531-568, slice 1): CHUNK_ID = src/workers/orchestrator.py#531-568#a2efe8f2 — [[F:src/workers/orchestrator.py#531-568#a2efe8f2]].
+- _run_ecc_cycle (function, lines 569-606, slice 2): CHUNK_ID = src/workers/orchestrator.py#569-606#a2efe8f2 — [[F:src/workers/orchestrator.py#569-606#a2efe8f2]].
+- _run_ecc_cycle (function, lines 607-642, slice 3): CHUNK_ID = src/workers/orchestrator.py#607-642#a2efe8f2 — [[F:src/workers/orchestrator.py#607-642#a2efe8f2]].
+- WorkerOrchestrator (class, lines 645-682, slice 1): CHUNK_ID = src/workers/orchestrator.py#645-682#a2efe8f2 — [[F:src/workers/orchestrator.py#645-682#a2efe8f2]].
+- WorkerOrchestrator (class, lines 683-720, slice 2): CHUNK_ID = src/workers/orchestrator.py#683-720#a2efe8f2 — [[F:src/workers/orchestrator.py#683-720#a2efe8f2]].
+- WorkerOrchestrator (class, lines 721-758, slice 3): CHUNK_ID = src/workers/orchestrator.py#721-758#a2efe8f2 — [[F:src/workers/orchestrator.py#721-758#a2efe8f2]].
+- WorkerOrchestrator (class, lines 759-796, slice 4): CHUNK_ID = src/workers/orchestrator.py#759-796#a2efe8f2 — [[F:src/workers/orchestrator.py#759-796#a2efe8f2]].
+- WorkerOrchestrator (class, lines 797-805, slice 5): CHUNK_ID = src/workers/orchestrator.py#797-805#a2efe8f2 — [[F:src/workers/orchestrator.py#797-805#a2efe8f2]].
+- WorkerOrchestrator.__init__ (method, lines 658-680): CHUNK_ID = src/workers/orchestrator.py#658-680#a2efe8f2 — [[F:src/workers/orchestrator.py#658-680#a2efe8f2]].
+- WorkerOrchestrator.start (method, lines 682-688): CHUNK_ID = src/workers/orchestrator.py#682-688#a2efe8f2 — [[F:src/workers/orchestrator.py#682-688#a2efe8f2]].
+- WorkerOrchestrator._spawn (method, lines 690-714): CHUNK_ID = src/workers/orchestrator.py#690-714#a2efe8f2 — [[F:src/workers/orchestrator.py#690-714#a2efe8f2]].
+- WorkerOrchestrator._pin_cpu (method, lines 716-724): CHUNK_ID = src/workers/orchestrator.py#716-724#a2efe8f2 — [[F:src/workers/orchestrator.py#716-724#a2efe8f2]].
+- WorkerOrchestrator.submit (method, lines 726-744): CHUNK_ID = src/workers/orchestrator.py#726-744#a2efe8f2 — [[F:src/workers/orchestrator.py#726-744#a2efe8f2]].
+- WorkerOrchestrator.collect (method, lines 746-751): CHUNK_ID = src/workers/orchestrator.py#746-751#a2efe8f2 — [[F:src/workers/orchestrator.py#746-751#a2efe8f2]].
+- WorkerOrchestrator.scale (method, lines 753-765): CHUNK_ID = src/workers/orchestrator.py#753-765#a2efe8f2 — [[F:src/workers/orchestrator.py#753-765#a2efe8f2]].
+- WorkerOrchestrator.shutdown (method, lines 767-777): CHUNK_ID = src/workers/orchestrator.py#767-777#a2efe8f2 — [[F:src/workers/orchestrator.py#767-777#a2efe8f2]].
+- WorkerOrchestrator.worker_count (method, lines 780-781): CHUNK_ID = src/workers/orchestrator.py#780-781#a2efe8f2 — [[F:src/workers/orchestrator.py#780-781#a2efe8f2]].
+- WorkerOrchestrator.dropped_tasks (method, lines 784-785): CHUNK_ID = src/workers/orchestrator.py#784-785#a2efe8f2 — [[F:src/workers/orchestrator.py#784-785#a2efe8f2]].
+- WorkerOrchestrator.health_snapshot (method, lines 787-805): CHUNK_ID = src/workers/orchestrator.py#787-805#a2efe8f2 — [[F:src/workers/orchestrator.py#787-805#a2efe8f2]].
+>>>>>>> origin/main
 
 ## src/intelligence/client.py
 
@@ -1757,6 +1794,7 @@ SHA8 4995ee3c; total lines 500.
 
 ## common/command_schema.py
 
+<<<<<<< HEAD
 SHA8 89765ed4; total lines 601.
 
 - is_local_check_execution (function, lines 173-177): CHUNK_ID = common/command_schema.py#173-177#89765ed4 — [[F:common/command_schema.py#173-177#89765ed4]].
@@ -1784,6 +1822,35 @@ SHA8 f93c4248; total lines 464.
 - run (function, lines 387-424, slice 3): CHUNK_ID = common/shell_exec.py#387-424#f93c4248 — [[F:common/shell_exec.py#387-424#f93c4248]].
 - run (function, lines 425-462, slice 4): CHUNK_ID = common/shell_exec.py#425-462#f93c4248 — [[F:common/shell_exec.py#425-462#f93c4248]].
 - run (function, lines 463-464, slice 5): CHUNK_ID = common/shell_exec.py#463-464#f93c4248 — [[F:common/shell_exec.py#463-464#f93c4248]].
+=======
+SHA8 1de280b9; total lines 616.
+
+- is_local_check_execution (function, lines 169-175): CHUNK_ID = common/command_schema.py#169-175#1de280b9 — [[F:common/command_schema.py#169-175#1de280b9]].
+- classify (function, lines 489-505): CHUNK_ID = common/command_schema.py#489-505#1de280b9 — [[F:common/command_schema.py#489-505#1de280b9]].
+- is_ci_log_access (function, lines 535-548): CHUNK_ID = common/command_schema.py#535-548#1de280b9 — [[F:common/command_schema.py#535-548#1de280b9]].
+- rank (function, lines 551-556): CHUNK_ID = common/command_schema.py#551-556#1de280b9 — [[F:common/command_schema.py#551-556#1de280b9]].
+- redact (function, lines 559-589): CHUNK_ID = common/command_schema.py#559-589#1de280b9 — [[F:common/command_schema.py#559-589#1de280b9]].
+- build_env (function, lines 592-616): CHUNK_ID = common/command_schema.py#592-616#1de280b9 — [[F:common/command_schema.py#592-616#1de280b9]].
+
+## common/shell_exec.py
+
+SHA8 cc45e7b8; total lines 464.
+
+- _command_hash (function, lines 88-96): CHUNK_ID = common/shell_exec.py#88-96#cc45e7b8 — [[F:common/shell_exec.py#88-96#cc45e7b8]].
+- _refused (function, lines 99-120): CHUNK_ID = common/shell_exec.py#99-120#cc45e7b8 — [[F:common/shell_exec.py#99-120#cc45e7b8]].
+- _capture (function, lines 123-160, slice 1): CHUNK_ID = common/shell_exec.py#123-160#cc45e7b8 — [[F:common/shell_exec.py#123-160#cc45e7b8]].
+- _capture (function, lines 161-178, slice 2): CHUNK_ID = common/shell_exec.py#161-178#cc45e7b8 — [[F:common/shell_exec.py#161-178#cc45e7b8]].
+- _filter (function, lines 186-223, slice 1): CHUNK_ID = common/shell_exec.py#186-223#cc45e7b8 — [[F:common/shell_exec.py#186-223#cc45e7b8]].
+- _filter (function, lines 224-250, slice 2): CHUNK_ID = common/shell_exec.py#224-250#cc45e7b8 — [[F:common/shell_exec.py#224-250#cc45e7b8]].
+- _cap_bytes (function, lines 258-273): CHUNK_ID = common/shell_exec.py#258-273#cc45e7b8 — [[F:common/shell_exec.py#258-273#cc45e7b8]].
+- _cap (function, lines 276-284): CHUNK_ID = common/shell_exec.py#276-284#cc45e7b8 — [[F:common/shell_exec.py#276-284#cc45e7b8]].
+- _should_retry (function, lines 292-304): CHUNK_ID = common/shell_exec.py#292-304#cc45e7b8 — [[F:common/shell_exec.py#292-304#cc45e7b8]].
+- run (function, lines 312-349, slice 1): CHUNK_ID = common/shell_exec.py#312-349#cc45e7b8 — [[F:common/shell_exec.py#312-349#cc45e7b8]].
+- run (function, lines 350-387, slice 2): CHUNK_ID = common/shell_exec.py#350-387#cc45e7b8 — [[F:common/shell_exec.py#350-387#cc45e7b8]].
+- run (function, lines 388-425, slice 3): CHUNK_ID = common/shell_exec.py#388-425#cc45e7b8 — [[F:common/shell_exec.py#388-425#cc45e7b8]].
+- run (function, lines 426-463, slice 4): CHUNK_ID = common/shell_exec.py#426-463#cc45e7b8 — [[F:common/shell_exec.py#426-463#cc45e7b8]].
+- run (function, lines 464-464, slice 5): CHUNK_ID = common/shell_exec.py#464-464#cc45e7b8 — [[F:common/shell_exec.py#464-464#cc45e7b8]].
+>>>>>>> origin/main
 
 ## src/engines/orchestrator.py
 
@@ -2040,6 +2107,7 @@ SHA8 df9b68c6; total lines 221.
 
 ### frontend/package.json
 
+<<<<<<< HEAD
 SHA8 3aa08493; total lines 75.
 
 - CHUNK_ID = frontend/package.json#1-38#3aa08493 — [[F:frontend/package.json#1-38#3aa08493]].
@@ -2060,6 +2128,28 @@ SHA8 ecb6ef9b; total lines 382.
 - CHUNK_ID = .github/workflows/ci.yml#305-342#ecb6ef9b — [[F:.github/workflows/ci.yml#305-342#ecb6ef9b]].
 - CHUNK_ID = .github/workflows/ci.yml#343-382#ecb6ef9b — [[F:.github/workflows/ci.yml#343-382#ecb6ef9b]].
 
+=======
+SHA8 f1ae54c1; total lines 77.
+
+- CHUNK_ID = frontend/package.json#1-38#f1ae54c1 — [[F:frontend/package.json#1-38#f1ae54c1]].
+- CHUNK_ID = frontend/package.json#39-77#f1ae54c1 — [[F:frontend/package.json#39-77#f1ae54c1]].
+
+### .github/workflows/ci.yml
+
+SHA8 da238171; total lines 404.
+
+- CHUNK_ID = .github/workflows/ci.yml#1-38#da238171 — [[F:.github/workflows/ci.yml#1-38#da238171]].
+- CHUNK_ID = .github/workflows/ci.yml#39-76#da238171 — [[F:.github/workflows/ci.yml#39-76#da238171]].
+- CHUNK_ID = .github/workflows/ci.yml#77-114#da238171 — [[F:.github/workflows/ci.yml#77-114#da238171]].
+- CHUNK_ID = .github/workflows/ci.yml#115-152#da238171 — [[F:.github/workflows/ci.yml#115-152#da238171]].
+- CHUNK_ID = .github/workflows/ci.yml#153-190#da238171 — [[F:.github/workflows/ci.yml#153-190#da238171]].
+- CHUNK_ID = .github/workflows/ci.yml#191-228#da238171 — [[F:.github/workflows/ci.yml#191-228#da238171]].
+- CHUNK_ID = .github/workflows/ci.yml#229-266#da238171 — [[F:.github/workflows/ci.yml#229-266#da238171]].
+- CHUNK_ID = .github/workflows/ci.yml#267-304#da238171 — [[F:.github/workflows/ci.yml#267-304#da238171]].
+- CHUNK_ID = .github/workflows/ci.yml#305-342#da238171 — [[F:.github/workflows/ci.yml#305-342#da238171]].
+- CHUNK_ID = .github/workflows/ci.yml#343-380#da238171 — [[F:.github/workflows/ci.yml#343-380#da238171]].
+- CHUNK_ID = .github/workflows/ci.yml#381-404#da238171 — [[F:.github/workflows/ci.yml#381-404#da238171]].
+>>>>>>> origin/main
 ### docs/terminal/ARCHITECTURE.md
 
 SHA8 ac1b11e0; total lines 217.
@@ -2073,6 +2163,7 @@ SHA8 ac1b11e0; total lines 217.
 
 ### docs/runtime/RUNTIME_PLATFORM.md
 
+<<<<<<< HEAD
 SHA8 2ea1f81a; total lines 278.
 
 - CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#1-38#2ea1f81a — [[F:docs/runtime/RUNTIME_PLATFORM.md#1-38#2ea1f81a]].
@@ -2083,3 +2174,15 @@ SHA8 2ea1f81a; total lines 278.
 - CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#191-228#2ea1f81a — [[F:docs/runtime/RUNTIME_PLATFORM.md#191-228#2ea1f81a]].
 - CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#229-266#2ea1f81a — [[F:docs/runtime/RUNTIME_PLATFORM.md#229-266#2ea1f81a]].
 - CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#267-278#2ea1f81a — [[F:docs/runtime/RUNTIME_PLATFORM.md#267-278#2ea1f81a]].
+=======
+SHA8 37fde0ad; total lines 296.
+
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#1-38#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#1-38#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#39-76#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#39-76#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#77-114#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#77-114#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#115-152#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#115-152#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#153-190#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#153-190#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#191-228#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#191-228#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#229-266#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#229-266#37fde0ad]].
+- CHUNK_ID = docs/runtime/RUNTIME_PLATFORM.md#267-296#37fde0ad — [[F:docs/runtime/RUNTIME_PLATFORM.md#267-296#37fde0ad]].
+>>>>>>> origin/main

@@ -24,9 +24,11 @@ from __future__ import annotations
 
 import argparse
 import ast
+import io
 import json
 import re
 import sys
+import tokenize
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -176,7 +178,7 @@ class ValidationReport:
             "findings": [f.to_dict() for f in self.findings],
         }
 
-    def to_sarif(self) -> dict:
+    def to_sarif(self, fail_threshold: Severity = Severity.HIGH) -> dict:
         """SARIF v2.1.0 format for GitHub Advanced Security."""
         rules: list[dict] = []
         seen_rule_ids: set[str] = set()
@@ -255,7 +257,7 @@ class ValidationReport:
                     "results": results,
                     "properties": {
                         "component": self.component,
-                        "passed": self.passed(),
+                        "passed": self.passed(fail_threshold),
                     },
                 }
             ],
@@ -448,14 +450,16 @@ REQUIRED: list[tuple[str, str, str, Severity, str]] = [
     ),
     (
         "LAW7",
-        r"correlation_id|trace_id",
+        # A structlog contextvar binding is the correlation mechanism itself.
+        r"correlation_id|trace_id|bound_contextvars|bind_contextvars",
         "Correlation/trace ID in log events",
         Severity.HIGH,
         r"execution/(order_manager|router)\.py$|engine/orchestrator\.py$",
     ),
     (
         "LAW1",
-        r"var_|cvar_|value_at_risk|expected_shortfall|VaR|CVaR",
+        # `VaR` is case-sensitive: under IGNORECASE it matched "variable".
+        r"var_|cvar_|value_at_risk|expected_shortfall|(?-i:C?VaR)",
         "VaR/CVaR computation present",
         Severity.CRITICAL,
         r"risk/gates?\.py$",
@@ -505,6 +509,124 @@ REQUIRED: list[tuple[str, str, str, Severity, str]] = [
 ]
 
 
+# REQUIRED checks whose evidence is a documented marker rather than code.
+# Every other REQUIRED check is matched against code only (comments and
+# docstrings removed): an informational mention is not the safeguard.
+DOC_EVIDENCE_CHECKS: frozenset[str] = frozenset({"PQC algorithm reference or migration marker"})
+
+# Each entry: (law, [regexes], description, severity, scope). Every regex must
+# match the owning module's code (comments and docstrings removed). These pin
+# the model-lifecycle safeguards to the modules that own them, so a marker in
+# an unrelated module can never satisfy them.
+REQUIRED_ALL: list[tuple[str, list[str], str, Severity, str]] = [
+    (
+        "LAW9",
+        [r"raise\s+ValueError", r"\bmodels\b", r"validate_horizon_architectures"],
+        "Declared horizon models are checked against trainer-compatible architectures",
+        Severity.HIGH,
+        r"models/horizon_config\.py$",
+    ),
+    (
+        "LAW9",
+        [r"due_ts\s*<=", r"outcome IS NOT NULL", r"matured_at"],
+        "Horizon labels mature before they are learned from",
+        Severity.HIGH,
+        r"models/horizon_learning\.py$",
+    ),
+    (
+        "LAW9",
+        [r"schema_hash", r"candidate_model_version", r"prediction_model_version", r"evaluation_id"],
+        "Candidate evaluation records model and feature-schema provenance",
+        Severity.HIGH,
+        r"models/horizon_learning\.py$",
+    ),
+    (
+        "LAW9",
+        [r"CONTINUE_SHADOW", r"candidate_prediction_return", r"def rollback_promotion"],
+        "Shadow candidate is scored separately from the champion and can be rolled back",
+        Severity.HIGH,
+        r"models/horizon_learning\.py$",
+    ),
+    (
+        "LAW4",
+        [
+            r"max_age_seconds",
+            r"minimum_oos_samples",
+            r"[\"']READY[\"']",
+            r"confidence_calibrated",
+            r"[\"']ABSTAIN[\"']",
+        ],
+        "Horizon fusion omits stale, unvalidated, uncalibrated or untrained forecasts",
+        Severity.HIGH,
+        r"fusion/horizon_decision\.py$",
+    ),
+    (
+        "LAW9",
+        [r"[\"']UNTRAINED[\"']", r"incompatible horizon artifact", r"expected_horizon_id"],
+        "Horizon worker reports missing or incompatible models as unavailable",
+        Severity.HIGH,
+        r"workers/orchestrator\.py$",
+    ),
+]
+
+# Each entry: (law, regex, description, severity, scope). The regex must NOT
+# match the scoped module's code. Execution scheduling (src/config.py
+# active_timeframes) and prediction horizons (config/horizons.yaml) are
+# separate configurations and must stay that way.
+SCOPED_FORBIDDEN: list[tuple[str, str, str, Severity, str]] = [
+    (
+        "LAW9",
+        r"horizons\.ya?ml",
+        "Execution scheduling config loads the prediction-horizon config",
+        Severity.HIGH,
+        r"(^|/)src/config\.py$",
+    ),
+    (
+        "LAW9",
+        r"active_timeframes|\bTimeframe\b",
+        "Prediction-horizon loader depends on execution-loop scheduling",
+        Severity.HIGH,
+        r"models/horizon_config\.py$",
+    ),
+]
+
+
+def code_text(source: str, path: Path) -> str:
+    """Python source with comments and docstrings removed; other files as-is.
+
+    Falls back to the raw source when it cannot be tokenized, which can only
+    make a REQUIRED check easier to fail, never easier to pass, for prose.
+    """
+    if path.suffix != ".py":
+        return source
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return source
+    doc_lines: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            body = node.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                doc_lines.update(range(body[0].lineno, (body[0].end_lineno or body[0].lineno) + 1))
+    parts: list[str] = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            if tok.type == tokenize.COMMENT:
+                continue
+            if tok.type == tokenize.STRING and tok.start[0] in doc_lines:
+                continue
+            parts.append(tok.string)
+    except (tokenize.TokenError, IndentationError):
+        return source
+    return " ".join(parts)
+
+
 def _is_pattern_definition_line(line: str) -> bool:
     """Heuristic: skip lines that are defining regex patterns in this file itself."""
     stripped = line.strip()
@@ -551,10 +673,12 @@ def check_patterns(path: Path) -> list[Finding]:
                     )
                 )
 
+    code = code_text(source, path)
     for law, pattern, desc, severity, scope in REQUIRED:
         if not re.search(scope, rel):
             continue
-        if not re.search(pattern, source, re.IGNORECASE):
+        evidence_text = source if desc in DOC_EVIDENCE_CHECKS else code
+        if not re.search(pattern, evidence_text, re.IGNORECASE):
             findings.append(
                 Finding(
                     law=law,
@@ -577,10 +701,60 @@ def check_patterns(path: Path) -> list[Finding]:
                 )
             )
 
+    for law, patterns, desc, severity, scope in REQUIRED_ALL:
+        if not re.search(scope, rel):
+            continue
+        missing = [p for p in patterns if not re.search(p, code)]
+        findings.append(
+            Finding(
+                law=law,
+                check=desc,
+                passed=not missing,
+                severity=severity,
+                evidence=(
+                    "Found in code"
+                    if not missing
+                    else f"Required code evidence {missing} missing in {rel}; "
+                    "restore the safeguard in this module"
+                ),
+                file=rel,
+            )
+        )
+
+    for law, pattern, desc, severity, scope in SCOPED_FORBIDDEN:
+        if not re.search(scope, rel):
+            continue
+        hit = re.search(pattern, code)
+        findings.append(
+            Finding(
+                law=law,
+                check=desc,
+                passed=hit is None,
+                severity=severity,
+                evidence=(
+                    "Not present"
+                    if hit is None
+                    else f"Code references '{hit.group(0)}' in {rel}; keep execution "
+                    "timeframes and prediction horizons in separate configurations"
+                ),
+                file=rel,
+            )
+        )
+
     return findings
 
 
 # ── AST-based checks (Python only) ───────────────────────────────────────────
+
+
+PROMOTION_CALLS: frozenset[str] = frozenset({"promote_shadow", "activate_candidate"})
+EVALUATION_CALLS: frozenset[str] = frozenset(
+    {"evaluate_shadow", "evaluate_candidate", "_evaluation_passes"}
+)
+ROLLBACK_CALLS: frozenset[str] = frozenset({"rollback_promotion"})
+PERMISSIVE_PROMOTION_ARG = re.compile(
+    r"auto_promot|promote_without|force_promot|skip_shadow|skip_oos|allow_unvalidated|allow_untrained"
+)
 
 
 class ASTChecker(ast.NodeVisitor):
@@ -630,6 +804,45 @@ class ASTChecker(ast.NodeVisitor):
                 node,
             )
 
+        # Drift status written to storage as a constant is not a measurement.
+        if re.search(r"(^|\.)(write|persist|record|save)_\w*$", func_str):
+            for kw in node.keywords:
+                if (
+                    kw.arg
+                    and "drift" in kw.arg.lower()
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value is False
+                ):
+                    self._f(
+                        "LAW9",
+                        "Drift status persisted as a constant",
+                        False,
+                        Severity.MEDIUM,
+                        f"{func_str}({kw.arg}=False) records no drift regardless of the "
+                        "detector; persist the detector's actual result",
+                        node,
+                    )
+
+        self.generic_visit(node)
+
+    def visit_Expr(self, node: ast.Expr) -> None:
+        # A drift detector whose result is thrown away triggers nothing:
+        # no suspension, no retraining, no alert.
+        call = node.value
+        if (
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and re.fullmatch(r"(check|detect|update)_drift", call.func.attr)
+        ):
+            self._f(
+                "LAW9",
+                "Drift detection result discarded",
+                False,
+                Severity.MEDIUM,
+                f"Result of {ast.unparse(call)[:80]} is not used; map detected drift to a "
+                "suspension, retraining trigger or alert, or document the gap",
+                node,
+            )
         self.generic_visit(node)
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
@@ -691,7 +904,7 @@ class ASTChecker(ast.NodeVisitor):
         # Risk functions missing VaR/CVaR
         if any(
             kw in name_lower for kw in ("risk_check", "compute_risk", "pre_trade_risk")
-        ) and not re.search(r"var_|cvar_|VaR|CVaR|value_at_risk", body_src, re.IGNORECASE):
+        ) and not re.search(r"var_|cvar_|(?-i:C?VaR)|value_at_risk", body_src, re.IGNORECASE):
             self._f(
                 "LAW1",
                 f"Risk function '{node.name}' missing VaR/CVaR computation",
@@ -700,6 +913,54 @@ class ASTChecker(ast.NodeVisitor):
                 "Add VaR(95%) and CVaR computation; see risk.md",
                 node,
             )
+
+        # Model promotion must be decided by evaluation evidence in the same
+        # function, and an activation must have a rollback path beside it.
+        called = {
+            c.func.attr if isinstance(c.func, ast.Attribute) else getattr(c.func, "id", None)
+            for c in ast.walk(node)
+            if isinstance(c, ast.Call)
+        }
+        promotions = called & PROMOTION_CALLS
+        if promotions and not called & EVALUATION_CALLS:
+            self._f(
+                "LAW9",
+                f"Model promotion in '{node.name}' without evaluation evidence",
+                False,
+                Severity.HIGH,
+                f"{sorted(promotions)} called with no {sorted(EVALUATION_CALLS)} in the same "
+                "function; promotion must follow a passing out-of-sample evaluation",
+                node,
+            )
+        if "activate_candidate" in called and not called & ROLLBACK_CALLS:
+            self._f(
+                "LAW9",
+                f"Candidate activation in '{node.name}' without rollback path",
+                False,
+                Severity.HIGH,
+                "Call rollback_promotion when activation fails",
+                node,
+            )
+        positional = node.args.args[len(node.args.args) - len(node.args.defaults) :]
+        defaults = list(zip(positional, node.args.defaults, strict=True)) + [
+            (a, d)
+            for a, d in zip(node.args.kwonlyargs, node.args.kw_defaults, strict=True)
+            if d is not None
+        ]
+        for arg, default in defaults:
+            if (
+                PERMISSIVE_PROMOTION_ARG.search(arg.arg)
+                and isinstance(default, ast.Constant)
+                and default.value is True
+            ):
+                self._f(
+                    "LAW9",
+                    f"Permissive promotion default '{arg.arg}=True' in '{node.name}'",
+                    False,
+                    Severity.HIGH,
+                    "Default must not promote an unvalidated or incompatible model",
+                    node,
+                )
 
         self.generic_visit(node)
 
@@ -744,18 +1005,22 @@ def cross_file_checks(paths: list[Path]) -> list[Finding]:
     findings: list[Finding] = []
 
     sources: dict[str, str] = {}
+    code_sources: dict[str, str] = {}
     for p in paths:
         try:
             # Keyed by relative path: `p.name` collides across packages
             # (`base.py`, `__init__.py`) and silently drops file contents
             # from the combined text these checks scan.
             sources[_rel(p)] = p.read_text(encoding="utf-8", errors="replace")
+            code_sources[_rel(p)] = code_text(sources[_rel(p)], p)
         except OSError as exc:
             # An unreadable file is not a law violation, but staying silent
             # about it means the scan quietly covers less than it claims.
             print(f"warning: could not read {_rel(p)}: {exc}", file=sys.stderr)
 
-    combined = "\n".join(sources.values())
+    # Markers count only in code: a comment saying "idempotency" or "ML-DSA"
+    # is not an idempotency key or a PQC migration path.
+    combined = "\n".join(code_sources.values())
 
     # If order submission exists anywhere, idempotency must appear somewhere
     has_submit = bool(re.search(r"submit_order|send_order|place_order", combined, re.IGNORECASE))
@@ -792,7 +1057,168 @@ def cross_file_checks(paths: list[Path]) -> list[Finding]:
             )
         )
 
+    # Properties no static scan can prove. Reported, never counted as passed.
+    learning_modules = sorted(r for r in sources if re.search(r"models/horizon_learning\.py$", r))
+    if learning_modules:
+        findings.append(
+            Finding(
+                law="LAW9",
+                check="Design-level: model-lifecycle evidence not statically provable",
+                passed=False,
+                severity=Severity.INFO,
+                evidence=(
+                    "Per-horizon OOS/calibration results against each horizon's own matured "
+                    "outcomes, retraining-trigger-to-action mapping, online-update bounds, and "
+                    "shadow/promotion/rollback audit records require runtime evidence; "
+                    "confirm with the LAW9 design checklist and tests"
+                ),
+                file=learning_modules[0],
+            )
+        )
+
     return findings
+
+
+# ── Horizon configuration check ───────────────────────────────────────────────
+
+
+def _trainer_compatible_models(loader: Path) -> set[str] | None:
+    """The architecture set the horizon loader accepts, read from its AST.
+
+    Looks for the `set(...) - {..literal..}` expression load_horizon_specs uses
+    to reject architectures without a compatible trainer. None when it cannot be
+    established, which the caller reports instead of assuming compatibility.
+    """
+    try:
+        tree = ast.parse(loader.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        return None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.BinOp)
+            and isinstance(node.op, ast.Sub)
+            and isinstance(node.right, ast.Set)
+            and all(
+                isinstance(e, ast.Constant) and isinstance(e.value, str) for e in node.right.elts
+            )
+        ):
+            return {e.value for e in node.right.elts}  # type: ignore[union-attr]
+    return None
+
+
+def _parse_horizons(text: str) -> dict[str, dict[str, object]] | None:
+    """Parse the flat `horizons:` mapping without a YAML dependency.
+
+    Returns None for any shape this minimal reader does not understand, so an
+    unreadable configuration is reported rather than silently accepted.
+    """
+    horizons: dict[str, dict[str, object]] = {}
+    current: dict[str, object] | None = None
+    in_root = False
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].rstrip()
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent == 0:
+            in_root = line.strip() == "horizons:"
+            current = None
+            continue
+        if not in_root:
+            continue
+        key, sep, value = line.strip().partition(":")
+        if not sep:
+            return None
+        value = value.strip()
+        if indent == 2 and not value:
+            current = horizons.setdefault(key, {})
+        elif indent == 4 and current is not None:
+            if value.startswith("[") and value.endswith("]"):
+                current[key] = [
+                    v.strip().strip("\"'").lower() for v in value[1:-1].split(",") if v.strip()
+                ]
+            else:
+                current[key] = value.strip("\"'")
+        else:
+            return None
+    return horizons
+
+
+def check_horizon_config(config: Path, loader: Path | None) -> list[Finding]:
+    """Declared prediction horizons must be well-formed and trainable."""
+    rel = _rel(config)
+    try:
+        text = config.read_text(encoding="utf-8")
+    except OSError as exc:
+        return [Finding("IO", f"Read {rel}", False, Severity.HIGH, str(exc), file=rel)]
+    horizons = _parse_horizons(text)
+    if horizons is None:
+        return [
+            Finding(
+                "LAW9",
+                "Horizon configuration could not be verified",
+                False,
+                Severity.HIGH,
+                "Unrecognised structure; declared horizons cannot be checked statically",
+                file=rel,
+            )
+        ]
+    findings: list[Finding] = []
+    compatible = _trainer_compatible_models(loader) if loader else None
+    if compatible is None:
+        findings.append(
+            Finding(
+                "LAW9",
+                "Horizon model compatibility not statically provable",
+                False,
+                Severity.MEDIUM,
+                "The horizon loader's trainer-compatible architecture set was not found; "
+                "declared models cannot be shown trainable",
+                file=rel,
+            )
+        )
+    ids: dict[str, str] = {}
+    labels: dict[str, str] = {}
+    problems: list[str] = []
+    for key, spec in horizons.items():
+        hid, label, seconds = (
+            str(spec.get("id", "")),
+            str(spec.get("label", "")),
+            spec.get("seconds"),
+        )
+        if not re.fullmatch(r"\d+", hid) or hid in ids:
+            problems.append(f"{key}: missing, negative or duplicate id")
+        ids.setdefault(hid, key)
+        if label and label in labels:
+            problems.append(f"{key}: duplicate label {label!r}")
+        labels.setdefault(label, key)
+        if not re.fullmatch(r"[1-9]\d*", str(seconds or "")):
+            problems.append(f"{key}: seconds must be a positive integer")
+        models = spec.get("models")
+        if not isinstance(models, list) or not models:
+            problems.append(f"{key}: declares no model")
+        elif compatible is not None and set(models) - compatible:
+            problems.append(f"{key}: {sorted(set(models) - compatible)} have no compatible trainer")
+    findings.append(
+        Finding(
+            "LAW9",
+            "Declared horizons agree with the effective loader contract",
+            passed=not problems,
+            severity=Severity.HIGH,
+            evidence="; ".join(problems) if problems else f"{len(horizons)} horizons verified",
+            file=rel,
+        )
+    )
+    return findings
+
+
+def _horizon_config_for(dirpath: Path) -> tuple[Path, Path] | None:
+    """config/horizons.yaml and its loader for a scanned source tree, if present."""
+    for root in (dirpath, dirpath.parent):
+        config = root / "config" / "horizons.yaml"
+        if config.is_file():
+            return config, root / "src" / "models" / "horizon_config.py"
+    return None
 
 
 # ── Design-level checklist ────────────────────────────────────────────────────
@@ -884,6 +1310,21 @@ DESIGN_CHECKS: dict[str, list[tuple[str, Severity]]] = {
         ("Automated retraining pipeline with OOS validation gate?", Severity.HIGH),
         ("LLM-generated signals: adversarial input validation + same drift gates?", Severity.HIGH),
         ("Conformal prediction coverage validated for sizing models?", Severity.MEDIUM),
+        (
+            "Each horizon scored against its own matured outcomes (not only the ensemble)?",
+            Severity.HIGH,
+        ),
+        ("Unmatured observations never count as outcomes or update a model?", Severity.CRITICAL),
+        ("Online updates causal, bounded, with explicit accept/reject rules?", Severity.HIGH),
+        ("Every retraining trigger mapped to an action, event or documented gap?", Severity.HIGH),
+        (
+            "Promotion records model/data/schema provenance and a rollback target?",
+            Severity.HIGH,
+        ),
+        (
+            "Missing/stale/incompatible model evidence fails closed (never operational)?",
+            Severity.CRITICAL,
+        ),
     ],
     "LAW10": [
         ("Wash trade detection active pre-submission?", Severity.CRITICAL),
@@ -983,7 +1424,21 @@ def scan_directory(dirpath: Path) -> list[Finding]:
             paths.append(path)
             findings.extend(check_patterns(path))
             findings.extend(check_ast(path))
+    if not paths:
+        findings.append(
+            Finding(
+                "IO",
+                f"Scan {_rel(dirpath)}",
+                False,
+                Severity.HIGH,
+                "No scannable source files found; an empty scan is not a pass",
+                file=_rel(dirpath),
+            )
+        )
     findings.extend(cross_file_checks(paths))
+    located = _horizon_config_for(dirpath)
+    if located:
+        findings.extend(check_horizon_config(*located))
     return findings
 
 
@@ -1036,8 +1491,12 @@ def main() -> None:
         if not args.file.exists():
             print(f"ERROR: File not found: {args.file}", file=sys.stderr)
             sys.exit(2)
-        report.findings.extend(check_patterns(args.file))
-        report.findings.extend(check_ast(args.file))
+        if args.file.name in {"horizons.yaml", "horizons.yml"}:
+            loader = args.file.resolve().parent.parent / "src" / "models" / "horizon_config.py"
+            report.findings.extend(check_horizon_config(args.file, loader))
+        else:
+            report.findings.extend(check_patterns(args.file))
+            report.findings.extend(check_ast(args.file))
 
     if args.dir:
         if not args.dir.is_dir():
@@ -1074,11 +1533,16 @@ def main() -> None:
         if not args.baseline.exists():
             print(f"ERROR: Baseline not found: {args.baseline}", file=sys.stderr)
             sys.exit(2)
-        known = set(json.loads(args.baseline.read_text(encoding="utf-8")).get("fingerprints", []))
+        try:
+            data = json.loads(args.baseline.read_text(encoding="utf-8"))
+            known = set(data["fingerprints"])
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            print(f"ERROR: Malformed baseline {args.baseline}: {exc}", file=sys.stderr)
+            sys.exit(2)
         report.apply_baseline(known)
 
     if args.sarif:
-        output = json.dumps(report.to_sarif(), indent=2)
+        output = json.dumps(report.to_sarif(fail_threshold=fail_sev), indent=2)
     elif args.json:
         output = json.dumps(report.to_dict(fail_threshold=fail_sev), indent=2)
     else:

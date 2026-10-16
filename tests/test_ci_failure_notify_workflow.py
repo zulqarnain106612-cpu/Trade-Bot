@@ -1,47 +1,38 @@
-"""
-The failure notice is the thing that makes not-polling safe.
-
-GOV-011 and GOV-012 forbid an agent from going and looking at CI: no live
-watch, and no unbounded log fetch. That is only workable if failures come to
-the pull request on their own. These tests pin the properties that make the
-notice trustworthy -- it fires on every not-green conclusion including an
-unexcused skip, carries the exact failing lines rather than only a step name,
-stays inside the same line budget the command policy enforces, and replaces its
-own prior comment instead of stacking new ones.
+"""The autonomous CI diagnostics collector replaces the old fail-fast notifier.
 
 Decides:
+<<<<<<< HEAD
   - GOV-013 — CI failure is pushed to the pull request; a bounded watcher cancels sibling runs
   - GOV-020 — One comment per commit carries the status and the exact failing lines
   - REG-0020 — The CI notice names the error of a failure no pattern recognises
   - REG-0021 — The CI notice resolves no pull request and posts nothing
   - REG-0023 — A crashed test worker is named in the notice, not reduced to its last stdout line
+=======
+  - GOV-013 — CI diagnostics are collected autonomously and never require log polling
+>>>>>>> origin/main
 """
 
 from __future__ import annotations
 
-import json
-import re
 from pathlib import Path
 
-import pytest
 import yaml
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "ci-failure-notify.yml"
+ROOT = Path(__file__).resolve().parents[1]
+OLD_WORKFLOW = ROOT / ".github/workflows/ci-failure-notify.yml"
+COLLECTOR_WORKFLOW = ROOT / ".github/workflows/ci-diagnostics.yml"
 
 
-@pytest.fixture(scope="module")
-def spec() -> dict:
-    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+def _triggers(spec: dict) -> dict:
+    # PyYAML treats a bare `on` key as boolean True under YAML 1.1.
+    return spec.get("on") or spec.get(True) or {}
 
 
-@pytest.fixture(scope="module")
-def script(spec: dict) -> str:
-    steps = spec["jobs"]["notify"]["steps"]
-    bodies = [s.get("with", {}).get("script", "") for s in steps]
-    return "\n".join(b for b in bodies if b)
+def test_old_fail_fast_workflow_is_retired() -> None:
+    assert not OLD_WORKFLOW.exists(), "the old workflow cancels sibling checks and must not run"
 
 
+<<<<<<< HEAD
 class TestTrigger:
     def test_it_runs_for_workflow_run_lifecycle_events(self, spec):
         # PyYAML parses a bare `on:` key as the boolean True.
@@ -409,3 +400,37 @@ class TestACrashedWorkerIsNamed:
     def test_a_session_level_abort_is_reported(self, script):
         for line in ("INTERNALERROR> RuntimeError: boom", "!!!! Interrupted: 1 error !!!!"):
             assert first_match(script, [line, "Event loop is closed"]) == [line], line
+=======
+def test_collector_is_autonomous_and_starts_only_after_source_completion() -> None:
+    spec = yaml.safe_load(COLLECTOR_WORKFLOW.read_text(encoding="utf-8"))
+    triggers = _triggers(spec)
+    assert triggers["workflow_run"]["types"] == ["completed"]
+    assert set(triggers["workflow_run"]["workflows"]) == {
+        "CI",
+        "CodeQL",
+        "Security",
+        "Workflow lint",
+    }
+    assert "pull_request" not in triggers
+    assert "workflow_dispatch" not in triggers
+    assert spec["jobs"]["collect"]["permissions"]["actions"] == "read"
+    assert spec["jobs"]["collect"]["permissions"]["checks"] == "write"
+    assert (
+        "python3 scripts/ci_diagnostics.py collect" in spec["jobs"]["collect"]["steps"][-1]["run"]
+    )
+
+
+def test_collector_does_not_cancel_source_runs_or_publish_pr_comments() -> None:
+    workflow = COLLECTOR_WORKFLOW.read_text(encoding="utf-8")
+    collector = (ROOT / "scripts/ci_diagnostics.py").read_text(encoding="utf-8")
+    assert "cancel-in-progress: false" in workflow
+    assert "actions: write" not in workflow
+    assert "cancelWorkflowRun" not in collector
+
+
+def test_report_cli_is_the_single_agent_facing_route() -> None:
+    policy = (ROOT / "config/command_policy.json").read_text(encoding="utf-8")
+    cli = (ROOT / "scripts/prfail").read_text(encoding="utf-8")
+    assert "./scripts/prfail --pr <PR_NUMBER>" in policy
+    assert "from ci_diagnostics import main_prfail" in cli
+>>>>>>> origin/main

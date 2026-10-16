@@ -106,10 +106,13 @@ def test_fusion_rejects_each_unusable_forecast_shape() -> None:
         {"confidence_calibrated": False},
         {"uncertainty_calibrated": False},
         {"prediction_ts": None},
+<<<<<<< HEAD
         {"prediction_ts": float("nan")},
         {"prediction_ts": float("inf")},
         {"prediction_ts": float("-inf")},
         {"prediction_ts": "not-a-timestamp"},
+=======
+>>>>>>> origin/main
         {"oos_score": None},
         {"oos_sample_count": 99},
         {"oos_score": float("nan")},

@@ -65,6 +65,7 @@ def test_refresh_refuses_to_hide_missing_tracked_paths(tmp_path: Path, monkeypat
     _, issues = indexer.refresh_file_index(index, tmp_path)
 
     assert any(
+<<<<<<< HEAD
         "tracked path is missing from the working tree: src/missing.py" in issue
         for issue in issues
     )
@@ -72,6 +73,11 @@ def test_refresh_refuses_to_hide_missing_tracked_paths(tmp_path: Path, monkeypat
         "tracked path is missing from the working tree: new.py" in issue
         for issue in issues
     )
+=======
+        "tracked path is missing from the working tree: src/missing.py" in issue for issue in issues
+    )
+    assert any("tracked path is missing from the working tree: new.py" in issue for issue in issues)
+>>>>>>> origin/main
 
 
 def test_anchor_validation_reports_stale_hash_and_out_of_range(tmp_path: Path) -> None:
@@ -81,8 +87,12 @@ def test_anchor_validation_reports_stale_hash_and_out_of_range(tmp_path: Path) -
     digest, _ = _facts(source)
     (tmp_path / "codebase-analysis-docs").mkdir()
     (tmp_path / "codebase-analysis-docs" / "CHUNK_INDEX.md").write_text(
+<<<<<<< HEAD
         "## src/example.py\n\nSHA8 00000000; total lines 9.\n"
         "- [[F:src/example.py#1-2#00000000]]\n",
+=======
+        "## src/example.py\n\nSHA8 00000000; total lines 9.\n- [[F:src/example.py#1-2#00000000]]\n",
+>>>>>>> origin/main
         encoding="utf-8",
     )
     master = f"Stable source: [[F:src/example.py#1-2#{digest}]]"
@@ -94,6 +104,10 @@ def test_anchor_validation_reports_stale_hash_and_out_of_range(tmp_path: Path) -
     assert any("invalid CHUNK_INDEX.md anchor range" in issue for issue in issues)
     assert any("invalid CODEBASE_KNOWLEDGE.md anchor range" in issue for issue in issues)
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> origin/main
 def test_api_reference_must_match_source_route_and_line() -> None:
     source = '@app.get("/status")\nasync def status():\n    return {"ok": True}\n'
     valid_reference = (
@@ -112,9 +126,13 @@ def test_api_reference_must_match_source_route_and_line() -> None:
     assert "route inventory differs" in issues[0]
 
 
+<<<<<<< HEAD
 def test_refresh_adds_new_tracked_paths_and_updates_totals(
     tmp_path: Path, monkeypatch
 ) -> None:
+=======
+def test_refresh_adds_new_tracked_paths_and_updates_totals(tmp_path: Path, monkeypatch) -> None:
+>>>>>>> origin/main
     existing = tmp_path / "src" / "existing.py"
     existing.parent.mkdir()
     existing.write_text("value = 1\n", encoding="utf-8")
@@ -131,7 +149,11 @@ def test_refresh_adds_new_tracked_paths_and_updates_totals(
         "## Complete tracked-file index\n"
         "| # | Priority | Path | Type | Lines | SHA8 | Notes |\n"
         "| ---: | --- | --- | --- | ---: | --- | --- |\n"
+<<<<<<< HEAD
         + f"| 1 | P0 | src/existing.py | Python | {count} | {digest} | existing note |\n"
+=======
+        + (f"| 1 | P0 | src/existing.py | Python | {count} | {digest} | existing note |\n")
+>>>>>>> origin/main
     )
     monkeypatch.setattr(
         indexer,

@@ -22,14 +22,44 @@
   ],
   "protected_boundary_paths": [
     ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".claude/hooks/_gh_contract.py",
     ".claude/hooks/pre_tool_use.py",
     ".claude/hooks/observation_gate.py",
     ".claude/hooks/observation_failure.py",
+    ".claude/hooks/quality_gate.py",
+    ".claude/hooks/completion_gate.py",
+    ".claude/hooks/task_lifecycle.py",
+    ".claude/hooks/precompact_checkpoint.py",
+    ".claude/hooks/session-start.sh",
     "config/observation_boundary.json",
+    "config/command_policy.json",
+    "src/agent_control/reliability.py",
+    "src/agent_control/completion.py",
     "tests/test_observation_boundary_contract.py",
     "tests/test_pre_tool_use_hook.py",
+    "tests/test_github_route_contract.py",
     "CLAUDE.md",
-    ".mcp.json"
+    ".mcp.json",
+    ".github/workflows",
+    ".github/CODEOWNERS",
+    "config/quality_registry.json",
+    "common/command_schema.py",
+    "common/shell_exec.py",
+    "scripts/ci_diagnostics.py",
+    "scripts/prfail",
+    "scripts/apply_ci_patch.py",
+    "scripts/ci_verdict.py",
+    "scripts/local_checks.py",
+    "tests/test_ci_diagnostics.py",
+    "tests/test_ci_log_access.py",
+    "tests/test_local_checks.py",
+    "tests/test_apply_ci_patch.py",
+    "docs/quality/REQUIREMENTS_TRACEABILITY.md",
+    "AGENTS.md",
+    "tests/test_ci_failure_notify_workflow.py",
+    "tests/test_ci_notice_supersession.py",
+    "tests/test_merge_queue_wiring.py"
   ],
   "policy": {
     "changed_local_source": "diff_first",
@@ -40,15 +70,19 @@
     "environment_scope": "only exact allowlisted, repository-scoped GitHub MCP operations can run; every successful result crosses PostToolUse '*'"
   },
   "notes": [
-    "Hard GitHub tool allowlist is code-owned in .claude/hooks/pre_tool_use.py; this JSON cannot add an execution route.",
-    "Every tool not explicitly allowlisted is denied before execution, including newly introduced tool names.",
-    "Repository writes require an explicitly named non-main branch; boundary files and tree deletions are denied.",
+    "Hard GitHub tool contract is code-owned in .claude/hooks/_gh_contract.py; this JSON cannot add an execution route.",
+    "Tool names in that contract are the verified tools/list inventory of the connected server; a name outside it is denied as unverified, so a server-side rename cannot silently open a route.",
+    "Every verified server tool is either contracted or denied with a stated reason; a contract gap fails closed.",
+    "pull_request_read and issue_read are gated on method: CI run data (get_status, get_check_runs), whole-PR reports (get_diff, get_files, get_commits) and arbitrary comment bodies (get_comments, get_reviews, get_review_comments) are denied.",
+    "File writes are reduced to changed candidates: a delta payload is reconstructed by the hook against the fetched body and passed through updatedInput, and a no-op or bulk rewrite is refused.",
+    "Repository writes require an explicitly named non-main branch; boundary files and file deletions are denied.",
+    "Permission settings cannot express deny-by-default (defaultMode has no deny value), so the PreToolUse hook is the deny-by-default layer; a hook error or timeout leaves the tool call unexecuted.",
     "Project files cannot constrain a separate unmanaged Claude installation outside sessions that load these settings and hooks; host-managed policy is required for that separate trust boundary.",
     "enabled is documentary only; hard enforcement lives in code.",
     "All limits are bounded again by hard ceilings in the hooks.",
     "The observation mechanism has no runtime off switch.",
     "Hosted Claude Code sessions must select only this repository and expose only GitHub MCP in the host connector inventory; see docs/security/claude-cloud-github-only.md.",
-    "Do not rely on .claude/settings.local.json for hosted cloud enforcement; host-level connector configuration and repository hooks are separate control layers."
+    "Do not rely on .claude/settings.local.json for enforcement: it is untracked, so it reaches no other clone; .claude/settings.json is the single source of truth."
   ],
   "github_only_route": {
     "enabled": true,
@@ -59,6 +93,11 @@
     "unscoped_github_requests": "deny",
     "main_branch_writes": "deny",
     "ci_logs_jobs_artifacts_checks_statuses_and_caches": "deny",
-    "boundary_policy_mutation": "deny"
+    "boundary_policy_mutation": "deny",
+    "unverified_tool_policy": "deny",
+    "contract_gap_policy": "deny",
+    "argument_contract": "enforced per tool (method enums, required fields, perPage ceiling, single-file paths)",
+    "pr_and_ci_methods": "pull_request_read/issue_read restricted to method=get",
+    "write_contract": "delta blocks reconstructed by the hook; no-op, bulk rewrite, unfetched sha and protected paths denied"
   }
 }

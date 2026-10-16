@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """
 REG-0024 — local test/build/check execution is disabled; only the current
 HEAD's single SHA-bound CI notice may be read through prepare.
@@ -5,28 +6,36 @@ HEAD's single SHA-bound CI notice may be read through prepare.
 Decides:
   - REG-0024 — the agent receives only the exact new notice and cannot run checks locally
 """
+=======
+"""REG-0024 — local execution is disabled and the old comment route is retired."""
+>>>>>>> origin/main
 
 from __future__ import annotations
 
 import importlib.util
 import json
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "local_checks.py"
+DENIAL = (
+    "THAPPAR — CI DIAGNOSTIC ACCESS BLOCKED. Use only: "
+    "./scripts/prfail --pr <PR_NUMBER>. "
+    "Direct or alternative diagnostic retrieval is prohibited."
+)
 
 
 def load_module():
     spec = importlib.util.spec_from_file_location("local_checks", SCRIPT)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
 
 
-def test_ci_notice_paths_are_narrow():
+def test_legacy_prepare_function_is_retired() -> None:
     module = load_module()
+<<<<<<< HEAD
     comment = """
     <!-- ci-notice -->
     <!-- ci-notice-sha:abc123 -->
@@ -137,6 +146,37 @@ def test_shell_exec_refuses_local_test_and_build_commands():
 
 
 def test_policy_has_one_execution_path_and_one_comment_subscription():
+=======
+    try:
+        module.prepare()
+    except SystemExit as exc:
+        assert str(exc) == DENIAL
+    else:
+        raise AssertionError("legacy prepare() must not access GitHub or print the old notice")
+
+
+def test_legacy_prepare_cli_is_denied() -> None:
+    module = load_module()
+    try:
+        module.main(["prepare"])
+    except SystemExit as exc:
+        assert str(exc) == DENIAL
+    else:
+        raise AssertionError("legacy prepare CLI must be denied")
+
+
+def test_local_run_cli_stays_disabled() -> None:
+    module = load_module()
+    try:
+        module.main(["run"])
+    except SystemExit as exc:
+        assert "GitHub Actions is the sole test/build/check execution path" in str(exc)
+    else:
+        raise AssertionError("local check execution must remain disabled")
+
+
+def test_policy_has_one_execution_path_and_retires_comment_subscription() -> None:
+>>>>>>> origin/main
     from common.command_schema import LOCAL_CHECK_PATTERNS
 
     policy = json.loads((ROOT / "config" / "command_policy.json").read_text(encoding="utf-8"))
@@ -144,6 +184,7 @@ def test_policy_has_one_execution_path_and_one_comment_subscription():
     assert local["github_only"] is True
     assert local["run_command"].startswith("DISABLED:")
     assert tuple(local["blocked_patterns"]) == LOCAL_CHECK_PATTERNS
+<<<<<<< HEAD
     assert local["prepare_command"] == "python3 scripts/local_checks.py prepare"
 
 
@@ -162,3 +203,6 @@ def test_the_script_can_import_the_repository_package(monkeypatch):
     monkeypatch.setattr(sys, "path", [p for p in sys.path if Path(p or ".").resolve() != ROOT])
     load_module()
     assert str(ROOT) in sys.path
+=======
+    assert local["prepare_command"] == "DISABLED: superseded by ./scripts/prfail --pr <PR_NUMBER>"
+>>>>>>> origin/main

@@ -1,5 +1,16 @@
 # Trading Strategies Reference
 
+## Trade-Bot integration (verified against the repository)
+
+- Strategies: `src/strategies/` (breakout, mean_reversion, funding_carry,
+  basis_trade, xsec_momentum, regime_strategy_selector, …); per-timeframe signals:
+  `src/engine/signal_engine.py`; risk gates: `src/risk/gates.py`.
+- Active execution loops are `1m`, `15m`, `4h` (`src/config.py` `Timeframe`).
+  Prediction horizons (`config/horizons.yaml`) are separate optional analytics.
+- DeFi, MEV, restaking and prediction-market strategies below are design
+  references only; the repository has no on-chain order execution.
+- Every threshold below is an example unless repository policy defines it.
+
 ## Strategy Classification Framework
 
 | Dimension | Options |
@@ -51,7 +62,8 @@ def volume_momentum(closes, volumes, window=20):
 ```
 If funding > threshold:
   Short perp + Long spot → collect funding
-Net yield = funding_rate × 3 × 365 − borrow_cost − execution_cost
+Net yield = funding_rate × (funding intervals per day) × 365 − borrow_cost − execution_cost
+# 3 intervals/day only for 8-hour funding; intervals differ by venue and contract
 ```
 - Extreme funding (> 0.1% per 8h): signal of pending squeeze; reduce before squeeze
 - Composite funding: average across Binance, OKX, Bybit, Hyperliquid
@@ -66,8 +78,8 @@ Carry = Basis / Spot × (Days_to_Expiry / 365)
 ```
 - Positive basis: contango; short futures + long spot → earn roll yield
 - Quarterly expiry: basis typically collapses at expiry — position accordingly
-- ETF-adjacent basis: post-BTC ETF launch, institutional basis arb compressed annualized
-  basis from >10% to 3–5%; model accurately in 2024+ environment
+- ETF-adjacent basis: reports of compressed annualized basis after the BTC ETF
+  launch are historical; current status requires confirmation; measure current basis
 
 ---
 
@@ -113,7 +125,7 @@ Net APY = Staking APY + Restaking Premium - Slashing Probability × Slash Fracti
 - AVS selection: only AVSes with completed security audits and known slashing conditions
 - LRT vs direct restaking: direct = gas efficiency; LRT = composability + liquidity
   (redeemable via DEX) but adds protocol risk layer
-- Exit strategy: EigenLayer 7-day withdrawal delay; LRT DEX exit is instant but
+- Exit strategy: EigenLayer withdrawal delay (historical; current status requires confirmation); LRT DEX exit is instant but
   subject to depeg; model both paths in liquidity planning
 
 ### Prediction Market Strategy (Polymarket)
@@ -155,7 +167,7 @@ class EnsembleSignal:
             return Signal(action=HOLD, reason="all_signals_below_threshold")
         ensemble_score = sum(
             weights[k] * v.value for k, v in filtered.items() if k in weights
-        ) / sum(weights[k] for k in filtered)
+        ) / sum(weights[k] for k in filtered if k in weights)
         return Signal(
             value=ensemble_score,
             confidence=min(v.confidence for v in filtered.values()),
@@ -188,6 +200,8 @@ flash_crash_halt_threshold_pct: 5.0
 
 ### Minimum Requirements
 - Walk-forward validation: rolling 252-day train, 63-day test; minimum 10 folds
+  (example). Trade-Bot's model training uses CPCV with purge and embargo
+  (`src/models/trainer.py`); the purge window must cover the label horizon
 - No lookahead: all features shifted by 1 bar minimum; audit with point-in-time data
 - Transaction costs: include spread (1/2 bid-ask), fee tier, slippage model (square-root)
 - Funding costs (for leveraged): include borrow rate and funding payments
@@ -203,6 +217,9 @@ flash_crash_halt_threshold_pct: 5.0
   validate on 2022 bear, 2024 consolidation, 2025 data separately
 
 ### Deflated Sharpe Ratio
-- When testing N strategies: true SR threshold = `SR* × sqrt(1 + (1-γ)log(N))`
+- When testing N strategies, the expected maximum Sharpe under the null is
+  `sqrt(V[SR]) × ((1-γ) Φ⁻¹(1 - 1/N) + γ Φ⁻¹(1 - 1/(N·e)))` (γ ≈ 0.5772, Euler–Mascheroni);
+  DSR is the probabilistic Sharpe ratio against that benchmark
+  (Bailey & López de Prado 2014). Implemented in `src/tuning/evaluator.py`
 - Prevents false discovery from running many variations
 - Required when strategy came from a search of > 20 parameter combinations

@@ -20,6 +20,26 @@ import structlog
 log = structlog.get_logger(__name__)
 
 
+<<<<<<< HEAD
+=======
+def _ensure_column(db: Any, table: str, name: str, sql_type: str) -> None:
+    """Add a missing column safely when concurrent startup migrates the same DB."""
+    columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+    if name in columns:
+        return
+    try:
+        db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).casefold():
+            raise
+        # Another process may have added this column after our initial PRAGMA.
+        # Only suppress the error if a fresh schema read confirms that outcome.
+        columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+        if name not in columns:
+            raise
+
+
+>>>>>>> origin/main
 class HorizonLearningStore:
     """Persist feature snapshots and train only after their horizon matures.
 
@@ -57,7 +77,10 @@ class HorizonLearningStore:
                     error TEXT
                 )"""
             )
+<<<<<<< HEAD
             columns = {row[1] for row in db.execute("PRAGMA table_info(horizon_samples)")}
+=======
+>>>>>>> origin/main
             for name, sql_type in (
                 ("provider", "TEXT NOT NULL DEFAULT 'unknown'"),
                 ("source_timeframe", "TEXT"),
@@ -76,8 +99,12 @@ class HorizonLearningStore:
                 ("candidate_oos_correct", "INTEGER"),
                 ("candidate_oos_squared_error", "REAL"),
             ):
+<<<<<<< HEAD
                 if name not in columns:
                     db.execute(f"ALTER TABLE horizon_samples ADD COLUMN {name} {sql_type}")
+=======
+                _ensure_column(db, "horizon_samples", name, sql_type)
+>>>>>>> origin/main
             db.execute(
                 "CREATE INDEX IF NOT EXISTS horizon_samples_due "
                 "ON horizon_samples(symbol, due_ts, outcome)"
@@ -86,9 +113,13 @@ class HorizonLearningStore:
                 "CREATE INDEX IF NOT EXISTS horizon_samples_training "
                 "ON horizon_samples(symbol, trained, matured_at, event_ts)"
             )
+<<<<<<< HEAD
             columns = {row[1] for row in db.execute("PRAGMA table_info(horizon_samples)")}
             if "trained_at" not in columns:
                 db.execute("ALTER TABLE horizon_samples ADD COLUMN trained_at REAL")
+=======
+            _ensure_column(db, "horizon_samples", "trained_at", "REAL")
+>>>>>>> origin/main
             db.execute(
                 """CREATE TABLE IF NOT EXISTS horizon_events (
                     event_id TEXT PRIMARY KEY,
@@ -104,7 +135,10 @@ class HorizonLearningStore:
                     regime_id INTEGER
                 )"""
             )
+<<<<<<< HEAD
             event_columns = {row[1] for row in db.execute("PRAGMA table_info(horizon_events)")}
+=======
+>>>>>>> origin/main
             for name, sql_type in (
                 ("provider", "TEXT NOT NULL DEFAULT 'unknown'"),
                 ("quality", "TEXT NOT NULL DEFAULT 'unverified'"),
@@ -113,8 +147,12 @@ class HorizonLearningStore:
                 ("payload_json", "TEXT NOT NULL DEFAULT '{}'"),
                 ("regime_id", "INTEGER"),
             ):
+<<<<<<< HEAD
                 if name not in event_columns:
                     db.execute(f"ALTER TABLE horizon_events ADD COLUMN {name} {sql_type}")
+=======
+                _ensure_column(db, "horizon_events", name, sql_type)
+>>>>>>> origin/main
             db.execute(
                 "CREATE INDEX IF NOT EXISTS horizon_events_source_order "
                 "ON horizon_events(symbol, event_ts DESC)"

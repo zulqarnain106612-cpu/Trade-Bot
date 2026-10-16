@@ -97,6 +97,25 @@ def test_preflight_distinguishes_api_runtime_and_model_readiness() -> None:
     )
 
 
+def test_preflight_tracks_first_tick_evidence_for_all_timeframes() -> None:
+    from scripts.startup_preflight import _LogWatcher
+
+    watcher = _LogWatcher(iter(()), time.monotonic())
+    for timeframe in ("1m", "15m", "4h"):
+        watcher._note(
+            {
+                "event": "orchestrator.tick_complete",
+                "level": "info",
+                "trace_id": f"trace-{timeframe}",
+                "timeframe": timeframe,
+            }
+        )
+
+    first_ticks = watcher.snapshot()["first_tick_s"]
+    assert set(first_ticks) == {"1m", "15m", "4h"}
+    assert all(isinstance(first_ticks[timeframe], float) for timeframe in first_ticks)
+
+
 def test_preflight_does_not_accept_a_legacy_status_only_report() -> None:
     from scripts.startup_preflight import _readiness_signals
 
@@ -456,17 +475,42 @@ def test_readiness_reports_the_age_of_the_last_tick() -> None:
     assert entry["last_tick_age_s"] >= 5.0
 
 
-async def test_each_timeframe_loop_registers_its_own_tick_source() -> None:
+@pytest.mark.parametrize("timeframe", list(Timeframe))
+async def test_each_timeframe_loop_registers_its_own_tick_source(timeframe: Timeframe) -> None:
     orch = _make_orch()
     monitor = MagicMock()
     orch._running = False  # the loop registers, then exits at once
     with patch("src.engine.orchestrator.get_monitor", return_value=monitor):
-        await orch._timeframe_loop(Timeframe.INTRADAY)
-    (timeframe, getter), _ = monitor.register_tick_source.call_args
-    assert timeframe == "15m"
+        await orch._timeframe_loop(timeframe)
+    (registered_timeframe, getter), _ = monitor.register_tick_source.call_args
+    assert registered_timeframe == timeframe.value
     assert getter() == 0.0
-    orch._last_tick_ts["15m"] = 42.0
+    orch._last_tick_ts[timeframe.value] = 42.0
     assert getter() == 42.0
+
+
+@pytest.mark.parametrize("timeframe", list(Timeframe))
+async def test_each_timeframe_loop_dispatches_its_first_tick(timeframe: Timeframe) -> None:
+    orch = _make_orch()
+    monitor = MagicMock()
+    observed: list[Timeframe] = []
+    orch._running = True
+
+    async def _tick(tf: Timeframe) -> None:
+        observed.append(tf)
+        orch._running = False
+
+    async def _wait_for_bar(_seconds: int) -> None:
+        return None
+
+    orch._tick = _tick
+    orch._sleep_until_next_bar = _wait_for_bar
+    with patch("src.engine.orchestrator.get_monitor", return_value=monitor):
+        await orch._timeframe_loop(timeframe)
+
+    assert observed == [timeframe]
+    monitor.register_tick_source.assert_called_once()
+    assert monitor.register_tick_source.call_args.args[0] == timeframe.value
 
 
 # ---------------------------------------------------------------------------

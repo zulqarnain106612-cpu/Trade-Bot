@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import importlib.util
 import json
 import os
 import re
@@ -424,11 +426,139 @@ def _compact_any(value: object, *, tool: str, field: str = "", command: str = ""
     return value
 
 
+GH_READ_TOOL = "mcp__github__get_file_contents"
+GH_SEARCH_TOOL = "mcp__github__search_code"
+_SHA_RE = re.compile(r"SHA:\s*([0-9a-f]{40})")
+_CONTRACT = Path(__file__).resolve().parent / "_gh_contract.py"
+
+
+def _contract_module() -> Any:
+    spec = importlib.util.spec_from_file_location("_gh_contract_gate", _CONTRACT)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("_gh_contract_gate", module)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _walk_blocks(raw: Any) -> list[dict[str, Any]]:
+    if isinstance(raw, dict):
+        for key in ("content", "blocks", "result"):
+            inner = raw.get(key)
+            if isinstance(inner, list):
+                return [b for b in inner if isinstance(b, dict)]
+        return [raw]
+    if isinstance(raw, list):
+        return [b for b in raw if isinstance(b, dict)]
+    return []
+
+
+def _read_payload(raw: Any) -> tuple[str, str]:
+    """(blob sha, file text) out of a get_file_contents response."""
+    sha, text = "", ""
+    if isinstance(raw, str):
+        match = _SHA_RE.search(raw)
+        return (match.group(1) if match else ""), raw
+    for block in _walk_blocks(raw):
+        resource = block.get("resource")
+        if isinstance(resource, dict) and isinstance(resource.get("text"), str):
+            text = resource["text"]
+        body = block.get("text")
+        if isinstance(body, str):
+            match = _SHA_RE.search(body)
+            if match:
+                sha = match.group(1)
+            elif not text and len(body) > 200:
+                text = body
+    return sha, text
+
+
+def _search_payload(raw: Any) -> list[tuple[str, str]]:
+    """(path, exact matched fragment) pairs out of a search_code response."""
+    documents: list[Any] = []
+    for block in _walk_blocks(raw):
+        body = block.get("text")
+        if isinstance(body, str) and body.strip().startswith("{"):
+            try:
+                documents.append(json.loads(body))
+            except json.JSONDecodeError:
+                continue
+    if isinstance(raw, dict) and "items" in raw:
+        documents.append(raw)
+    hits: list[tuple[str, str]] = []
+    for document in documents:
+        if not isinstance(document, dict):
+            continue
+        for item in document.get("items", []) or []:
+            if not isinstance(item, dict):
+                continue
+            path = str(item.get("path") or item.get("name") or "")
+            for match in item.get("text_matches", []) or []:
+                if not isinstance(match, dict):
+                    continue
+                fragment = match.get("fragment")
+                if isinstance(fragment, str) and fragment.strip():
+                    hits.append((path, fragment))
+    return hits
+
+
+def _github_observation(event: dict[str, Any], raw: Any) -> Any | None:
+    """
+    Exact blocks for GitHub reads and searches; None when this is neither.
+
+    A search returns the matched fragments and nothing around them, and a
+    read returns only the block the call named, with real line numbers so a
+    follow-up can target a precise location.
+    """
+    tool = tool_name(event)
+    if tool not in {GH_READ_TOOL, GH_SEARCH_TOOL}:
+        return None
+    tool_input = event.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        tool_input = {}
+    try:
+        contract = _contract_module()
+    except Exception as exc:
+        return f"[observation withheld: contract unavailable {type(exc).__name__}]"
+
+    root = Path(os.environ.get("CLAUDE_PROJECT_DIR", Path(__file__).resolve().parents[2])).resolve()
+    store_root = root / ".claude" / ".hook-state" / "gh_blobs"
+
+    if tool == GH_SEARCH_TOOL:
+        hits = _search_payload(raw)
+        if not hits:
+            return "no match"
+        return "\n\n".join(f"{path}\n{fragment.strip()}" for path, fragment in hits)
+
+    sha, text = _read_payload(raw)
+    if not text:
+        return raw
+    path = str(tool_input.get("path") or "").strip()
+    ref = str(tool_input.get("ref") or "").strip()
+    # The full body is kept on disk, never in context: the write gate diffs
+    # against it so a delta write can be reconstructed into a whole blob.
+    with contextlib.suppress(OSError):
+        contract.BlobStore(store_root).put(path, ref, text, sha=sha)
+    target = contract.TargetStore(store_root).get(path, ref)
+    block, problem = contract.slice_to_target(text, target)
+    if problem:
+        return f"[no block returned: {problem}]"
+    return block
+
+
 def transform(event: dict[str, Any]) -> dict[str, Any]:
     raw = event.get("tool_response")
     tool = tool_name(event)
     tool_input = event.get("tool_input") or {}
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+
+    github_block = _github_observation(event, raw)
+    if github_block is not None:
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "updatedToolOutput": github_block,
+            }
+        }
 
     if tool in LOCAL_SOURCE_TOOLS:
         replacement = _source_observation(event, raw)

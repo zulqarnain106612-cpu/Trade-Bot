@@ -1,5 +1,14 @@
 # On-Chain Data Reference (New in v3)
 
+## Trade-Bot integration (verified against the repository)
+
+- On-chain features: `src/features/onchain.py`, `src/features/mempool.py`;
+  exchange flows: `src/data/exchange_flow_provider.py`; on-chain intelligence
+  providers under `src/intelligence/`. Provider names referenced in code
+  include Glassnode, CryptoQuant and blockchain.info.
+- Every on-chain feature must be point-in-time: timestamped by block time,
+  never by ingestion time, and aligned before the decision timestamp.
+
 ## Data Provider Taxonomy
 
 | Provider | Strengths | Primary Use |
@@ -88,14 +97,16 @@ def whale_accumulation_signal(
     whale_wallet_balances: pd.DataFrame,  # Rows: dates, Cols: wallet addresses
     threshold: float = 1000,  # BTC
 ) -> pd.Series:
-    whale_total = whale_wallet_balances[whale_wallet_balances.iloc[-1] > threshold].sum(axis=1)
+    # Select whales per date from that date's balance. Selecting by the LAST row
+    # (iloc[-1]) uses future information for every earlier date: look-ahead bias.
+    whale_total = whale_wallet_balances.where(whale_wallet_balances > threshold).sum(axis=1)
     return whale_total.pct_change(7)  # 7-day accumulation rate
 ```
 
 ### On-Chain Composite Index
 ```python
 def onchain_composite(nupl: float, mvrv: float, sopr: float, exchange_netflow_z: float) -> float:
-    """Composite bull/bear score; range [-1, 1]"""
+    """Composite bull/bear score; range [-0.85, 1.0] with these weights"""
     components = {
         "nupl": np.clip(nupl, -0.5, 1.0) / 1.0,  # Normalize to [-0.5, 1]
         "mvrv": np.clip((mvrv - 2.0) / 3.0, -1, 1),  # Normalize around 2
@@ -152,16 +163,14 @@ async def watch_pending_large_eth_txs(web3, min_value_eth: float = 100):
 
 ### Rate Limits and Reliability
 - Public RPCs: unreliable; never use in production
-- Alchemy: 330M CUs/month on Growth plan; monitor usage
+- Managed RPC plans and quotas change; read current limits from the provider
 - Multiple providers: failover between Alchemy, Infura, QuickNode; circuit breaker
 - Self-hosted node: optimal for latency-sensitive on-chain data; 6–12TB SSD for ETH archive
 
 ### Event Indexing
 ```python
-# Preferred: use event logs (efficient, indexed)
-from web3.middleware import geth_poa_middleware
-
-
+# Preferred: use event logs (efficient, indexed). web3.py v6-style API;
+# v7 renamed keyword arguments (from_block/to_block) — check the installed version.
 def index_transfer_events(contract, from_block: int, to_block: int):
     event_filter = contract.events.Transfer.create_filter(fromBlock=from_block, toBlock=to_block)
     return event_filter.get_all_entries()
@@ -208,7 +217,8 @@ Feature Engine (aggregate metrics → trading signals)
 ## Data Quality and Freshness
 
 ### Validation Rules
-- Freshness: on-chain data must be < 2 blocks old for real-time signals; alert otherwise
+- Freshness: set a maximum block lag per chain and signal (the example below uses 5);
+  alert and drop the signal when exceeded
 - Completeness: reconcile indexed event count against expected (spot-check block range)
 - Re-org handling: store block hash per record; detect re-org on hash change → replay
 - Schema validation: every decoded event validated against expected ABI schema;

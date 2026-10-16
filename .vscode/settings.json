@@ -4,5 +4,6 @@
   "python.analysis.typeCheckingMode": "basic",
   "ruff.nativeServer": true,
   "ruff.organizeImports": true,
-  "github-actions.workflows.pinnedGitHubAction": "warning"
+  "github-actions.workflows.pinnedGitHubAction": "warning",
+  "python-envs.defaultEnvManager": "ms-python.python:system"
 }

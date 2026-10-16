@@ -17,8 +17,13 @@ Environment differences handled automatically:
 Execution policy:
     GitHub Actions is the sole execution path for tests, builds, lint, security
     scans and quality gates. The runtime refuses local check commands before
+<<<<<<< HEAD
     execution. The only permitted local-check command is the SHA-filtered
     scripts/local_checks.py prepare notice reader.
+=======
+    execution. The only permitted CI report command is ./scripts/prfail --pr <PR_NUMBER>;
+    legacy local_checks.py prepare and local execution are denied.
+>>>>>>> origin/main
 """
 
 from __future__ import annotations
@@ -42,6 +47,10 @@ from common.command_schema import (
     build_env,
     classify,
     is_ci_log_access,
+<<<<<<< HEAD
+=======
+    is_exact_patch_apply_command,
+>>>>>>> origin/main
     is_local_check_execution,
     rank,
     redact,
@@ -334,24 +343,27 @@ def run(declaration: dict[str, Any], timeout: int = 120) -> dict[str, Any]:
 
     cmd: str = declaration["command"]
     policy: dict = declaration["output_policy"]
+    exact_patch_apply = is_exact_patch_apply_command(cmd)
 
     # ---- effect-class contract (schema 1.1.0) --------------------------
     # A declaration that under-states its effect is a hard error, not a
     # warning: the whole point of declaring is that the declaration, not the
     # shell string, is what a reviewer and the PreToolUse hook read.
     declared: str = declaration.get("classification", "read_only")
-    detected: str = classify(cmd)
+    detected: str = "mutating" if exact_patch_apply else classify(cmd)
 
     # ---- CI observability contract -------------------------------------
     # Ahead of every output control, because this is not an output-size
     # question. No line bound, filter or redaction makes reading a CI log
-    # allowed: the pull-request notice is the only channel, and it already
-    # carries the failing lines. Refused here as well as in the PreToolUse
-    # hook so that routing a command through this module -- the sanctioned way
-    # to run anything -- is not a way around the hook.
-    if is_ci_log_access(cmd):
+    # allowed: the finalized filtered Check Run report is the only permitted channel. Refused here as well as in the PreToolUse
+    # hook so that routing a command through this module is not a way around that rule.
+    if not exact_patch_apply and is_ci_log_access(cmd):
         return _refused(cmd, declared, CI_LOG_REFUSAL)
+<<<<<<< HEAD
     if is_local_check_execution(cmd):
+=======
+    if not exact_patch_apply and is_local_check_execution(cmd):
+>>>>>>> origin/main
         return _refused(cmd, declared, LOCAL_CHECK_REFUSAL)
     if rank(detected) > rank(declared):
         return _refused(

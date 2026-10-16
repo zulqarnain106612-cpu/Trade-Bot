@@ -55,9 +55,14 @@ def tracked_paths(root: Path = PROJECT_ROOT) -> set[str]:
         check=False,
     )
     if result.returncode:
+<<<<<<< HEAD
         raise RuntimeError(
             "git ls-files failed: " + result.stderr.decode("utf-8", errors="replace").strip()
         )
+=======
+        stderr = result.stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError("git ls-files failed: " + stderr)
+>>>>>>> origin/main
     # The knowledge pack is intentionally excluded even when its files are
     # committed: FILE_INDEX cannot contain a stable self-hash, and these
     # artifacts describe the repository rather than being application inputs.
@@ -151,7 +156,11 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
     priority_order = {"P0": 0, "P1": 1, "P2": 2}
     rows.sort(key=lambda row: (priority_order.get(row[0], 3), row[1]))
     rendered_rows = [
+<<<<<<< HEAD
         f"| {i} | {priority} | {path_text} | {type_name} | {line_count} | {digest} | {note} |"
+=======
+        (f"| {i} | {priority} | {path_text} | {type_name} | {line_count} | {digest} | {note} |")
+>>>>>>> origin/main
         for i, (priority, path_text, type_name, line_count, digest, note) in enumerate(rows, 1)
     ]
 
@@ -172,8 +181,18 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
         old_count = match.group(4)
         count_text = str(count) if old_count not in {"—", "-"} else old_count
         refreshed_top.append(
+<<<<<<< HEAD
             match.group(1) + path_text + match.group(3) + count_text
             + match.group(5) + digest + match.group(7)
+=======
+            match.group(1)
+            + path_text
+            + match.group(3)
+            + count_text
+            + match.group(5)
+            + digest
+            + match.group(7)
+>>>>>>> origin/main
         )
 
     if issues:
@@ -202,9 +221,13 @@ def refresh_file_index(text: str, root: Path = PROJECT_ROOT) -> tuple[str, list[
 def validate_anchors(text: str, root: Path = PROJECT_ROOT) -> list[str]:
     """Verify chunk metadata, stable anchors, file existence and range bounds."""
     issues: list[str] = []
+<<<<<<< HEAD
     chunk_text = (root / "codebase-analysis-docs/CHUNK_INDEX.md").read_text(
         encoding="utf-8"
     )
+=======
+    chunk_text = (root / "codebase-analysis-docs/CHUNK_INDEX.md").read_text(encoding="utf-8")
+>>>>>>> origin/main
     current_path: str | None = None
 
     for line in chunk_text.splitlines():
@@ -249,7 +272,11 @@ def validate_anchors(text: str, root: Path = PROJECT_ROOT) -> list[str]:
 
 
 def validate_api_reference(source_text: str, reference_text: str) -> list[str]:
+<<<<<<< HEAD
     """Compare the API route inventory with AST-derived method/path/handler/line tuples."""
+=======
+    """Compare API routes with AST-derived method/path/handler/line tuples."""
+>>>>>>> origin/main
     methods = {"get", "post", "put", "patch", "delete", "options", "head", "websocket"}
     tree = ast.parse(source_text)
     source_routes: list[tuple[str, str, str, int]] = []
@@ -268,16 +295,26 @@ def validate_api_reference(source_text: str, reference_text: str) -> list[str]:
                 or not isinstance(decorator.args[0].value, str)
             ):
                 continue
+<<<<<<< HEAD
             method = "WEBSOCKET" if decorator.func.attr == "websocket" else decorator.func.attr.upper()
+=======
+            method = (
+                "WEBSOCKET" if decorator.func.attr == "websocket" else decorator.func.attr.upper()
+            )
+>>>>>>> origin/main
             source_routes.append((method, decorator.args[0].value, node.name, node.lineno))
 
     all_routes_marker = "## All routes"
     if all_routes_marker not in reference_text:
         return ["API_REFERENCE.md is missing the All routes section"]
     route_section = reference_text.split(all_routes_marker, 1)[1]
+<<<<<<< HEAD
     row_pattern = re.compile(
         r"^\|\s*([A-Z]+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|"
     )
+=======
+    row_pattern = re.compile(r"^\|\s*([A-Z]+)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|")
+>>>>>>> origin/main
     documented_routes = [
         (match.group(1), match.group(2).strip(), match.group(3).strip(), int(match.group(4)))
         for line in route_section.splitlines()
@@ -315,7 +352,12 @@ def check(root: Path = PROJECT_ROOT) -> list[str]:
     if issues:
         return issues
 
+<<<<<<< HEAD
     index_path, _, master_path = required_paths
+=======
+    index_path = required_paths[0]
+    master_path = required_paths[2]
+>>>>>>> origin/main
     original = index_path.read_text(encoding="utf-8")
     refreshed, index_issues = refresh_file_index(original, root)
     issues.extend(index_issues)
@@ -324,9 +366,13 @@ def check(root: Path = PROJECT_ROOT) -> list[str]:
     master = master_path.read_text(encoding="utf-8")
     issues.extend(validate_anchors(master, root))
     api_source = (root / "src/api/main.py").read_text(encoding="utf-8")
+<<<<<<< HEAD
     api_reference = (root / "codebase-analysis-docs/API_REFERENCE.md").read_text(
         encoding="utf-8"
     )
+=======
+    api_reference = (root / "codebase-analysis-docs/API_REFERENCE.md").read_text(encoding="utf-8")
+>>>>>>> origin/main
     issues.extend(validate_api_reference(api_source, api_reference))
     return issues
 
@@ -334,11 +380,23 @@ def check(root: Path = PROJECT_ROOT) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group(required=True)
+<<<<<<< HEAD
     modes.add_argument("--check", action="store_true", help="validate index integrity without writes")
     modes.add_argument(
         "--refresh-file-index",
         action="store_true",
         help="rebuild FILE_INDEX rows/totals while preserving notes; never rewrite semantic anchors",
+=======
+    modes.add_argument(
+        "--check", action="store_true", help="validate index integrity without writes"
+    )
+    modes.add_argument(
+        "--refresh-file-index",
+        action="store_true",
+        help=(
+            "rebuild FILE_INDEX rows/totals while preserving notes; never rewrite semantic anchors"
+        ),
+>>>>>>> origin/main
     )
     args = parser.parse_args(argv)
 

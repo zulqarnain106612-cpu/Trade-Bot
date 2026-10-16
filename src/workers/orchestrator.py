@@ -86,6 +86,14 @@ class WorkerResult:
     candidate_schema_hash: str | None = None
     candidate_error: str | None = None
     calibration_method: str | None = None
+<<<<<<< HEAD
+=======
+
+
+def _handle_worker_sigterm(*_: object) -> None:
+    """Exit the worker through Python's normal exception/finalization path."""
+    raise SystemExit(0)
+>>>>>>> origin/main
 
 
 def _model_worker(
@@ -99,7 +107,7 @@ def _model_worker(
     Listens on queue_in for WorkerTask objects; processes and puts
     WorkerResult on queue_out.  Exits cleanly on None sentinel.
     """
-    signal.signal(signal.SIGTERM, lambda *_: exit(0))
+    signal.signal(signal.SIGTERM, _handle_worker_sigterm)
     log.info("model_worker_started", worker_id=worker_id, pid=os.getpid())
 
     while True:

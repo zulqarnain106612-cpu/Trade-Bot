@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "trade-bot-engineering",
-  "version": "1.0.0",
-  "description": "Evidence-first engineering workflows for the Trade-Bot repository, with read-only access to official OpenAI developer documentation.",
+  "version": "1.1.0",
+  "description": "Trade-Bot engineering workflows for implementation, root-cause debugging, safe OpenAI SDK integration, parallel agent coordination, evaluation, and evidence-based delivery, with read-only official OpenAI developer documentation.",
   "author": {
     "name": "Trade-Bot maintainers"
   },
@@ -12,7 +12,9 @@
     "trade-bot",
     "codex",
     "engineering",
-    "verification",
+    "debugging",
+    "parallel-agents",
+    "evaluation",
     "quality"
   ],
   "extensions": {
@@ -20,7 +22,7 @@
       "interface": {
         "displayName": "Trade-Bot Engineering",
         "shortDescription": "Evidence-first Trade-Bot engineering workflows",
-        "longDescription": "Repository-specific instructions for safe, evidence-driven code changes, verification, and delivery. Includes read-only official OpenAI developer documentation lookup.",
+        "longDescription": "Repository-specific skills for code implementation and review, root-cause debugging, error handling, safe OpenAI SDK design, parallel agent/sub-agent coordination, eval-driven optimization, and PR delivery. Includes a read-only official OpenAI developer documentation connection.",
         "developerName": "Trade-Bot maintainers",
         "category": "Developer tools",
         "capabilities": [
@@ -29,6 +31,7 @@
         "websiteURL": "https://github.com/zulqarnain106612-cpu/Trade-Bot",
         "defaultPrompt": [
           "Audit the current Trade-Bot repository state and identify the next evidence-backed engineering step.",
+          "Coordinate bounded parallel agents or sub-agents across independent Trade-Bot workstreams.",
           "Verify a proposed Trade-Bot change against repository policy, tests, and delivery gates."
         ]
       }

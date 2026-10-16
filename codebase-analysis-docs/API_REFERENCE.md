@@ -2,7 +2,11 @@
 
 Index version 1.0.1.
 
+<<<<<<< HEAD
 Generated from app decorators in src/api/main.py at the inspected working-tree snapshot. Line numbers shift with edits. This documents paths, handler names and visible route dependencies, not a proof that each role can use each route. Re-read role policy, dependencies, second factor, readiness and rate limit code before changing an endpoint.
+=======
+Generated from app decorators in src/api/main.py at source snapshot 9128e3da8b9542efef5c89706b8f2e8f3512f054; src/api/main.py was unchanged through main HEAD 6232016c94db2025e9afddf4aa3e3e2331dc7b2f. Line numbers shift with edits. This documents paths, handler names and visible route dependencies, not a proof that each role can use each route. Re-read role policy, dependencies, second factor, readiness and rate limit code before changing an endpoint.
+>>>>>>> origin/main
 
 Total app-decorator routes discovered: 68.
 

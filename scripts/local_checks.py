@@ -1,20 +1,16 @@
 #!/usr/bin/env python3
+<<<<<<< HEAD
 """Expose only the current HEAD SHA-bound CI notice; local checks are disabled."""
+=======
+"""Retired CI-notice interface; it must never query GitHub or emit PR comments."""
+>>>>>>> origin/main
 
 from __future__ import annotations
 
 import argparse
-import json
-import os
-import re
-import subprocess
 import sys
-import time
-import urllib.error
-import urllib.request
-from pathlib import Path
-from typing import Any
 
+<<<<<<< HEAD
 ROOT = Path(__file__).resolve().parents[1]
 # REG-0024: run as a script, sys.path[0] is scripts/, so prepare()'s
 # `from src.agent_control ...` import needs the repository root added.
@@ -24,12 +20,24 @@ STATE_DIR = ROOT / ".claude" / ".hook-state"
 PLAN = STATE_DIR / "local_check_plan.json"
 TEST_PATH_RE = re.compile(r"(?:FAILED|ERROR)\s+((?:tests|src)/[A-Za-z0-9_./-]+\.py)")
 FILE_PATH_RE = re.compile(r'File "(?:[^"]*/)?((?:tests|src)/[A-Za-z0-9_./-]+\.py)", line \d+')
+=======
+DENIAL = (
+    "THAPPAR — CI DIAGNOSTIC ACCESS BLOCKED. Use only: "
+    "./scripts/prfail --pr <PR_NUMBER>. "
+    "Direct or alternative diagnostic retrieval is prohibited."
+)
+LOCAL_CHECKS_DISABLED = (
+    "local check execution is disabled by repository policy; "
+    "GitHub Actions is the sole test/build/check execution path"
+)
+>>>>>>> origin/main
 
 
 def die(message: str) -> None:
     raise SystemExit(message)
 
 
+<<<<<<< HEAD
 def git(*args: str) -> str:
     proc = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode:
@@ -148,11 +156,17 @@ def prepare() -> int:
     # comments, workflow metadata, or local execution advice enters context.
     print(visible_notice)
     return 0
+=======
+def prepare() -> int:
+    """Retired: never fetch the historical PR-comment diagnostic route."""
+    die(DENIAL)
+>>>>>>> origin/main
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="action", required=True)
+<<<<<<< HEAD
     sub.add_parser("prepare")
     sub.add_parser("run", help="disabled: checks execute only in GitHub Actions")
     args = parser.parse_args(argv)
@@ -161,6 +175,14 @@ def main(argv: list[str]) -> int:
             "local check execution is disabled by repository policy; GitHub Actions is the sole test/build/check execution path"
         )
     return prepare()
+=======
+    sub.add_parser("prepare", help="retired; use the canonical report-only command")
+    sub.add_parser("run", help="disabled: checks execute only in GitHub Actions")
+    args = parser.parse_args(argv)
+    if args.action == "run":
+        die(LOCAL_CHECKS_DISABLED)
+    die(DENIAL)
+>>>>>>> origin/main
 
 
 if __name__ == "__main__":
