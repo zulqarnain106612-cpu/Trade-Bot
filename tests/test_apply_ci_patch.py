@@ -1,4 +1,8 @@
-"""The local patch applier cannot mutate its own trust boundary."""
+"""The local patch applier cannot mutate its own trust boundary.
+
+Decides:
+  - REG-0024 — Agent diagnostic retrieval is one canonical command; local checks stay disabled
+"""
 
 from __future__ import annotations
 

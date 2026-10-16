@@ -1,4 +1,8 @@
-"""The autonomous CI diagnostics collector replaces the old fail-fast notifier."""
+"""The autonomous CI diagnostics collector replaces the old fail-fast notifier.
+
+Decides:
+  - GOV-013 — CI diagnostics are collected autonomously and never require log polling
+"""
 
 from __future__ import annotations
 

@@ -1,3 +1,12 @@
+"""Decides:
+  - GOV-013 — CI diagnostics are collected autonomously and never require log polling
+  - GOV-020 — One SHA-bound report carries filtered diagnostics and exact source locations
+  - REG-0020 — The collector extracts diagnostics server-side and discards ordinary success noise
+  - REG-0021 — The collector correlates the exact open PR head before publishing
+  - REG-0023 — A source diagnostic retains its exact file, line, and column when provided
+  - REG-0024 — Agent diagnostic retrieval is one canonical command; local checks stay disabled
+"""
+
 from __future__ import annotations
 
 import hashlib

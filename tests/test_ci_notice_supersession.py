@@ -1,4 +1,8 @@
-"""The diagnostics report is terminal-state complete and bound to the current PR head."""
+"""The diagnostics report is terminal-state complete and bound to the current PR head.
+
+Decides:
+  - REG-0018 — CI diagnostics wait for terminal outcomes without cancelling sibling workflows
+"""
 
 from __future__ import annotations
 
