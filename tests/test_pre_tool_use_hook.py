@@ -5,7 +5,7 @@ Decides:
   - GOV-012 — live CI monitoring is refused
   - GOV-019 — CI run data is unreadable by every tool route
   - GOV-057 — every authorized tool observation crosses the repository boundary
-  - REG-0024 — local checks are CI-only and the prepare route exposes only the current HEAD notice
+  - REG-0024 — local checks are CI-only; prfail is the report route and the patcher is SHA-bound
 """
 
 from __future__ import annotations
@@ -149,6 +149,21 @@ class TestApprovedGithubRoute:
         ])
         decision = decide("Bash", {"command": command})
         assert decision["permissionDecision"] == "allow"
+
+    def test_report_bound_patch_command_cannot_target_protected_control_plane(self) -> None:
+        command = "\n".join([
+            "python3 scripts/apply_ci_patch.py --pr 458 --head-sha " + "a" * 40 + " --patch-stdin <<'TB_CI_PATCH'",
+            "diff --git a/.github/workflows/ci-diagnostics.yml b/.github/workflows/ci-diagnostics.yml",
+            "--- a/.github/workflows/ci-diagnostics.yml",
+            "+++ b/.github/workflows/ci-diagnostics.yml",
+            "@@ -1,1 +1,1 @@",
+            "-before = 1",
+            "+after = 1",
+            "TB_CI_PATCH",
+        ])
+        decision = decide("Bash", {"command": command})
+        assert decision["permissionDecision"] == "deny"
+        assert "Protected observation-boundary" in decision["reason"]
 
     def test_patch_command_wrappers_and_early_heredoc_terminators_are_denied(self) -> None:
         header = "python3 scripts/apply_ci_patch.py --pr 458 --head-sha " + "a" * 40 + " --patch-stdin <<'TB_CI_PATCH'"
@@ -436,7 +451,7 @@ class TestSettingsWiring:
 
     def test_bash_is_gated_by_the_hook_not_by_a_bare_denial(self) -> None:
         # A bare "Bash" denial outranks every allow rule, which would kill the
-        # one SHA-filtered CI notice command. Bash is therefore denied for
+        # exact prfail report and report-bound patch commands. Bash is therefore denied for
         # everything else by the hook, and a hook error or timeout leaves the
         # call unexecuted.
         settings = json.loads((PROJECT_DIR / ".claude" / "settings.json").read_text())

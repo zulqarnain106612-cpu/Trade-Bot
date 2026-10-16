@@ -1915,13 +1915,14 @@ GitHub annotations and recognized compiler, pytest, and Python traceback formats
 
 GitHub Actions is the sole execution path for tests, builds, lint, security scans, workflow validation, registry/schema checks, generated-document checks, and quality gates. The legacy local_checks.py prepare notice route is retired. The only permitted diagnostic retrieval command is ./scripts/prfail --pr <PR_NUMBER>, which returns a finalized filtered report for the exact current PR head SHA and never downloads raw Actions logs.
 
-- **If violated:** The previous policy allowed individual local test/check execution through a wrapper, despite the repository execution invariant requiring GitHub Actions as the only path. Direct PR comment reads also exposed arbitrary comments and stale CI notices. The route is now closed at the policy, hook, script, and shared shell executor layers.
-- **Owned by:** `scripts/local_checks.py`, `scripts/ci_verdict.py`, `scripts/ci_diagnostics.py`, `scripts/prfail`, `scripts/apply_ci_patch.py`, `config/command_policy.json`, `common/command_schema.py`, `common/shell_exec.py`, `.claude/hooks/pre_tool_use.py`, `.claude/settings.json`
+- **If violated:** Context exhaustion and unsafe repairs from raw workflow logs, stale comments, or reports tied to another source revision. The finalized SHA-bound report is the only diagnostic retrieval route; missing or stale evidence must fail closed.
+- **Owned by:** `scripts/local_checks.py`, `scripts/ci_verdict.py`, `scripts/ci_diagnostics.py`, `scripts/prfail`, `scripts/apply_ci_patch.py`, `config/command_policy.json`, `common/command_schema.py`, `common/shell_exec.py`, `.claude/hooks/pre_tool_use.py`, `.claude/settings.json`, `config/observation_boundary.json`, `.github/CODEOWNERS`, `tests/test_apply_ci_patch.py`
 - **Verification:**
   - `tests/test_ci_log_access.py` (contract)
   - `tests/test_local_checks.py` (contract)
   - `tests/test_ci_diagnostics.py` (unit)
   - `tests/test_pre_tool_use_hook.py` (contract)
+  - `tests/test_apply_ci_patch.py` (contract)
 
 > The old prepare/comment-notice subscription is retired. Only the finalized ./scripts/prfail --pr <PR_NUMBER> report route is allowed; the report-bound patch applier revalidates PR/head/report identity and leaves edits uncommitted. The run subcommand remains disabled. Tests, builds, lint, security scans, and quality gates are validated only by GitHub Actions. layer: test-suite
 

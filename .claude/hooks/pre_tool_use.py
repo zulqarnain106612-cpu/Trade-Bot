@@ -42,6 +42,25 @@ PROTECTED_BOUNDARY_PATHS = frozenset(
         "tests/test_github_route_contract.py",
         "CLAUDE.md",
         ".mcp.json",
+        ".github/workflows",
+        ".github/CODEOWNERS",
+        "config/quality_registry.json",
+        "common/command_schema.py",
+        "common/shell_exec.py",
+        "scripts/ci_diagnostics.py",
+        "scripts/prfail",
+        "scripts/apply_ci_patch.py",
+        "scripts/ci_verdict.py",
+        "scripts/local_checks.py",
+        "tests/test_ci_diagnostics.py",
+        "tests/test_ci_log_access.py",
+        "tests/test_local_checks.py",
+        "tests/test_apply_ci_patch.py",
+        "tests/test_ci_failure_notify_workflow.py",
+        "tests/test_ci_notice_supersession.py",
+        "tests/test_merge_queue_wiring.py",
+        "docs/quality/REQUIREMENTS_TRACEABILITY.md",
+        "AGENTS.md",
     }
 )
 PROTECTED_MUTATION_TOOLS = {
@@ -263,8 +282,8 @@ def _github_route_violation(event: dict[str, Any]) -> str:
             "Use an approved GitHub MCP tool and retry."
         )
     if not tool.startswith(GITHUB_TOOL_PREFIX):
-        # The one non-GitHub route is the exact report-only PR diagnostic command.
-        # It retrieves a finalized SHA-bound report and never reads raw Actions logs.
+        # Non-GitHub routes are limited to exact report retrieval and the
+        # report-bound patcher; neither is a raw Actions-log access route.
         if tool == "bash":
             data = _hook_input(event)
             command = data.get("command", "")
@@ -589,7 +608,7 @@ def _is_ci_request(tool: str, data: dict[str, Any]) -> bool:
             return True
     command = data.get("command")
     if isinstance(command, str) and command.strip():
-        # The canonical report command is handled by its exact allow rule.
+        # The canonical report and report-bound patcher have exact allow rules.
         if re.fullmatch(r"\s*\./scripts/prfail\s+--pr\s+[1-9][0-9]*\s*", command) or _is_exact_patch_apply_command(command):
             return False
         if is_ci_log_access(command) or CI_SUBJECT_RE.search(command):
@@ -601,9 +620,9 @@ def _ci_interception(event: dict[str, Any]) -> str | None:
     """
     Retain the fail-closed denial for direct CI connector observations.
 
-    The exact local ./scripts/prfail --pr <N> command is exempted in
-    _is_ci_request and handled by the route gate; direct GitHub run/check/log
-    observations never expose the underlying records.
+    The exact local ./scripts/prfail --pr <N> command and the report-bound
+    patcher are exempted in _is_ci_request and handled by the route gate; direct
+    GitHub run/check/log observations never expose the underlying records.
     """
     tool = str(event.get("tool_name") or event.get("toolName") or "").strip().lower()
     data = _hook_input(event)
@@ -823,12 +842,29 @@ def _protected_boundary_violation(event: dict[str, Any]) -> str:
 
     if tool == "Bash":
         command = str(tool_input.get("command", ""))
-        for protected_path in PROTECTED_BOUNDARY_PATHS:
-            absolute_path = (PROJECT_DIR / protected_path).as_posix()
-            if (protected_path in command or absolute_path in command) and BASH_MUTATOR_RE.search(
-                command
-            ):
-                return f"Protected observation-boundary file mutation denied: {protected_path}."
+        if _is_exact_patch_apply_command(command):
+            # The command necessarily names the protected patcher itself. Inspect
+            # each diff target instead; the patcher independently enforces the
+            # same denylist before applying anything.
+            for line in command.strip().splitlines():
+                match = re.fullmatch(r"diff --git a/(\S+) b/(\S+)", line)
+                if not match:
+                    continue
+                target = match.group(1)
+                if target != match.group(2):
+                    return "Report-bound patcher denied a diff that changes file paths."
+                if (
+                    target in PROTECTED_BOUNDARY_PATHS
+                    or target.startswith((".claude/", ".github/workflows/", "src/agent_control/"))
+                ):
+                    return f"Protected observation-boundary file mutation denied: {target}."
+        else:
+            for protected_path in PROTECTED_BOUNDARY_PATHS:
+                absolute_path = (PROJECT_DIR / protected_path).as_posix()
+                if (protected_path in command or absolute_path in command) and BASH_MUTATOR_RE.search(
+                    command
+                ):
+                    return f"Protected observation-boundary file mutation denied: {protected_path}."
 
     if not protected:
         return ""

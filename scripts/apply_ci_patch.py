@@ -18,6 +18,27 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_PATCH_BYTES = 2 * 1024 * 1024
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIFF_HEADER_RE = re.compile(r"^diff --git a/(\S+) b/(\S+)$")
+PROTECTED_PATCH_PATHS = frozenset({
+    ".github/CODEOWNERS", ".mcp.json", "config/observation_boundary.json", "config/command_policy.json",
+    "config/quality_registry.json", "common/command_schema.py", "common/shell_exec.py",
+    "scripts/ci_diagnostics.py", "scripts/prfail", "scripts/apply_ci_patch.py",
+    "scripts/ci_verdict.py", "scripts/local_checks.py", "tests/test_observation_boundary_contract.py",
+    "tests/test_pre_tool_use_hook.py", "tests/test_github_route_contract.py",
+    "tests/test_ci_diagnostics.py", "tests/test_ci_log_access.py", "tests/test_local_checks.py",
+    "tests/test_ci_failure_notify_workflow.py",
+    "tests/test_ci_notice_supersession.py",
+    "tests/test_merge_queue_wiring.py",
+    "tests/test_apply_ci_patch.py", "docs/quality/REQUIREMENTS_TRACEABILITY.md", "CLAUDE.md", "AGENTS.md",
+})
+PROTECTED_PATCH_PREFIXES = (".claude/", ".github/workflows/", "src/agent_control/")
+
+
+def is_protected_patch_path(relative: str) -> bool:
+    """Control-plane files require a separately reviewed maintainer change."""
+    normalized = relative.replace("\\", "/").lstrip("/")
+    return normalized in PROTECTED_PATCH_PATHS or any(
+        normalized.startswith(prefix) for prefix in PROTECTED_PATCH_PREFIXES
+    )
 
 
 class PatchError(RuntimeError):
@@ -115,6 +136,8 @@ def _validate_patch(patch: str) -> list[str]:
         if not match:
             raise PatchError("quoted or whitespace-containing patch paths are not supported; use simple repository-relative paths")
         old_path, new_path = match.groups()
+        if is_protected_patch_path(old_path):
+            raise PatchError(f"patch targets protected control-plane path {old_path!r}; use a separately reviewed maintainer change")
         if old_path != new_path:
             raise PatchError("renames and path changes are forbidden; every patch section must edit one existing file in place")
         if old_path in paths:

@@ -4242,7 +4242,7 @@
       "subsystem": "release",
       "status": "verified",
       "source": "OPS-2026-10-10",
-      "failure_mode": "The previous policy allowed individual local test/check execution through a wrapper, despite the repository execution invariant requiring GitHub Actions as the only path. Direct PR comment reads also exposed arbitrary comments and stale CI notices. The route is now closed at the policy, hook, script, and shared shell executor layers.",
+      "failure_mode": "Context exhaustion and unsafe repairs from raw workflow logs, stale comments, or reports tied to another source revision. The finalized SHA-bound report is the only diagnostic retrieval route; missing or stale evidence must fail closed.",
       "owning_modules": [
         "scripts/local_checks.py",
         "scripts/ci_verdict.py",
@@ -4253,7 +4253,10 @@
         "common/command_schema.py",
         "common/shell_exec.py",
         ".claude/hooks/pre_tool_use.py",
-        ".claude/settings.json"
+        ".claude/settings.json",
+        "config/observation_boundary.json",
+        ".github/CODEOWNERS",
+        "tests/test_apply_ci_patch.py"
       ],
       "verification": [
         {
@@ -4270,6 +4273,10 @@
         },
         {
           "test": "tests/test_pre_tool_use_hook.py",
+          "test_type": "contract"
+        },
+        {
+          "test": "tests/test_apply_ci_patch.py",
           "test_type": "contract"
         }
       ],

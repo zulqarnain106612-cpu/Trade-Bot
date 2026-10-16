@@ -536,7 +536,8 @@ def is_ci_log_access(command: str) -> bool:
     """
     Refuse CI records and all legacy comment/log paths.
 
-    Only the exact report-only ./scripts/prfail --pr N command is exempt.
+    The exact report-only prfail command and strict report-bound patcher are
+    exempt; all other CI-log routes remain blocked.
     """
     if is_exact_patch_apply_command(command):
         return False

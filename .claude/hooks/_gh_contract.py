@@ -168,9 +168,9 @@ CONTRACTS: dict[str, Contract] = {
     "list_pull_requests": Contract(bounded_page=True),
     # get_status and get_check_runs are CI run data; get_diff, get_files and
     # get_commits are whole-PR reports; get_comments, get_reviews and
-    # get_review_comments expose unrelated comment bodies. The CI notice has
-    # exact local report route is ./scripts/prfail --pr <PR_NUMBER>; it
-    # reads only the finalized Check Run manifest and digest-verified pages.
+    # get_review_comments expose unrelated comment bodies. The sole local CI
+    # report route is ./scripts/prfail --pr <PR_NUMBER>; it reads only the
+    # finalized Check Run manifest and digest-verified pages.
     "pull_request_read": Contract(methods=frozenset({"get"})),
     "issue_read": Contract(methods=frozenset({"get"})),
     # ---- writes: delta-checked ----------------------------------------

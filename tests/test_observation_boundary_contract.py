@@ -1,7 +1,7 @@
 """Permanent contract for the universal observation boundary.
 
 Decides:
-  - REG-0024 — local checks are CI-only and the prepare route exposes only the current HEAD notice
+  - REG-0024 — local checks are CI-only; prfail is the report route and the patcher is SHA-bound
   - GOV-057 — every model-visible tool observation crosses the repository boundary
 """
 
@@ -76,6 +76,25 @@ def test_documentary_enabled_flag_cannot_disable_read_boundary():
         event,
         {"observation_boundary": {"enabled": False, "max_read_lines": 1000}},
     )
+
+
+def test_diagnostics_control_plane_paths_are_protected_in_config_and_hook():
+    pre = load_module(PRE, "pre_boundary_diagnostics_paths")
+    config = json.loads(CONFIG.read_text())
+    configured = set(config["protected_boundary_paths"])
+    for path in (
+        ".github/workflows",
+        ".github/CODEOWNERS",
+        "common/command_schema.py",
+        "common/shell_exec.py",
+        "scripts/ci_diagnostics.py",
+        "scripts/prfail",
+        "scripts/apply_ci_patch.py",
+        "tests/test_ci_diagnostics.py",
+        "tests/test_apply_ci_patch.py",
+    ):
+        assert path in configured
+        assert path in pre.PROTECTED_BOUNDARY_PATHS
 
 
 def test_protected_boundary_files_cannot_be_written_by_native_tools():
