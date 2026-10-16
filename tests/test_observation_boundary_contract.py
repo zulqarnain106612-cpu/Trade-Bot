@@ -177,13 +177,13 @@ def test_default_deny_route_gate_is_code_owned_and_independent_of_policy_mode():
         assert reason and "denied" in reason.lower()
 
 
-def test_route_gate_allows_only_the_exact_pr_notice_subscription():
+def test_route_gate_allows_only_the_exact_pr_report_command():
     pre = load_module(PRE, "pre_boundary_notice_subscription")
     assert (
         pre._github_route_violation(
             {
                 "tool_name": "Bash",
-                "tool_input": {"command": "python3 scripts/local_checks.py prepare"},
+                "tool_input": {"command": "./scripts/prfail --pr 458"},
             }
         )
         == ""
@@ -268,7 +268,7 @@ def test_github_only_policy_blocks_all_local_checks_and_allows_notice_preparatio
         reason = pre._local_check_violation(command, policy)
         assert reason and "disabled" in reason.lower(), command
 
-    assert pre._local_check_violation("python3 scripts/local_checks.py prepare", policy) == ""
+    assert pre._local_check_violation("python3 scripts/local_checks.py prepare", policy)
     assert pre._local_check_violation("git status --short", policy) == ""
 
 

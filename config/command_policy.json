@@ -153,7 +153,7 @@
   "ci_observability": {
     "enabled": true,
     "_note": "Permanent, not situational. CI live-monitoring -- following a run, watching checks, or a poll loop -- streams an unbounded and open-ended amount of build output into context, and no per-call line bound can cap something that never ends. Bulk retrieval is no longer a bounded alternative either: see ci_log_access, which refuses it outright.",
-    "message": "CI live monitoring and direct CI run-data retrieval are permanently disabled as model-observation routes. Use only python3 scripts/local_checks.py prepare to retrieve the single current-head CI notice.",
+    "message": "CI live monitoring and direct CI run-data retrieval are blocked. Use only ./scripts/prfail --pr <PR_NUMBER> for the finalized filtered report.",
     "live_patterns": [
       "\\bgh\\s+run\\s+watch\\b",
       "\\bgh\\s+(run|pr)\\b[^|]*--watch\\b",
@@ -172,18 +172,18 @@
   },
   "ci_log_access": {
     "enabled": true,
-    "_note": "CI records are never read by an agent. The workflow .github/workflows/ci-failure-notify.yml summarizes one actionable non-green check in one mutable PR comment, bound to the exact head SHA. The only agent-facing subscription is local_checks.py prepare, which returns only that current SHA-bound notice.",
-    "message": "CI logs, job records, annotations, artifacts, check results and arbitrary PR comments are blocked. Use only python3 scripts/local_checks.py prepare, which returns the single CI notice whose hidden SHA marker matches HEAD.",
-    "_hard_deny_note": "Check-result reads are blocked before any comment exception. Direct PR-comment reads are also blocked; only the exact SHA-filtered local_checks.py prepare command is allowed.",
+    "_note": "The sole agent-facing CI route is ./scripts/prfail --pr <PR_NUMBER>. The collector in .github/workflows/ci-diagnostics.yml publishes a filtered Check Run report bound to the current PR head SHA; all direct Actions data, annotations, logs, artifacts, check results, and legacy PR-comment reads are blocked.",
+    "message": "THAPPAR — CI DIAGNOSTIC ACCESS BLOCKED. Use only: ./scripts/prfail --pr <PR_NUMBER>. Direct or alternative diagnostic retrieval is prohibited.",
+    "_hard_deny_note": "Raw check/log reads are denied before the allowlist. Only the exact ./scripts/prfail --pr positive-decimal command is exempt; selectors and shell wrappers are not implemented.",
     "hard_deny_patterns": [
       "\\bgh\\s+(pr|run|repo)\\b[^|]*--json\\b[^|]*\\b(statusCheckRollup|checkRuns|checkSuites|jobs|workflowRuns)\\b",
       "\\bgh\\s+pr\\s+checks\\b"
     ],
-    "_allowed_note": "Only the exact local notice-preparation command is exempt; direct PR/comment API reads would expose unrelated comments and are blocked.",
+    "_allowed_note": "Exactly one command is permitted: ./scripts/prfail --pr followed by a positive decimal PR number.",
     "allowed_patterns": [
-      "^\\s*(?:cd\\s+[^;&|]+\\s*&&\\s*)?(?:python|python3|\\.venv/bin/python|\\.venv/bin/python3)\\s+scripts/local_checks\\.py\\s+prepare\\s*$"
+      "^\\s*\\./scripts/prfail\\s+--pr\\s+[1-9][0-9]*\\s*$"
     ],
-    "_banned_note": "Kept in step with CI_LOG_PATTERNS in common/command_schema.py, which is what the hook uses when the project is importable. These are the fallback for a bare session where it is not, so the block holds either way; tests/test_ci_log_access.py asserts the two agree.",
+    "_banned_note": "Mirrors common.command_schema.CI_LOG_PATTERNS; tests require the shared classifier and JSON fallback to agree.",
     "banned_patterns": [
       "\\bgh\\s+run\\s+(view|list|download|watch|rerun|cancel|delete)\\b",
       "\\bgh\\s+workflow\\s+(run|view|list)\\b",
@@ -194,26 +194,32 @@
       "\\bgh\\s+api\\b[^|]*/check-suites?\\b",
       "\\bgh\\s+api\\b[^|]*/commits/[^/\\s]+/(status|check-runs)\\b",
       "\\bgh\\s+api\\b[^|]*/statuses/",
-      "\\bgh\\s+(pr|run)\\b[^|]*--json\\b[^|]*\\b(statusCheckRollup|checkRuns|jobs)\\b",
-      "\\bcurl\\b[^|]*/actions/(runs|jobs|artifacts|workflows|caches)\\b",
-      "\\bcurl\\b[^|]*/check-runs?\\b",
+      "\\bgh\\s+(pr|run)\\b[^|]*--json\\b[^|]*\\b(statusCheckRollup|checkRuns|jobs|workflowRuns)\\b",
+      "\\b(?:curl|wget)\\b[^|]*(?:api\\.github\\.com|github\\.com/)[^|]*(?:actions|check-runs|check-suites|annotations|statuses|workflow_runs)\\b",
       "\\bact\\b\\s+-",
       "\\bgh\\s+pr\\s+view\\b[^|]*(?:--comments\\b|--json\\b[^|]*\\bcomments\\b)",
       "\\bgh\\s+issue\\s+view\\b[^|]*(?:--comments\\b|--json\\b[^|]*\\bcomments\\b)",
       "\\bgh\\s+api\\b[^|]*/(?:issues/(?:comments|\\d+/comments)|pulls/\\d+/comments)\\b",
-      "\\bcurl\\b[^|]*/(?:issues/\\d+/comments|pulls/\\d+/comments)\\b",
+      "\\b(?:curl|wget)\\b[^|]*/(?:issues/\\d+/comments|pulls/\\d+/comments)\\b",
       "\\bgh\\s+api\\b[^|]*\\bgraphql\\b",
-      "\\bcurl\\b[^|]*/graphql\\b",
-      "\\bpython(?:3)?(?:\\.\\d+)?\\s+-c\\b.*(?:api\\.github\\.com|issues/\\d+/comments|pulls/\\d+/comments|graphql)\\b",
-      "\\bnode\\s+-e\\b.*(?:api\\.github\\.com|issues/\\d+/comments|pulls/\\d+/comments|graphql)\\b"
+      "\\b(?:curl|wget)\\b[^|]*/graphql\\b",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+-c\\b.*(?:api\\.github\\.com|github\\.com/|graphql)\\b",
+      "\\bnode\\s+-e\\b.*(?:api\\.github\\.com|github\\.com/|graphql)\\b",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+scripts/(?:local_checks|ci_verdict|ci_diagnostics)\\.py\\b",
+      "\\b(?:\\./)?scripts/prfail\\b",
+      "(?:^|[;&|]\\s*)\\./scripts/ci_diagnostics\\.py\\b",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+scripts\\.ci_diagnostics\\b",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+-c\\b[\\s\\S]*(?:\\bscripts[./](?:ci_diagnostics|ci_verdict|local_checks|prfail)\\b|\\bfrom\\s+scripts\\s+import\\b[\\s\\S]*\\b(?:ci_diagnostics|ci_verdict|local_checks)\\b)",
+      "\\bpython(?:3)?(?:\\.\\d+)?\\s+-\\s*<<[\\s\\S]*(?:\\bscripts[./](?:ci_diagnostics|ci_verdict|local_checks|prfail)\\b|\\bfrom\\s+scripts\\s+import\\b[\\s\\S]*\\b(?:ci_diagnostics|ci_verdict|local_checks)\\b)",
+      "\\b(?:python|python3|node)\\b[^|]*(?:urllib|requests|httpx|fetch\\()\\b[^|]*(?:github\\.com|api\\.github\\.com)"
     ]
   },
   "local_checks": {
     "enabled": true,
     "wrapper": "scripts/local_checks.py",
-    "prepare_command": "python3 scripts/local_checks.py prepare",
+    "prepare_command": "DISABLED: superseded by ./scripts/prfail --pr <PR_NUMBER>",
     "run_command": "DISABLED: GitHub Actions is the sole test/build/check execution path.",
-    "rule": "GitHub Actions is the sole execution path for tests, builds, lint, security scans, workflow validation, and quality gates. The only local-check operation permitted is the exact read-only python3 scripts/local_checks.py prepare command, which retrieves only the current HEAD's SHA-bound CI notice. The run subcommand is disabled.",
+    "rule": "GitHub Actions is the sole execution path for tests, builds, lint, security scans, workflow validation, and quality gates. The legacy local_checks.py prepare notice reader is retired for agent use. The only permitted diagnostic retrieval command is ./scripts/prfail --pr <PR_NUMBER>, which reads the finalized filtered Check Run report; the run subcommand remains disabled.",
     "blocked_patterns": [
       "(?:^|[;&|]\\s*)(?:uv\\s+run\\s+)?(?:[^\\s;&|]+/)?pytest(?:\\s|$)",
       "\\bpython(?:3)?(?:\\.\\d+)?\\s+-m\\s+pytest\\b",
@@ -248,11 +254,11 @@
     ],
     "github_only": true
   },
-  "_gh_note": "gh is not exempt as a whole. CI run data and arbitrary PR comment reads are blocked; the only permitted comment route is the SHA-filtered local_checks.py prepare command. Ordinary PR metadata and PR comment writes remain separately governed.",
+  "_gh_note": "CI run data and arbitrary PR-comment reads are blocked. The only permitted diagnostic route is the exact ./scripts/prfail --pr <PR_NUMBER> command; ordinary PR metadata and comment writes remain separately governed.",
   "github_route": {
     "contract": ".claude/hooks/_gh_contract.py",
     "_note": "The GitHub tool contract is code-owned. This section is documentary; it cannot widen a route.",
-    "ci_notice_route": "scripts/local_checks.py prepare (SHA-filtered, single comment)",
+    "ci_notice_route": "./scripts/prfail --pr <PR_NUMBER> (finalized filtered Check Run report)",
     "pr_comment_reads": "deny (pull_request_read method=get_comments is refused)"
   }
 }

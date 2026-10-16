@@ -23,7 +23,7 @@ Parallelize only when subtasks have distinct deliverables, bounded ownership, an
 2. Check each proposed change against the current base SHA; rebase/review stale findings before applying them.
 3. Resolve duplicated abstractions, inconsistent assumptions, dependency drift, test overlap, and contradictory documentation before merging workstreams.
 4. Preserve provenance: record which agent handled which bounded question, the evidence it inspected, and which findings were accepted or rejected. Do not claim an agent ran a test unless the result is visible and policy permits that test.
-5. Run the repository's permitted validation path only. For Trade-Bot, do not execute tests/build/lint/format/type/security checks locally; after an authorized push use `python3 scripts/local_checks.py prepare` and accept only a notice tied to the exact current HEAD SHA.
+5. Run the repository's permitted validation path only. For Trade-Bot, do not execute tests/build/lint/format/type/security checks locally; after an authorized push use `./scripts/prfail --pr <PR_NUMBER>` and accept only a finalized report tied to the exact current HEAD SHA.
 6. Review the combined diff as one change, verify all touched paths are in scope, and produce one coherent PR unless the user explicitly requests separate delivery units.
 
 ## Failure and escalation
@@ -38,3 +38,5 @@ Parallelize only when subtasks have distinct deliverables, bounded ownership, an
 - Official Cookbook: [Iterating development workflows with Codex](https://github.com/openai/openai-cookbook/blob/main/examples/codex/iterating-development-workflows-with-codex.md)
 - Official Cookbook: [Multi-agent portfolio collaboration example](https://github.com/openai/openai-cookbook/blob/main/examples/agents_sdk/multi-agent-portfolio-collaboration/multi_agent_portfolio_collaboration.ipynb) (archived example; use for orchestration concepts only)
 - Current Codex configuration and supported capabilities must be checked against official Codex docs, not inferred from a Cookbook notebook.
+
+For a local-only fix, inspect the source at the report SHA and apply a reviewed unified diff with `python3 scripts/apply_ci_patch.py --pr <PR_NUMBER> --head-sha <REPORT_HEAD_SHA> --patch-stdin`; the command refuses a mismatched HEAD and changes only the working tree, without staging, committing, or pushing.

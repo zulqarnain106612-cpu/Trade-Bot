@@ -87,7 +87,7 @@ class TestDefaultDeny:
         assert "GitHub MCP" in read_reason
         assert "denied" in bash_reason.lower()
         assert "denied" in read_reason.lower()
-        assert "scripts/local_checks.py prepare" in bash_reason
+        assert "./scripts/prfail --pr <PR_NUMBER>" in bash_reason
 
     @pytest.mark.parametrize("override", ["off", "warn"])
     def test_policy_overrides_cannot_reopen_native_routes(self, override: str) -> None:
@@ -136,10 +136,33 @@ class TestApprovedGithubRoute:
         )
         assert decision["permissionDecision"] == "deny"
 
-    def test_exact_sha_filtered_notice_subscription_is_allowed(self) -> None:
+    def test_exact_report_bound_patch_command_is_allowed(self) -> None:
+        command = "\n".join([
+            "python3 scripts/apply_ci_patch.py --pr 458 --head-sha " + "a" * 40 + " --patch-stdin <<'TB_CI_PATCH'",
+            "diff --git a/src/example.py b/src/example.py",
+            "--- a/src/example.py",
+            "+++ b/src/example.py",
+            "@@ -1,1 +1,1 @@",
+            "-before = 1",
+            "+after = 1",
+            "TB_CI_PATCH",
+        ])
+        decision = decide("Bash", {"command": command})
+        assert decision["permissionDecision"] == "allow"
+
+    def test_patch_command_wrappers_and_early_heredoc_terminators_are_denied(self) -> None:
+        header = "python3 scripts/apply_ci_patch.py --pr 458 --head-sha " + "a" * 40 + " --patch-stdin <<'TB_CI_PATCH'"
+        for command in (
+            "cd /tmp && " + header + "\nTB_CI_PATCH",
+            "\n".join([header, "diff --git a/x.py b/x.py", "TB_CI_PATCH", "echo injected", "TB_CI_PATCH"]),
+        ):
+            decision = decide("Bash", {"command": command})
+            assert decision["permissionDecision"] == "deny"
+
+    def test_exact_pr_report_command_is_allowed(self) -> None:
         decision = decide(
             "Bash",
-            {"command": "python3 scripts/local_checks.py prepare"},
+            {"command": "./scripts/prfail --pr 458"},
         )
         assert decision["permissionDecision"] == "allow"
 
@@ -419,7 +442,8 @@ class TestSettingsWiring:
         settings = json.loads((PROJECT_DIR / ".claude" / "settings.json").read_text())
         permissions = settings["permissions"]
         assert "Bash" not in set(permissions["deny"])
-        assert "Bash(python3 scripts/local_checks.py prepare)" in set(permissions["allow"])
+        assert "Bash(./scripts/prfail --pr *)" in set(permissions["allow"])
+        assert "Bash(python3 scripts/apply_ci_patch.py *)" in set(permissions["allow"])
         assert decide("Bash", {"command": "cat CLAUDE.md"})["permissionDecision"] == "deny"
 
     def test_live_mcp_namespaces_are_denied(self) -> None:

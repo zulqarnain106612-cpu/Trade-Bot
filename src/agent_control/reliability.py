@@ -267,7 +267,7 @@ def gate(
     if not ci:
         return ReliabilityResult(
             False,
-            (f"reliability: no CI verdict for HEAD {head_sha[:12]}; run local_checks.py prepare",),
+            (f"reliability: no CI verdict for HEAD {head_sha[:12]}; run ./scripts/prfail --pr <PR_NUMBER>",),
         )
     if ci.get("status") != "green":
         return ReliabilityResult(

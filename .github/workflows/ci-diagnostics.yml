@@ -1,0 +1,44 @@
+name: CI non-success diagnostics
+
+# This is an autonomous GitHub Actions service, triggered by source workflow
+# completion. It runs on GitHub-hosted runners, independently of any agent
+# session, agent tool call, or local diagnostic command. Agents only retrieve
+# the already-finalized filtered report through ./scripts/prfail --pr <PR>.
+# workflow_run-triggered workflows must exist on the default branch.
+# This informational collector never cancels source CI and is not required CI.
+on:
+  workflow_run:
+    workflows:
+      - "CI"
+      - "CodeQL"
+      - "Security"
+      - "Workflow lint"
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  checks: write
+  pull-requests: read
+
+concurrency:
+  group: ci-diagnostics-${{ github.event.inputs.pr_number || github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.head_branch || github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+      pull-requests: read
+    steps:
+      - name: Check out the default-branch collector implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Correlate terminal runs and publish filtered diagnostics
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/ci_diagnostics.py collect
+

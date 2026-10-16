@@ -1857,73 +1857,73 @@ The production workflow can return to the previous trusted artifact, and a drill
 - **Verification:**
   - `tests/production/test_production_gate.py` (recovery) — A rollback job exists, is exercised by the drill input, verifies the running version changed, and is mutually exclusive with promotion.
 
-#### `REG-0018` — the CI notice reports one actionable non-green check and cancels sibling workflows
+#### `REG-0018` — CI diagnostics wait for terminal outcomes without cancelling sibling workflows
 
 **VERIFIED** · medium · regression · source: OPS-2026-09-30
 
-The CI notice workflow observes requested, in-progress, and completed runs. Any job conclusion other than success, including failure, neutral, or skipped, is actionable. It cancels other in-flight watched workflows and updates one SHA-bound PR comment with one actionable check. A success comment is emitted only after every watched workflow has been observed and completed green; stale runs cannot overwrite a newer PR head; merge changes the same comment to merged.
+The autonomous collector waits for every applicable watched workflow, job, and step to terminate on the same PR head SHA. Failure, cancellation, timeout, neutral, action_required, stale, and skipped outcomes are retained. The collector does not cancel source runs or publish PR comments; incomplete collection never becomes a finalized report.
 
 - **If violated:** The previous notice consolidated multiple failed jobs and cancellation fallout into a large comment. Agents had to sift through irrelevant failures, and cancellation from a superseded commit could overwrite the current PR state. The fail-fast notice surfaces one actionable check, cancels sibling runs, and refuses to overwrite a newer head's comment.
-- **Owned by:** `.github/workflows/ci-failure-notify.yml`, `scripts/local_checks.py`
+- **Owned by:** `.github/workflows/ci-diagnostics.yml`, `scripts/ci_diagnostics.py`
 - **Verification:**
   - `tests/test_ci_notice_supersession.py` (regression)
 
 > One mutable comment is the subscription surface. Its hidden SHA marker binds the notice to the current PR head; failure comments name one actionable check, success is reported only after all watched workflows finish green, and merge updates the same comment. layer: test-suite
 
-#### `REG-0020` — The CI notice names the error of a failure no pattern recognises
+#### `REG-0020` — The collector extracts diagnostics server-side and discards ordinary success noise
 
 **VERIFIED** · medium · regression · source: OPS-2026-09-30
 
-When no SIGNAL pattern matches a failing job's log, the notice carries the last lines of the failing step's own output -- between the runner's ##[endgroup] and its ##[error] exit-code line -- without table rules or runner markers.
+The collector scans completed job logs on its GitHub-hosted runner and retains recognized error/warning formats, source-attributed diagnostics, and structured non-success outcomes. It discards ordinary successful output, redacts common credentials, and does not send raw workflow logs to the agent.
 
 - **If violated:** pip-audit's vulnerability table matched none of the patterns, so the notice on #385 named the failing step and no error, and the failing lines had to be pasted by hand.
-- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Owned by:** `scripts/ci_diagnostics.py`
 - **Verification:**
-  - `tests/test_ci_failure_notify_workflow.py` (unit)
+  - `tests/test_ci_diagnostics.py` (unit)
 
 > Escaped because the notice's extraction was only ever tested against pytest-shaped output. layer: test-suite
 
-#### `REG-0021` — The CI notice resolves no pull request and posts nothing
+#### `REG-0021` — The collector correlates the exact open PR head before publishing
 
 **VERIFIED** · high · regression · source: OPS-2026-10-03
 
-The notice resolves a commit's pull requests from the commit itself, so a workflow_run whose pull_requests array is empty -- the normal case for a push-triggered run -- still produces exactly one comment per commit.
+A diagnostic report is published only after the triggering workflow is correlated with one open PR and the collector confirms that the PR head SHA remains unchanged throughout collection. A missing, ambiguous, stale, or incomplete association does not produce a finalized report.
 
 - **If violated:** workflow_run.pull_requests is empty for a push-triggered run, and the fallback searched is:pr for a bare head SHA, which issue search does not match. Both resolutions returned nothing, so the job logged 'nothing to notify' and exited 0. #322 and #323 carried no notice for ten days and looked frozen with no readable failure.
-- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Owned by:** `scripts/ci_diagnostics.py`
 - **Verification:**
-  - `tests/test_ci_failure_notify_workflow.py` (unit)
+  - `tests/test_ci_diagnostics.py` (unit)
 
 > A silent notice is the one failure this channel cannot have: CLAUDE.md section 9 makes it the sole CI failure interface, so when it posts nothing every pull request looks stuck for no visible reason. layer: test-suite
 
-#### `REG-0023` — a crashed test worker is named in the CI notice, not reduced to its last stdout line
+#### `REG-0023` — A source diagnostic retains its exact file, line, and column when provided
 
 **VERIFIED** · medium · regression · source: OPS-2026-10-07
 
-When a test worker dies, the CI notice reports the line that names the node id it was running ('crashed while running <nodeid>', '[gwN] node down', 'replacing crashed worker') or the session-level abort ('INTERNALERROR>', 'Interrupted'), in preference to the summary line, so the failing test is identified even though the run produced no short summary at all.
+GitHub annotations and recognized compiler, pytest, and Python traceback formats retain their source path and reported line/column. The collector never invents a location; workflow, infrastructure, and cancellation failures remain actionable structured records even when no source location exists.
 
 - **If violated:** A dying worker takes the short summary with it: the run ends with no FAILED line, so every SIGNAL pattern missed and the REG-0020 fallback published the step's last stdout instead. On PR 423 that made the whole notice the words 'Event loop is closed', with no node id, no file and no test. Section 8 of the directives makes the notice the only failure channel a session may read, so a failure this channel cannot name is a failure nobody can diagnose: the branch is blocked and the only remaining move is to guess.
-- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Owned by:** `scripts/ci_diagnostics.py`
 - **Verification:**
-  - `tests/test_ci_failure_notify_workflow.py` (unit)
+  - `tests/test_ci_diagnostics.py` (unit)
 
 > The crash lines rank above the summary line deliberately. When a run produces both, the crash is the one that explains the rest, and the summary is still reachable from the run itself. layer: test-suite
 
-#### `REG-0024` — local check execution is disabled; prepare exposes only the current HEAD's CI notice
+#### `REG-0024` — Agent diagnostic retrieval is one canonical command; local checks stay disabled
 
 **VERIFIED** · medium · regression · source: OPS-2026-10-10
 
-GitHub Actions is the sole execution path for tests, builds, lint, security scans, workflow validation, registry/schema checks, generated-document checks, and quality gates. The local_checks.py run route refuses execution even for a recorded failure. The PostToolUse quality hook is a silent compatibility stub and invokes no local gate. The prepare route removes stale plan state first, requires an open PR whose head SHA exactly matches local HEAD, and exposes only the newest GitHub Actions bot comment with the hidden SHA marker for that HEAD; arbitrary PR comments and stale notices are not returned to the agent.
+GitHub Actions is the sole execution path for tests, builds, lint, security scans, workflow validation, registry/schema checks, generated-document checks, and quality gates. The legacy local_checks.py prepare notice route is retired. The only permitted diagnostic retrieval command is ./scripts/prfail --pr <PR_NUMBER>, which returns a finalized filtered report for the exact current PR head SHA and never downloads raw Actions logs.
 
 - **If violated:** The previous policy allowed individual local test/check execution through a wrapper, despite the repository execution invariant requiring GitHub Actions as the only path. Direct PR comment reads also exposed arbitrary comments and stale CI notices. The route is now closed at the policy, hook, script, and shared shell executor layers.
-- **Owned by:** `scripts/local_checks.py`, `.claude/hooks/pre_tool_use.py`, `config/command_policy.json`, `common/command_schema.py`, `common/shell_exec.py`, `.claude/hooks/quality_gate.py`, `tests/quality/test_qe_skill.py`
+- **Owned by:** `scripts/local_checks.py`, `scripts/ci_verdict.py`, `scripts/ci_diagnostics.py`, `scripts/prfail`, `scripts/apply_ci_patch.py`, `config/command_policy.json`, `common/command_schema.py`, `common/shell_exec.py`, `.claude/hooks/pre_tool_use.py`, `.claude/settings.json`
 - **Verification:**
-  - `tests/test_local_checks.py` (unit)
-  - `tests/test_pre_tool_use_hook.py` (unit)
-  - `tests/test_ci_log_access.py` (unit)
-  - `tests/test_observation_boundary_contract.py` (regression)
+  - `tests/test_ci_log_access.py` (contract)
+  - `tests/test_local_checks.py` (contract)
+  - `tests/test_ci_diagnostics.py` (unit)
+  - `tests/test_pre_tool_use_hook.py` (contract)
 
-> Prepare is a read-only, SHA-bound notice subscription. The run subcommand is disabled in the CLI and function; tests, builds, lint, security scans, and quality gates are validated only by GitHub Actions. layer: test-suite
+> The old prepare/comment-notice subscription is retired. Only the finalized ./scripts/prfail --pr <PR_NUMBER> report route is allowed; the report-bound patch applier revalidates PR/head/report identity and leaves edits uncommitted. The run subcommand remains disabled. Tests, builds, lint, security scans, and quality gates are validated only by GitHub Actions. layer: test-suite
 
 ## Governance
 
@@ -2063,17 +2063,18 @@ Following a CI run -- gh run watch, --watch, tail -f, docker or kubectl logs -f,
 - **Verification:**
   - `tests/test_pre_tool_use_hook.py` (unit) — Covers each spelling of a live watch and the Monitor tool, and asserts a bounded log fetch is still allowed, so the rule caps streams without blinding the agent to failures.
 
-#### `GOV-013` — CI failure is pushed to the pull request, never polled for
+#### `GOV-013` — CI diagnostics are collected autonomously and never require log polling
 
 **VERIFIED** · medium · requirement · source: OPS-2026-09-20
 
-Every completed run of a pull-request workflow posts a single self-updating comment naming each job that is not green -- failure, cancellation, timeout, neutral, action_required, stale, or an unexcused skip -- together with its first failing step and the exact failing lines, so no agent ever reads a run log; a green run posts nothing, and a standing notice is rewritten as recovered.
+When a watched pull-request workflow completes, an autonomous GitHub Actions collector waits until every applicable workflow, job, and step reaches a terminal state for the exact PR head SHA, then publishes a filtered, SHA-bound Check Run report. The collector never cancels sibling workflows, and agents retrieve diagnostics only through ./scripts/prfail --pr <PR_NUMBER>.
 
 - **If violated:** Without a push notice the only way to learn a pull request failed is to poll or to read logs, which is exactly what GOV-011 and GOV-012 forbid.
-- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Owned by:** `.github/workflows/ci-diagnostics.yml`, `scripts/ci_diagnostics.py`, `scripts/prfail`
 - **Depends on:** `GOV-012`
 - **Verification:**
-  - `tests/test_ci_failure_notify_workflow.py` (unit) — Asserts the job carries no `if:` so every completed run is inspected, that the not-green predicate is an inverted allowlist, that its ALLOW_SKIPPED set equals the union of every gate's, that the notice carries extracted failure messages under a hard line cap, and that it updates its prior comment rather than stacking new ones.
+  - `tests/test_ci_diagnostics.py` (contract)
+  - `tests/test_ci_failure_notify_workflow.py` (contract)
 
 #### `GOV-014` — Every required check also runs in the merge queue
 
@@ -2148,17 +2149,17 @@ No CI log, job record, step annotation, artifact, cache entry or check result ca
   - `tests/test_ci_log_access.py` (contract)
   - `tests/test_pre_tool_use_hook.py` (contract)
 
-#### `GOV-020` — One comment per commit carries the status and the exact failing lines
+#### `GOV-020` — One SHA-bound report carries filtered diagnostics and exact source locations
 
 **VERIFIED** · high · requirement · source: OPS-2026-09-22
 
-The CI notice waits until every watched workflow has completed for a commit, then posts or edits exactly one pull-request comment containing the status and, for each job that is not green, the workflow, job, conclusion, failing step and the exact failing lines extracted server-side. It posts on green as well as on failure, carries nothing beyond status and errors, and filters the runner's own exit-code epilogue out of the error text.
+After all applicable watched workflows terminate for a PR head, one finalized Check Run manifest and its integrity-verified pages contain structured non-success outcomes and filtered diagnostics. Records include workflow/job/step identity and exact path, line, and column when supplied by the source evidence. Ordinary successful output is discarded, and the report is retrieved only by the canonical PR-number command.
 
 - **If violated:** A contributor or agent with no route to the cause of a red pull request. Since GOV-019 makes CI logs permanently unreadable, this comment is the only channel, so each of its failure modes is total: one comment per workflow means five to read and four chances to read a stale one; posting before every workflow finishes announces green on a commit that failed; and reporting 'Process completed with exit code 1' -- which is what the notice actually said on a failing shard of PR 313 -- names no test, no file and no assertion, leaving nothing to act on at all.
-- **Owned by:** `.github/workflows/ci-failure-notify.yml`
+- **Owned by:** `.github/workflows/ci-diagnostics.yml`, `scripts/ci_diagnostics.py`, `scripts/prfail`
 - **Depends on:** `GOV-019`
 - **Verification:**
-  - `tests/test_ci_failure_notify_workflow.py` (contract)
+  - `tests/test_ci_diagnostics.py` (contract)
   - `tests/test_ci_log_access.py` (contract)
 
 #### `GOV-021` — tuning stays within its layer
@@ -2263,7 +2264,7 @@ src/strategies/ must not import from src.engine. The SignalEngine adapter reads 
 No GitHub workflow invokes Claude (claude-code-action, CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY or `claude -p`), and .claude/settings.json denies ScheduleWakeup, CronCreate, RemoteTrigger and PR-activity subscription, so Claude runs only in sessions the owner starts and can see.
 
 - **If violated:** claude-review.yml ran up to 120 turns on every PR push, and cloud sessions scheduled their own wake-ups and re-armed them, spending the owner's usage with no visible session until the five-hour limit was hit.
-- **Owned by:** `.claude/settings.json`, `.github/workflows/ci-failure-notify.yml`
+- **Owned by:** `.claude/settings.json`, `.github/workflows/ci-diagnostics.yml`
 - **Verification:**
   - `tests/test_no_claude_automation.py` (contract)
 

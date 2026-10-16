@@ -103,7 +103,7 @@ DENIED_TOOLS: dict[str, str] = {
     "pull_request_review_write": "Approving or reviewing a PR is a human governance act, not an agent action.",
     "add_comment_to_pending_review": "Pending-review authoring is part of the review route and is denied.",
     "add_reply_to_pull_request_comment": "Comment replies require reading arbitrary comment threads.",
-    "update_issue_comment": "Editing existing comments can rewrite the CI notice the boundary depends on.",
+    "update_issue_comment": "Editing existing comments is not a diagnostic route; the finalized report is stored in SHA-bound Check Runs.",
     "issue_write": "Issue mutation is outside the code-change route.",
     "sub_issue_write": "Issue-hierarchy mutation is outside the code-change route.",
     "create_repository": "Repository creation escapes the single-repository scope.",
@@ -169,8 +169,8 @@ CONTRACTS: dict[str, Contract] = {
     # get_status and get_check_runs are CI run data; get_diff, get_files and
     # get_commits are whole-PR reports; get_comments, get_reviews and
     # get_review_comments expose unrelated comment bodies. The CI notice has
-    # exactly one route: scripts/local_checks.py prepare, which pins the
-    # comment to the HEAD sha marker.
+    # exact local report route is ./scripts/prfail --pr <PR_NUMBER>; it
+    # reads only the finalized Check Run manifest and digest-verified pages.
     "pull_request_read": Contract(methods=frozenset({"get"})),
     "issue_read": Contract(methods=frozenset({"get"})),
     # ---- writes: delta-checked ----------------------------------------
@@ -188,8 +188,8 @@ CONTRACTS: dict[str, Contract] = {
     "update_pull_request": Contract(
         required=("pullNumber",), forbidden=("state", "reviewers"), write=True
     ),
-    # comment_id turns this into an edit of an existing comment, which can
-    # rewrite the CI notice the boundary depends on; reaction is not a message.
+    # comment_id edits an existing comment; reaction is not a message. Neither
+    # operation is a CI diagnostic route.
     "add_issue_comment": Contract(
         required=("issue_number", "body"), forbidden=("comment_id", "reaction"), write=True
     ),
