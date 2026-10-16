@@ -1,12 +1,22 @@
 # Exchanges Reference
 
+## Trade-Bot integration (verified against the repository)
+
+- Venues configured: Binance and OKX (`src/config.py` `BinanceSettings`,
+  `OKXSettings`); market data via CCXT in `src/data/fetcher.py` and
+  `src/data/orderbook_stream.py`.
+- Execution: `src/execution/router.py`, `src/execution/order_manager.py`,
+  `src/execution/live.py`, `src/execution/order_fsm.py`,
+  `src/execution/idempotency.py`, `src/execution/exchange_contract.py`.
+- Hyperliquid, dYdX, FIX and RFQ below are design references, not integrations.
+
 ## Exchange Taxonomy
 
 ### Centralized (CEX)
 - Off-chain matching engine; instant fill notification
 - Counter-party risk: exchange custody of funds (FTX 2022; Bybit hack 2025)
 - Withdraw limits, KYC/AML, geo-restrictions apply
-- Key players (2025): Binance, OKX, Bybit, Kraken, Coinbase Advanced, HTX, Gate.io
+- Key players (as of 2025; historical; current status requires confirmation): Binance, OKX, Bybit, Kraken, Coinbase Advanced, HTX, Gate.io
 
 ### Decentralized (DEX)
 - On-chain settlement; subject to finality, gas, MEV (see `defi.md`)
@@ -18,10 +28,11 @@
 - Custom L1 chain (HyperBFT consensus): fully on-chain order book + matching engine
 - Sub-100ms finality; EVM-compatible (HyperEVM) for smart contracts
 - Native token (HYPE): used for fees and staking; launched Nov 2024
-- Dec 2024 cascade event: $200M ETH whale liquidation cascaded; HLP (liquidity pool)
-  absorbed $4M loss via socialized loss mechanism
+- ETH whale liquidation event (reported ~$200M position; HLP absorbed a loss —
+  date and figures: historical; current status requires confirmation)
   Lessons: monitor HLP vault P&L; large OI → cascade risk; ADL rank monitoring mandatory
-- API: REST + WebSocket; similar authentication to CEX; Ed25519 signing preferred
+- API: REST + WebSocket; actions are signed with an Ethereum-style (secp256k1,
+  EIP-712) wallet or agent key, not HMAC (historical; current status requires confirmation)
 - Risk: smaller validator set than ETH; concentrated team; infrastructure single points
 - HyperEVM: deploy contracts on Hyperliquid's EVM; interacts with perp state;
   powerful but novel risk surface; treat as alpha-stage infrastructure
@@ -69,7 +80,7 @@
 
 ## FIX Protocol
 
-- Binance: FIX 4.2 API; requires dedicated session key
+- Binance: offers a FIX API for spot (version and key requirements: historical; current status requires confirmation)
 - Message types: `D`=NewOrderSingle, `F`=Cancel, `G`=CancelReplace, `8`=ExecutionReport
 - Sequence numbers: track per session; gap = disconnect and resync
 - Latency: FIX ~0.5–2ms vs REST ~5–20ms; worth it for HFT only
@@ -93,7 +104,8 @@
 
 ### Authentication
 - HMAC-SHA256 (most CEX): sign `timestamp + method + path + body`
-- Ed25519 (Bybit, Hyperliquid): preferred — smaller signature, faster
+- Ed25519 API keys (offered by Binance; per-venue support historical; current status requires confirmation): asymmetric, so
+  the exchange never holds a signing secret; preferred where available
 - Timestamp window: exchange rejects outside ±5s; NTP sync mandatory
 - API key permissions: trade + read only; **never withdrawal permission on trading key**
 - IP allowlist: restrict to trading server IPs; any API key without IP allowlist = HIGH risk
@@ -138,11 +150,11 @@ Expected Slippage = Σ(level_price - mid) × level_size / order_size
 
 ### Market Impact Model (Almgren-Chriss)
 ```
-Temporary impact:  η × (v / σ) × sign(v)
-Permanent impact:  γ × v
-Square-root approx: Impact ≈ σ × (Q / ADV)^0.5
+Temporary impact:  h(v) = ε × sign(v) + η × v      (Almgren–Chriss, linear)
+Permanent impact:  g(v) = γ × v
+Square-root law (empirical, separate model): Impact ≈ Y × σ × (Q / ADV)^0.5
 ```
-- `v` = participation rate (fraction of ADV)
+- `v` = trading rate; `Q` = order size; `Y` ≈ O(1), calibrated per venue
 - Calibrate `η` and `γ` per exchange on actual fill data
 
 ---
@@ -173,12 +185,11 @@ Square-root approx: Impact ≈ σ × (Q / ADV)^0.5
 ## Funding Rate (Perpetual Futures)
 
 ```
-Funding Payment = Position Size × Funding Rate (every 8h typically)
+Funding Payment = Position Notional × Funding Rate (interval is venue- and contract-specific; often 8h)
 ```
 - Positive funding: longs pay shorts (market bullish)
 - Extreme funding (> 0.1% per 8h): liquidity risk signal; reduce position
 - Funding arbitrage: long spot + short perp when funding positive; account for borrow cost
-- Hyperliquid Dec 2024: funding spiked to extreme on ETH before cascade;
-  extreme funding = early cascade warning signal; monitor cross-venue composite
+- Extreme funding is an early cascade warning signal; monitor the cross-venue composite
 - OI-weighted funding composite: compute effective funding across positions
   to get true carry cost

@@ -1,19 +1,30 @@
 # ECC Cryptography & Post-Quantum Reference
 
+## Trade-Bot integration (verified against the repository)
+
+- `src/ecc/` is **on-chain analytics** (ECDSA nonce-reuse scanning, Schnorr/Taproot,
+  secp256k1 clustering, UTXO curves, zkSNARK detection). Its output reaches the
+  optional horizon pipeline in `src/intel.py` (`cluster_flow_score`); it is not
+  key management and does not sign anything.
+- Key handling lives in `src/security/` (see `security.md`);
+  `src/security/pq_transport.py` is a stub, not a deployed PQC transport.
+- Prime-field/NTT arithmetic for lattice parameters: `src/mathcore/fields/ntt.py`.
+
 ## Classical Curves Used in Crypto
 
 | Curve | Used By | Security Bits | Form |
 |---|---|---|---|
 | secp256k1 | Bitcoin, Ethereum, most CEX | 128 | Weierstrass |
-| Ed25519 | Solana, Monero, Bybit API | 128 | Edwards (twisted) |
+| Ed25519 | Solana, Monero, Binance Ed25519 API keys | 128 | Edwards (twisted) |
 | P-256 (secp256r1) | TLS, some HSM | 128 | Weierstrass (NIST) |
 | BLS12-381 | ETH2 consensus, ZK proofs | 128 | Barreto-Lynn-Scott pairing |
 | Ristretto255 | Modern protocols, MPC | 128 | Edwards (canonical encoding) |
 | X25519 | Key agreement (ECDH) | 128 | Montgomery |
 
-- secp256k1: `a=0, b=7`; no known backdoor unlike NIST curves
+- secp256k1: `a=0, b=7`; parameters are rigid (little room for hidden choices)
 - Ed25519: deterministic, no k-reuse vulnerability — **preferred for new systems**
-- P-256: avoid if possible; NIST curve; potential backdoor concerns
+- P-256: no known practical weakness; seed-rigidity concerns are debated, not
+  demonstrated. FIPS-approved and often required by HSMs — acceptable
 - BLS12-381: pairing operations for threshold signatures and ZK proofs
 - Ristretto255: eliminates Ed25519 cofactor issues; prefer for MPC implementations
 - X25519: use for key agreement only; never for signing
@@ -36,7 +47,7 @@ architect-approved PQC algorithms for new systems.
 - **Purpose**: Digital signature (replaces ECDSA/Ed25519 for signatures)
 - **Security levels**: ML-DSA-44 (L2), ML-DSA-65 (L3), ML-DSA-87 (L5)
 - **Architect default**: ML-DSA-65 for most signing; ML-DSA-87 for root CA or long-lived certs
-- **Signature size**: ML-DSA-65 ≈ 3293 bytes (vs ECDSA 64 bytes) — design protocols accordingly
+- **Signature size**: ML-DSA-65 = 3309 bytes (FIPS 204; vs ECDSA 64 bytes) — design protocols accordingly
 - **Public key size**: ML-DSA-65 ≈ 1952 bytes — bandwidth budget must account for PQC keys
 - **Use**: new signing infrastructure; hybrid with ECDSA during transition
 
@@ -51,7 +62,7 @@ architect-approved PQC algorithms for new systems.
 - **Purpose**: Digital signature; lattice-based, smaller signatures than ML-DSA
 - **Signature size**: Falcon-512 ≈ 666 bytes; Falcon-1024 ≈ 1280 bytes
 - **Caution**: signing requires careful RNG; use constant-time implementation only
-- **Status**: approved for use; FIPS standard in progress; acceptable architect choice
+- **Status**: FIPS 206 (FN-DSA) standardization — historical; current status requires confirmation; until final, prefer ML-DSA and use Falcon only
   where bandwidth is constrained and ML-DSA signature size is prohibitive
 
 ---
@@ -59,23 +70,25 @@ architect-approved PQC algorithms for new systems.
 ## Hybrid Classical + PQC (Mandatory for Transition)
 
 ### Rationale
-- Quantum computers cannot break classical ECC today (circa 2025)
+- No publicly demonstrated quantum computer can break classical ECC (as of 2025; historical; current status requires confirmation)
 - "Harvest now, decrypt later": adversaries store ciphertext; decrypt when quantum available
-- Hybrid: both classical and PQC algorithms must verify; downgrades both
-  classical-only and PQC-only attacks
+- Hybrid: both classical and PQC algorithms must verify, so a break of either one
+  alone does not forge a signature or recover a key
 
 ### Implementation Pattern
 ```python
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-# PQC library: liboqs-python, pqcrypto, or dilithium-py
-from dilithium_py.dilithium import Dilithium3  # ML-DSA-65 compatible
+# Use a FIPS 204 ML-DSA implementation (e.g. liboqs). Round-3 "Dilithium3" is NOT
+# interoperable with ML-DSA-65. Pure-Python packages are not constant-time:
+# acceptable for tests, never for production keys.
+from dilithium_py.ml_dsa import ML_DSA_65  # API: sign(sk, m), verify(pk, m, sig)
 
 
 def hybrid_sign(message: bytes, ed25519_key: Ed25519PrivateKey, ml_dsa_key: bytes) -> bytes:
     """Both signatures must be produced and verified."""
     sig_classical = ed25519_key.sign(message)
-    sig_pqc = Dilithium3.sign(ml_dsa_key, message)
+    sig_pqc = ML_DSA_65.sign(ml_dsa_key, message)
     # Concatenate: [2B len_classical][sig_classical][2B len_pqc][sig_pqc]
     return (
         len(sig_classical).to_bytes(2, "big")
@@ -95,16 +108,20 @@ def hybrid_verify(message: bytes, hybrid_sig: bytes, ed25519_pubkey, ml_dsa_pubk
     len_pqc = int.from_bytes(hybrid_sig[offset : offset + 2], "big")
     offset += 2
     sig_pqc = hybrid_sig[offset : offset + len_pqc]
+    if len(sig_c) != len_c or len(sig_pqc) != len_pqc or offset + len_pqc != len(hybrid_sig):
+        return False  # truncated or trailing bytes: reject, never parse leniently
     ed25519_pubkey.verify(sig_c, message)  # raises on failure
-    return Dilithium3.verify(ml_dsa_pubkey, message, sig_pqc)
+    return ML_DSA_65.verify(ml_dsa_pubkey, message, sig_pqc)
 ```
 
 ### X25519MLKEM768 (Key Exchange Hybrid)
-- IANA draft: `X25519MLKEM768` = X25519 + ML-KEM-768 combined key exchange
-- Supported in Go TLS (1.23+), BoringSSL (2024); CloudFlare Quiche
+- `X25519MLKEM768`: X25519 + ML-KEM-768 hybrid TLS group (IETF draft; codepoint and
+  status: historical; current status requires confirmation)
+- Library support (Go, BoringSSL, OpenSSL, quiche) changes by release; historical; current status requires confirmation
 - Use for: all new TLS/QUIC transport where library supports it
-- Shared secret: `H(ss_x25519 ‖ ss_mlkem)` <!-- pragma: allowlist secret --> — compromise of either is insufficient
-  for attacker to recover session key
+- Shared secret: the ML-KEM-768 and X25519 shared secrets are concatenated (ML-KEM
+  first, per the draft — confirm) and fed to the TLS 1.3 key schedule; breaking
+  either component alone does not recover the session key
 
 ---
 
@@ -125,9 +142,9 @@ Every system with new key infrastructure must produce this artifact:
 | JWT signing | RS256 | HIGH (Shor) | HIGH |
 
 ### Migration Phases
-Phase 1 (Q1 2026): Hybrid TLS — X25519MLKEM768 for all new connections
-Phase 2 (Q3 2026): API signing — Hybrid HMAC+ML-DSA-65 for new API infrastructure
-Phase 3 (2027): Wallet — hybrid key generation for all new wallet derivations
+Phase 1 (example date): Hybrid TLS — X25519MLKEM768 for all new connections
+Phase 2 (example date): API signing — Hybrid HMAC+ML-DSA-65 for new API infrastructure
+Phase 3 (example date): Wallet — hybrid key generation for all new wallet derivations
 
 ### Constraints
 - secp256k1 on-chain: cannot change until ETH/BTC protocol upgrades; monitor BIP proposals
@@ -151,7 +168,7 @@ Phase 3 (2027): Wallet — hybrid key generation for all new wallet derivations
 - Deterministic: nonce derived from `Hash(privkey_seed || message)` — no RNG at signing
 - Cofactor = 8: handle in batch verification; use cofactor-cleared operations
 - Faster than ECDSA; no k-reuse vulnerability
-- Bybit API authentication, Solana transaction signing
+- Binance Ed25519 API keys, Solana transaction signing
 
 ```python
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -179,6 +196,7 @@ Sign:  m parties sign independently; coordinator aggregates
 Verify: standard BLS verify against group public key
 ```
 - Architect rule: threshold BLS for any wallet > $1M; minimum 3-of-5 configuration
+  (an absolute floor in addition to Law 6's > 10%-of-capital MPC rule)
 - Distributed Key Generation (DKG): no single party holds full key at any time
 
 ---
@@ -206,7 +224,9 @@ Master Seed (BIP39 mnemonic, 256-bit entropy)
 ### Storage Rules
 - Private keys never stored in plaintext — AES-256-GCM at rest
 - Encryption key: from HSM or Argon2id (memory-hard); never stored alongside
-- Memory hygiene: zero key bytes after signing (`ctypes.memset` or equivalent)
+- Memory hygiene: zero key bytes after signing (`ctypes.memset` on a mutable buffer;
+  Python `bytes` are immutable and copies may persist — keep keys out of Python
+  objects where possible, e.g. inside the HSM/vault process)
 - Disable core dumps: `resource.setrlimit(resource.RLIMIT_CORE, (0, 0))`
 - Swap encryption mandatory on any host handling key material
 

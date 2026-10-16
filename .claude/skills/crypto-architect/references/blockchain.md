@@ -1,5 +1,14 @@
 # Blockchain Reference
 
+## Trade-Bot integration (verified against the repository)
+
+- The repository reads chain data for analytics (`src/features/onchain.py`,
+  `src/features/mempool.py`, `src/data/block_height_provider.py`, `src/ecc/`); it
+  does not submit or sign on-chain transactions. Nonce, gas and reorg guidance
+  below applies to any future on-chain execution.
+- Any on-chain record used as a feature must carry its block timestamp and block
+  hash so reorgs and point-in-time alignment can be checked.
+
 ## Consensus Mechanisms — Architect Implications
 
 ### Proof of Work (PoW)
@@ -33,7 +42,7 @@
 - Sequencer centralization risk: single sequencer failure = L2 halt; check failsafe
   (Arbitrum: delayed inbox force-include; Optimism: same)
 - Forced inclusion: transactions can be forced through L1 if sequencer censors
-- Fault proofs live on Optimism and Base mainnet (2024); Arbitrum BOLD imminent
+- Fault proofs: OP Stack (Optimism, Base) and Arbitrum BOLD status — historical; current status requires confirmation
 
 ### ZK Rollups (zkSync Era, Starknet, Polygon zkEVM, Scroll, Linea)
 - Validity proof generated per batch → cryptographic finality, no fraud window
@@ -70,7 +79,7 @@
 |---|---|---|---|
 | Bitcoin | PoW | ~60 min (6 blocks) | Low after 3 blocks |
 | Ethereum | PoS | ~12 min (2 epochs) | Negligible post-finality |
-| Solana | PoH+PoS | ~400 ms | Low; monitor validator health |
+| Solana | PoH+PoS | confirmed ≈ sub-second; finalized ≈ 32 slots (~13 s) | Low; use `finalized` for settlement |
 | BNB Chain | DPoS | ~3 s (15 blocks) | Low |
 | Avalanche | Snowball | ~1 s | Very low |
 | Polygon PoS | PoS | ~2 min | Checkpoint to ETH |
@@ -83,8 +92,8 @@
 
 ## Pectra Upgrade (ETH, 2025)
 
-- EIP-7702: account abstraction for EOAs — EOAs can temporarily act as smart accounts
-  by setting code for a transaction; enables session keys, batch transactions, gas
+- EIP-7702: account abstraction for EOAs — an EOA delegates its code to a contract
+  via a persistent delegation indicator; enables session keys, batch transactions, gas
   sponsorship without full ERC-4337 deployment
   Architect: EOA behavior is now programmable; validate that contract detection logic
   (`code.length > 0`) still correctly identifies contract vs EOA contexts
@@ -105,7 +114,7 @@
 - Use private mempools (Flashbots Protect, MEV Blocker) for sensitive orders
 - Nonce management (ETH): sequential, per-address; out-of-order nonce = stuck tx
   Maintain nonce counter in persistent state; sync with chain on startup
-- EIP-4337 UserOp mempool: separate mempool; bundlers aggregate; same MEV considerations apply
+- ERC-4337 UserOp mempool: separate mempool; bundlers aggregate; same MEV considerations apply
 
 ---
 
@@ -113,7 +122,8 @@
 
 ### EVM Chains (ETH, BNB, AVAX, Polygon)
 - EIP-1559: `baseFee` (burned) + `maxPriorityFee` (tip) + `maxFee` cap
-- `baseFee` auto-adjusts per block (target 50% full); fetch via `eth_gasPrice` or fee history
+- `baseFee` auto-adjusts per block (target 50% full); read it from the latest block
+  or `eth_feeHistory` (`eth_gasPrice` is a legacy single-price suggestion)
 - Blob fee market (post-EIP-4844): separate `blob_base_fee`; required for L2 calldata tx
 - Under-estimate gas → tx reverts (gas consumed, value not transferred)
 - Strategy: estimate gas × 1.2 buffer; cap at `maxFee`; monitor inclusion latency
@@ -141,7 +151,9 @@
 - EOAs temporarily adopt smart account code for one transaction
 - Use cases: batch approve+swap atomically, sponsor gas for user, authorize session key
 - Security: the code set can be malicious; validate delegate contract address strictly
-- Does not persist: code reverts to empty after tx unless re-set; stateless
+- Persists: the delegation indicator stays on the account until replaced or cleared
+  by a later authorization, and is not rolled back if the transaction reverts
+  (EIP-7702 specification). Treat a delegated EOA as a smart account thereafter
 
 ---
 
