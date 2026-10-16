@@ -42,4 +42,4 @@ def test_report_cli_is_the_single_agent_facing_route() -> None:
     policy = (ROOT / "config/command_policy.json").read_text(encoding="utf-8")
     cli = (ROOT / "scripts/prfail").read_text(encoding="utf-8")
     assert "./scripts/prfail --pr <PR_NUMBER>" in policy
-    assert "ci_diagnostics.py" in cli
+    assert "from ci_diagnostics import main_prfail" in cli
