@@ -14,15 +14,6 @@ on:
       - "Security"
       - "Workflow lint"
     types: [completed]
-  # Recovery/backfill for an already-open PR whose source workflows completed
-  # before this collector was merged to the default branch. Normal collection
-  # remains autonomous and never depends on an agent dispatching this workflow.
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "Open PR number to backfill after autonomous collector activation"
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -31,7 +22,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ci-diagnostics-${{ github.event.inputs.pr_number || github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.head_sha || github.run_id }}
+  group: ci-diagnostics-${{ github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.head_sha || github.run_id }}
   cancel-in-progress: false
 
 jobs:

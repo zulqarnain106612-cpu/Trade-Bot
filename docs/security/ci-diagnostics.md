@@ -27,9 +27,8 @@ separate agent commands.
 
 The collector is a GitHub Actions workflow, not an agent-operated script. When
 CI, CodeQL, Security, or Workflow lint completes, GitHub starts
-`.github/workflows/ci-diagnostics.yml` on a GitHub-hosted runner. A maintainer-only
-`workflow_dispatch` input supports backfilling an already-open PR after activation;
-it is not part of the normal agent workflow. It reads the
+`.github/workflows/ci-diagnostics.yml` on a GitHub-hosted runner. There is no
+manual-dispatch or agent-triggered collection path. It reads the
 source workflow's structured outcomes, annotations, and job logs there, then
 publishes the filtered report. This process does not require an agent session
 to be running and does not wait for an agent to request diagnostics. The agent's
@@ -127,6 +126,7 @@ load them; separately exposed connector tools require their own permission contr
 
 GitHub only triggers a `workflow_run` workflow when its definition exists on
 the default branch. Autonomous collection starts after this workflow is merged
-there. The maintainer-only `workflow_dispatch` recovery input can then backfill
-reports for PRs whose checks completed before activation.
+there. A PR whose source checks all completed before activation will need a new
+source-workflow completion before its first report can exist; collection itself
+remains triggered by `workflow_run`, never by the agent.
 

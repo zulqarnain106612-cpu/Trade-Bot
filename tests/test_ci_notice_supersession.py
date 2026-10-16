@@ -17,14 +17,13 @@ def test_collector_waits_for_every_applicable_workflow_and_job() -> None:
     assert "report remains unfinalized" in source
 
 
-def test_manual_backfill_is_maintainer_only_and_does_not_replace_autonomous_trigger() -> None:
+def test_collector_has_no_manual_dispatch_or_agent-triggered_collection() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     triggers = workflow.get("on") or workflow.get(True) or {}
     source = COLLECTOR.read_text(encoding="utf-8")
-    assert triggers["workflow_run"]["types"] == ["completed"]
-    assert triggers["workflow_dispatch"]["inputs"]["pr_number"]["required"] is True
-    assert 'event_name == "workflow_dispatch"' in source
-    assert 'GITHUB_REF") != "refs/heads/main"' in source
+    assert set(triggers) == {"workflow_run"}
+    assert 'event_name == "workflow_run"' in source
+    assert 'event_name == "workflow_dispatch"' not in source
 
 
 def test_source_workflows_are_not_cancelled_by_diagnostics() -> None:

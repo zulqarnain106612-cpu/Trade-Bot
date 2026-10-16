@@ -924,21 +924,7 @@ def _collect() -> int:
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", slug):
         raise DiagnosticError("GITHUB_REPOSITORY is missing or malformed")
 
-    if event_name == "workflow_dispatch":
-        # Manual dispatch is a maintainer-only recovery path for reports whose
-        # source workflows completed before the collector reached the default
-        # branch. The normal workflow_run path remains fully autonomous.
-        if os.environ.get("GITHUB_REF") != "refs/heads/main":
-            raise DiagnosticError("diagnostic backfill may run only from the default branch")
-        inputs = event.get("inputs") if isinstance(event.get("inputs"), dict) else {}
-        raw_pr = inputs.get("pr_number")
-        if not isinstance(raw_pr, str) or not re.fullmatch(r"[1-9][0-9]*", raw_pr):
-            raise DiagnosticError("workflow_dispatch requires a positive-decimal pr_number input")
-        pr_number = int(raw_pr)
-        pull = _load_current_pr(slug, pr_number)
-        if pull.get("state") != "open":
-            raise DiagnosticError("diagnostic backfill requires an open pull request")
-    elif event_name == "workflow_run":
+    if event_name == "workflow_run":
         trigger = event.get("workflow_run")
         if not isinstance(trigger, dict):
             raise DiagnosticError("Expected a workflow_run completion event")

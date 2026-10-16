@@ -24,8 +24,7 @@ def test_collector_is_autonomous_and_starts_only_after_source_completion() -> No
     assert triggers["workflow_run"]["types"] == ["completed"]
     assert set(triggers["workflow_run"]["workflows"]) == {"CI", "CodeQL", "Security", "Workflow lint"}
     assert "pull_request" not in triggers
-    assert triggers["workflow_dispatch"]["inputs"]["pr_number"]["required"] is True
-    assert triggers["workflow_dispatch"]["inputs"]["pr_number"]["type"] == "string"
+    assert "workflow_dispatch" not in triggers
     assert spec["jobs"]["collect"]["permissions"]["actions"] == "read"
     assert spec["jobs"]["collect"]["permissions"]["checks"] == "write"
     assert "python3 scripts/ci_diagnostics.py collect" in spec["jobs"]["collect"]["steps"][-1]["run"]
