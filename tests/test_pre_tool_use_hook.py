@@ -137,39 +137,53 @@ class TestApprovedGithubRoute:
         assert decision["permissionDecision"] == "deny"
 
     def test_exact_report_bound_patch_command_is_allowed(self) -> None:
-        command = "\n".join([
-            "python3 scripts/apply_ci_patch.py --pr 458 --head-sha " + "a" * 40 + " --patch-stdin <<'TB_CI_PATCH'",
-            "diff --git a/src/example.py b/src/example.py",
-            "--- a/src/example.py",
-            "+++ b/src/example.py",
-            "@@ -1,1 +1,1 @@",
-            "-before = 1",
-            "+after = 1",
-            "TB_CI_PATCH",
-        ])
+        command = "\n".join(
+            [
+                "python3 scripts/apply_ci_patch.py --pr 458 --head-sha "
+                + "a" * 40
+                + " --patch-stdin <<'TB_CI_PATCH'",
+                "diff --git a/src/example.py b/src/example.py",
+                "--- a/src/example.py",
+                "+++ b/src/example.py",
+                "@@ -1,1 +1,1 @@",
+                "-before = 1",
+                "+after = 1",
+                "TB_CI_PATCH",
+            ]
+        )
         decision = decide("Bash", {"command": command})
         assert decision["permissionDecision"] == "allow"
 
     def test_report_bound_patch_command_cannot_target_protected_control_plane(self) -> None:
-        command = "\n".join([
-            "python3 scripts/apply_ci_patch.py --pr 458 --head-sha " + "a" * 40 + " --patch-stdin <<'TB_CI_PATCH'",
-            "diff --git a/.github/workflows/ci-diagnostics.yml b/.github/workflows/ci-diagnostics.yml",
-            "--- a/.github/workflows/ci-diagnostics.yml",
-            "+++ b/.github/workflows/ci-diagnostics.yml",
-            "@@ -1,1 +1,1 @@",
-            "-before = 1",
-            "+after = 1",
-            "TB_CI_PATCH",
-        ])
+        command = "\n".join(
+            [
+                "python3 scripts/apply_ci_patch.py --pr 458 --head-sha "
+                + "a" * 40
+                + " --patch-stdin <<'TB_CI_PATCH'",
+                "diff --git a/.github/workflows/ci-diagnostics.yml b/.github/workflows/ci-diagnostics.yml",
+                "--- a/.github/workflows/ci-diagnostics.yml",
+                "+++ b/.github/workflows/ci-diagnostics.yml",
+                "@@ -1,1 +1,1 @@",
+                "-before = 1",
+                "+after = 1",
+                "TB_CI_PATCH",
+            ]
+        )
         decision = decide("Bash", {"command": command})
         assert decision["permissionDecision"] == "deny"
         assert "Protected observation-boundary" in decision["reason"]
 
     def test_patch_command_wrappers_and_early_heredoc_terminators_are_denied(self) -> None:
-        header = "python3 scripts/apply_ci_patch.py --pr 458 --head-sha " + "a" * 40 + " --patch-stdin <<'TB_CI_PATCH'"
+        header = (
+            "python3 scripts/apply_ci_patch.py --pr 458 --head-sha "
+            + "a" * 40
+            + " --patch-stdin <<'TB_CI_PATCH'"
+        )
         for command in (
             "cd /tmp && " + header + "\nTB_CI_PATCH",
-            "\n".join([header, "diff --git a/x.py b/x.py", "TB_CI_PATCH", "echo injected", "TB_CI_PATCH"]),
+            "\n".join(
+                [header, "diff --git a/x.py b/x.py", "TB_CI_PATCH", "echo injected", "TB_CI_PATCH"]
+            ),
         ):
             decision = decide("Bash", {"command": command})
             assert decision["permissionDecision"] == "deny"

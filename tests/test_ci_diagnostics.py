@@ -35,7 +35,9 @@ def test_job_log_zip_archive_is_decoded_without_extracting_files() -> None:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("1_Setup.txt", "setup completed\n")
-        archive.writestr("2_Tests.txt", "FAILED tests/test_orders.py::test_order - AssertionError\n")
+        archive.writestr(
+            "2_Tests.txt", "FAILED tests/test_orders.py::test_order - AssertionError\n"
+        )
     decoded = _decode_job_log_payload(buffer.getvalue(), 42)
     assert "setup completed" in decoded
     assert "FAILED tests/test_orders.py::test_order - AssertionError" in decoded
@@ -51,7 +53,9 @@ def test_malformed_job_log_archive_fails_closed() -> None:
 
 
 def test_successful_log_volume_has_no_diagnostic_lines() -> None:
-    raw = "".join(f"2026-10-16T10:00:{i % 60:02d}.000Z step printed normal line {i}\n" for i in range(5000))
+    raw = "".join(
+        f"2026-10-16T10:00:{i % 60:02d}.000Z step printed normal line {i}\n" for i in range(5000)
+    )
     assert parse_log_lines(raw) == []
 
 
@@ -87,7 +91,9 @@ def test_parser_extracts_generic_error_line_without_success_noise() -> None:
 
 
 def test_parser_preserves_annotation_columns_when_present() -> None:
-    result = parse_log_lines("::error file=src/order.py,line=7,col=3,endLine=7,endColumn=9::invalid order\n")
+    result = parse_log_lines(
+        "::error file=src/order.py,line=7,col=3,endLine=7,endColumn=9::invalid order\n"
+    )
     assert len(result) == 1
     assert result[0]["path"] == "src/order.py"
     assert result[0]["start_line"] == 7
@@ -98,42 +104,81 @@ def test_parser_preserves_annotation_columns_when_present() -> None:
 
 def test_message_fragments_reassemble_without_truncation() -> None:
     record = {
-        "repository": "owner/repo", "pr": 9, "head_sha": "a" * 40,
-        "workflow_name": "CI", "workflow_run_id": 10, "run_attempt": 2,
-        "job_id": 11, "job_name": "unit", "step_name": "tests",
-        "outcome_level": "log_diagnostic", "conclusion": "failure",
-        "category": "pytest_error", "path": "tests/test_a.py",
-        "start_line": 1, "start_column": None, "end_line": None, "end_column": None,
-        "message": "x" * (REPORT_PAGE_BYTES * 3), "source": "GitHub Actions job log",
+        "repository": "owner/repo",
+        "pr": 9,
+        "head_sha": "a" * 40,
+        "workflow_name": "CI",
+        "workflow_run_id": 10,
+        "run_attempt": 2,
+        "job_id": 11,
+        "job_name": "unit",
+        "step_name": "tests",
+        "outcome_level": "log_diagnostic",
+        "conclusion": "failure",
+        "category": "pytest_error",
+        "path": "tests/test_a.py",
+        "start_line": 1,
+        "start_column": None,
+        "end_line": None,
+        "end_column": None,
+        "message": "x" * (REPORT_PAGE_BYTES * 3),
+        "source": "GitHub Actions job log",
     }
     pages = _pack_pages([record])
     fragments = [entry for page in pages for entry in page]
     assert len(fragments) > 1
     assert len(pages) > 1
-    assert "".join(entry["message_fragment"] or "" for entry in sorted(fragments, key=lambda f: f["message_part_index"])) == record["message"]
+    assert (
+        "".join(
+            entry["message_fragment"] or ""
+            for entry in sorted(fragments, key=lambda f: f["message_part_index"])
+        )
+        == record["message"]
+    )
     assert all(len(_canonical_json(page).encode("utf-8")) <= REPORT_PAGE_BYTES for page in pages)
 
 
 def test_report_reader_rejects_stale_page() -> None:
     record = {
-        "repository": "owner/repo", "pr": 9, "head_sha": "a" * 40,
-        "workflow_name": "CI", "workflow_run_id": 10, "run_attempt": 1,
-        "job_id": None, "job_name": None, "step_name": None,
-        "outcome_level": "workflow", "conclusion": "failure",
-        "category": "workflow_outcome", "path": None, "start_line": None,
-        "start_column": None, "end_line": None, "end_column": None,
-        "message": None, "source": "GitHub Actions workflow-run API",
+        "repository": "owner/repo",
+        "pr": 9,
+        "head_sha": "a" * 40,
+        "workflow_name": "CI",
+        "workflow_run_id": 10,
+        "run_attempt": 1,
+        "job_id": None,
+        "job_name": None,
+        "step_name": None,
+        "outcome_level": "workflow",
+        "conclusion": "failure",
+        "category": "workflow_outcome",
+        "path": None,
+        "start_line": None,
+        "start_column": None,
+        "end_line": None,
+        "end_column": None,
+        "message": None,
+        "source": "GitHub Actions workflow-run API",
     }
     digest = hashlib.sha256(_canonical_json([record]).encode()).hexdigest()
     packed = _pack_pages([record])
     page = {
-        "status": "completed", "conclusion": "success", "head_sha": "b" * 40,
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": "b" * 40,
         "output": {
-            "summary": _canonical_json({"schema_version": 1, "generation_id": digest[:24], "page": 1, "page_count": 1}),
+            "summary": _canonical_json(
+                {"schema_version": 1, "generation_id": digest[:24], "page": 1, "page_count": 1}
+            ),
             "text": _canonical_json(packed[0]),
         },
     }
-    manifest = {"page_count": 1, "generation_id": digest[:24], "diagnostic_count": 1, "digest": digest}
+    manifest = {
+        "page_count": 1,
+        "generation_id": digest[:24],
+        "diagnostic_count": 1,
+        "digest": digest,
+    }
     try:
         _decode_report_pages(9, "a" * 40, manifest, {1: page})
     except Exception as exc:
@@ -170,7 +215,9 @@ def test_successful_workflow_preserves_skipped_and_cancelled_step_outcomes() -> 
         ],
     }
     _add_structured_outcomes(records, "owner/repo", 313, "a" * 40, "CI", run, [job])
-    outcomes = {(item["step_name"], item["conclusion"], item["job_id"]) for item in records.values()}
+    outcomes = {
+        (item["step_name"], item["conclusion"], item["job_id"]) for item in records.values()
+    }
     assert outcomes == {
         ("optional lint", "skipped", 202),
         ("cancelled diagnostic", "cancelled", 202),
@@ -181,12 +228,18 @@ def test_successful_job_log_is_scanned_for_explicit_diagnostics(monkeypatch) -> 
     records = {}
     run = {"id": 501, "run_attempt": 1, "conclusion": "success"}
     job = {
-        "id": 502, "name": "compiler", "status": "completed", "conclusion": "success",
+        "id": 502,
+        "name": "compiler",
+        "status": "completed",
+        "conclusion": "success",
         "steps": [{"name": "build", "status": "completed", "conclusion": "success"}],
     }
     monkeypatch.setattr(
-        ci_diagnostics, "_job_log",
-        lambda repository, job_id: "src/engine.py:42: warning: deprecated API\nordinary successful output\n",
+        ci_diagnostics,
+        "_job_log",
+        lambda repository, job_id: (
+            "src/engine.py:42: warning: deprecated API\nordinary successful output\n"
+        ),
     )
     ci_diagnostics._add_log_diagnostics(records, "owner/repo", 313, "a" * 40, "CI", run, job)
     diagnostics = list(records.values())
@@ -201,14 +254,23 @@ def test_failed_timeout_and_skipped_outcomes_survive_without_log_text() -> None:
     records = {}
     run = {"id": 401, "run_attempt": 1, "conclusion": "timed_out"}
     job = {
-        "id": 402, "name": "integration", "status": "completed", "conclusion": "failure",
+        "id": 402,
+        "name": "integration",
+        "status": "completed",
+        "conclusion": "failure",
         "steps": [{"name": "timeout step", "status": "completed", "conclusion": "timed_out"}],
     }
     _add_structured_outcomes(records, "owner/repo", 313, "a" * 40, "CI", run, [job])
     skipped = {"id": 403, "run_attempt": 1, "conclusion": "skipped"}
     _add_structured_outcomes(records, "owner/repo", 313, "a" * 40, "Security", skipped, [])
     outcomes = {
-        (item["workflow_run_id"], item["outcome_level"], item["conclusion"], item["job_id"], item["step_name"])
+        (
+            item["workflow_run_id"],
+            item["outcome_level"],
+            item["conclusion"],
+            item["job_id"],
+            item["step_name"],
+        )
         for item in records.values()
     }
     assert (401, "workflow", "timed_out", None, None) in outcomes
@@ -301,17 +363,27 @@ def test_empty_finalized_report_returns_no_stdout(monkeypatch, capsys) -> None:
     sha = "a" * 40
     digest = hashlib.sha256(_canonical_json([]).encode()).hexdigest()
     manifest = {
-        "schema_version": 1, "status": "finalized", "pr": 313, "head_sha": sha,
-        "generation_id": digest[:24], "diagnostic_count": 0, "page_count": 0,
-        "digest": digest, "collector_run_id": 99, "collector_run_attempt": 1,
+        "schema_version": 1,
+        "status": "finalized",
+        "pr": 313,
+        "head_sha": sha,
+        "generation_id": digest[:24],
+        "diagnostic_count": 0,
+        "page_count": 0,
+        "digest": digest,
+        "collector_run_id": 99,
+        "collector_run_attempt": 1,
     }
     master = {
-        "status": "completed", "conclusion": "success", "head_sha": sha,
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": sha,
         "output": {"summary": _canonical_json(manifest)},
     }
     monkeypatch.setattr(ci_diagnostics, "_repo_slug", lambda: "owner/repo")
     monkeypatch.setattr(
-        ci_diagnostics, "_load_current_pr",
+        ci_diagnostics,
+        "_load_current_pr",
         lambda slug, pr: {"number": pr, "state": "open", "head": {"sha": sha}},
     )
     monkeypatch.setattr(ci_diagnostics, "_report_runs", lambda slug, head, pr: (master, {}))
@@ -321,7 +393,9 @@ def test_empty_finalized_report_returns_no_stdout(monkeypatch, capsys) -> None:
     assert captured.err == ""
 
 
-def test_missing_report_fails_closed_without_attempting_raw_log_fallback(monkeypatch, capsys) -> None:
+def test_missing_report_fails_closed_without_attempting_raw_log_fallback(
+    monkeypatch, capsys
+) -> None:
     monkeypatch.setattr(ci_diagnostics, "_repo_slug", lambda: "owner/repo")
     monkeypatch.setattr(
         ci_diagnostics,
@@ -344,7 +418,12 @@ def test_collector_workflow_has_explicit_inventory_and_nonblocking_permissions()
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci-diagnostics.yml").read_text())
     triggers = workflow.get("on") or workflow.get(True)
     assert triggers["workflow_run"]["types"] == ["completed"]
-    assert set(triggers["workflow_run"]["workflows"]) == {"CI", "CodeQL", "Security", "Workflow lint"}
+    assert set(triggers["workflow_run"]["workflows"]) == {
+        "CI",
+        "CodeQL",
+        "Security",
+        "Workflow lint",
+    }
     assert workflow["permissions"]["actions"] == "read"
     assert workflow["permissions"]["checks"] == "write"
     assert workflow["concurrency"]["cancel-in-progress"] is False
@@ -355,7 +434,9 @@ def test_collector_workflow_has_explicit_inventory_and_nonblocking_permissions()
         "Workflow lint": "workflow-lint.yml",
     }
     for item in WORKFLOW_INVENTORY:
-        source = yaml.safe_load((ROOT / ".github/workflows" / source_files[item["name"]]).read_text())
+        source = yaml.safe_load(
+            (ROOT / ".github/workflows" / source_files[item["name"]]).read_text()
+        )
         source_on = source.get("on") or source.get(True)
         assert "pull_request" in source_on
         pull_request = source_on["pull_request"]
@@ -363,7 +444,6 @@ def test_collector_workflow_has_explicit_inventory_and_nonblocking_permissions()
             assert "branches" not in pull_request
         else:
             assert pull_request["branches"] == list(item["base_branches"])
-
 
 
 def test_local_patch_applier_refuses_a_mismatched_checkout_head(monkeypatch) -> None:
@@ -422,9 +502,11 @@ def test_local_patch_applier_validates_existing_paths_and_rejects_unsafe_paths()
         raise AssertionError("a Git-metadata patch was accepted")
 
     try:
-        _validate_patch(diff.replace("src/example.py", "src/new_file.py").replace(
-            "@@ -1,1 +1,1 @@", "@@ -1,1 +1,1 @@"
-        ))
+        _validate_patch(
+            diff.replace("src/example.py", "src/new_file.py").replace(
+                "@@ -1,1 +1,1 @@", "@@ -1,1 +1,1 @@"
+            )
+        )
     except PatchError as exc:
         assert "existing regular file" in str(exc)
     else:
@@ -433,23 +515,44 @@ def test_local_patch_applier_validates_existing_paths_and_rejects_unsafe_paths()
 
 def _single_record_report(sha: str = "a" * 40) -> tuple[dict, dict]:
     record = {
-        "repository": "owner/repo", "pr": 9, "head_sha": sha,
-        "workflow_name": "CI", "workflow_run_id": 10, "run_attempt": 1,
-        "job_id": None, "job_name": None, "step_name": None,
-        "outcome_level": "workflow", "conclusion": "failure",
-        "category": "workflow_outcome", "path": None, "start_line": None,
-        "start_column": None, "end_line": None, "end_column": None,
-        "message": None, "source": "GitHub Actions workflow-run API",
+        "repository": "owner/repo",
+        "pr": 9,
+        "head_sha": sha,
+        "workflow_name": "CI",
+        "workflow_run_id": 10,
+        "run_attempt": 1,
+        "job_id": None,
+        "job_name": None,
+        "step_name": None,
+        "outcome_level": "workflow",
+        "conclusion": "failure",
+        "category": "workflow_outcome",
+        "path": None,
+        "start_line": None,
+        "start_column": None,
+        "end_line": None,
+        "end_column": None,
+        "message": None,
+        "source": "GitHub Actions workflow-run API",
     }
     digest = hashlib.sha256(_canonical_json([record]).encode()).hexdigest()
     page = {
-        "status": "completed", "conclusion": "success", "head_sha": sha,
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": sha,
         "output": {
-            "summary": _canonical_json({"schema_version": 1, "generation_id": digest[:24], "page": 1, "page_count": 1}),
+            "summary": _canonical_json(
+                {"schema_version": 1, "generation_id": digest[:24], "page": 1, "page_count": 1}
+            ),
             "text": _canonical_json(_pack_pages([record])[0]),
         },
     }
-    manifest = {"page_count": 1, "generation_id": digest[:24], "diagnostic_count": 1, "digest": digest}
+    manifest = {
+        "page_count": 1,
+        "generation_id": digest[:24],
+        "diagnostic_count": 1,
+        "digest": digest,
+    }
     return manifest, page
 
 
@@ -483,14 +586,27 @@ def test_report_for_a_previous_head_sha_is_rejected(monkeypatch, capsys) -> None
     old, new = "a" * 40, "b" * 40
     digest = hashlib.sha256(_canonical_json([]).encode()).hexdigest()
     manifest = {
-        "schema_version": 1, "status": "finalized", "pr": 313, "head_sha": old,
-        "generation_id": digest[:24], "diagnostic_count": 0, "page_count": 0, "digest": digest,
+        "schema_version": 1,
+        "status": "finalized",
+        "pr": 313,
+        "head_sha": old,
+        "generation_id": digest[:24],
+        "diagnostic_count": 0,
+        "page_count": 0,
+        "digest": digest,
     }
-    master = {"status": "completed", "conclusion": "success", "head_sha": new,
-              "output": {"summary": _canonical_json(manifest)}}
+    master = {
+        "status": "completed",
+        "conclusion": "success",
+        "head_sha": new,
+        "output": {"summary": _canonical_json(manifest)},
+    }
     monkeypatch.setattr(ci_diagnostics, "_repo_slug", lambda: "owner/repo")
-    monkeypatch.setattr(ci_diagnostics, "_load_current_pr",
-                        lambda slug, pr: {"number": pr, "state": "open", "head": {"sha": new}})
+    monkeypatch.setattr(
+        ci_diagnostics,
+        "_load_current_pr",
+        lambda slug, pr: {"number": pr, "state": "open", "head": {"sha": new}},
+    )
     monkeypatch.setattr(ci_diagnostics, "_report_runs", lambda slug, head, pr: (master, {}))
     assert ci_diagnostics._retrieve(313) != 0
     captured = capsys.readouterr()
@@ -503,9 +619,19 @@ def test_outcome_without_source_location_says_so_and_invents_none() -> None:
     run = {"id": 501, "run_attempt": 1, "conclusion": "cancelled"}
     _add_structured_outcomes(records, "owner/repo", 313, "a" * 40, "CI", run, [])
     (record,) = records.values()
-    assert record["path"] is None and record["start_line"] is None and record["start_column"] is None
+    assert (
+        record["path"] is None and record["start_line"] is None and record["start_column"] is None
+    )
     assert record["location_evidence"] == "no source location exists in the evidence"
     located = {}
-    _add_record(located, {**record, "path": "src/engine.py", "start_line": 42,
-                          "category": "compiler_error", "message": "src/engine.py:42: error: x"})
+    _add_record(
+        located,
+        {
+            **record,
+            "path": "src/engine.py",
+            "start_line": 42,
+            "category": "compiler_error",
+            "message": "src/engine.py:42: error: x",
+        },
+    )
     assert {item["location_evidence"] for item in located.values()} == {"source path from evidence"}

@@ -1,4 +1,5 @@
 """The autonomous CI diagnostics collector replaces the old fail-fast notifier."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -23,12 +24,19 @@ def test_collector_is_autonomous_and_starts_only_after_source_completion() -> No
     spec = yaml.safe_load(COLLECTOR_WORKFLOW.read_text(encoding="utf-8"))
     triggers = _triggers(spec)
     assert triggers["workflow_run"]["types"] == ["completed"]
-    assert set(triggers["workflow_run"]["workflows"]) == {"CI", "CodeQL", "Security", "Workflow lint"}
+    assert set(triggers["workflow_run"]["workflows"]) == {
+        "CI",
+        "CodeQL",
+        "Security",
+        "Workflow lint",
+    }
     assert "pull_request" not in triggers
     assert "workflow_dispatch" not in triggers
     assert spec["jobs"]["collect"]["permissions"]["actions"] == "read"
     assert spec["jobs"]["collect"]["permissions"]["checks"] == "write"
-    assert "python3 scripts/ci_diagnostics.py collect" in spec["jobs"]["collect"]["steps"][-1]["run"]
+    assert (
+        "python3 scripts/ci_diagnostics.py collect" in spec["jobs"]["collect"]["steps"][-1]["run"]
+    )
 
 
 def test_collector_does_not_cancel_source_runs_or_publish_pr_comments() -> None:

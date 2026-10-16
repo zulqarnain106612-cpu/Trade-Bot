@@ -234,7 +234,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 164 | P1 | frontend/src/workspace/layoutStore.js | JavaScript | 243 | 282ceb0b |  |
 | 165 | P1 | frontend/src/workspace/layoutStore.test.js | JavaScript | 348 | 8ca1d8f3 |  |
 | 166 | P1 | scripts/agent_control.py | Python | 23 | ea56814d |  |
-| 167 | P1 | scripts/apply_ci_patch.py | Python | 270 | 4d03a21a |  |
+| 167 | P1 | scripts/apply_ci_patch.py | Python | 305 | df35c541 |  |
 | 168 | P1 | scripts/apply_repo_ruleset.py | Python | 271 | f09a76cc |  |
 | 169 | P1 | scripts/arch_gate.sh | Shell | 94 | fc5f6d7c |  |
 | 170 | P1 | scripts/assert_jobs_green.py | Python | 150 | 831ced49 |  |
@@ -245,8 +245,8 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 175 | P1 | scripts/check_production_readiness.py | Python | 178 | 6c642773 |  |
 | 176 | P1 | scripts/check_static_invariants.py | Python | 1778 | 2d74913a |  |
 | 177 | P1 | scripts/check_supply_chain.py | Python | 367 | 02350a53 |  |
-| 178 | P1 | scripts/ci_diagnostics.py | Python | 1159 | 67d825f7 |  |
-| 179 | P1 | scripts/ci_verdict.py | Python | 43 | fe5d3d2f |  |
+| 178 | P1 | scripts/ci_diagnostics.py | Python | 1547 | 85e58e1e |  |
+| 179 | P1 | scripts/ci_verdict.py | Python | 43 | ede141de |  |
 | 180 | P1 | scripts/codebase_knowledge_index.py | Python | 373 | ec1da0e3 |  |
 | 181 | P1 | scripts/collect_quality_metrics.py | Python | 210 | 8afb524c |  |
 | 182 | P1 | scripts/generate_math_docs.py | Python | 237 | 588d286e |  |
@@ -255,7 +255,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 185 | P1 | scripts/ingest_kg_repo.py | Python | 104 | d515fcdf |  |
 | 186 | P1 | scripts/ingest_missing.py | Python | 72 | b4ed4495 |  |
 | 187 | P1 | scripts/ingest_repo.py | Python | 111 | 4fea1504 |  |
-| 188 | P1 | scripts/local_checks.py | Python | 42 | 2b353dc8 |  |
+| 188 | P1 | scripts/local_checks.py | Python | 41 | 51b52a6b |  |
 | 189 | P1 | scripts/npm_audit_verdict.py | Python | 313 | 099c28f4 |  |
 | 190 | P1 | scripts/orchestration_template.py | Python | 81 | 592c1ba9 |  |
 | 191 | P1 | scripts/prfail | Other text/source | 8 | a7a3374f |  |
@@ -788,7 +788,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 718 | P1 | tests/test_api_role_enforcement.py | Python | 174 | 4e7cff8d |  |
 | 719 | P1 | tests/test_api_signer_audit.py | Python | 173 | e33cc0db |  |
 | 720 | P1 | tests/test_api_terminal_jobs.py | Python | 196 | ba84a1ac |  |
-| 721 | P1 | tests/test_apply_ci_patch.py | Python | 56 | ab033f7d |  |
+| 721 | P1 | tests/test_apply_ci_patch.py | Python | 59 | 509ed5f8 |  |
 | 722 | P1 | tests/test_apply_repo_ruleset.py | Python | 288 | e1799986 |  |
 | 723 | P1 | tests/test_arch_baseline_is_current.py | Python | 79 | 1ae91139 |  |
 | 724 | P1 | tests/test_architecture_layers.py | Python | 181 | 954aa9c3 |  |
@@ -813,10 +813,10 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 743 | P1 | tests/test_causal_inference.py | Python | 243 | 917865bc |  |
 | 744 | P1 | tests/test_causal_modules.py | Python | 214 | a86122e6 |  |
 | 745 | P1 | tests/test_changepoint.py | Python | 80 | abb1294c |  |
-| 746 | P1 | tests/test_ci_diagnostics.py | Python | 511 | 858752ed |  |
-| 747 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 46 | 661f7e30 |  |
-| 748 | P1 | tests/test_ci_log_access.py | Python | 294 | 46d4aa1f |  |
-| 749 | P1 | tests/test_ci_notice_supersession.py | Python | 58 | c8bfbee2 |  |
+| 746 | P1 | tests/test_ci_diagnostics.py | Python | 637 | 0c326a23 |  |
+| 747 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 54 | ad647ab2 |  |
+| 748 | P1 | tests/test_ci_log_access.py | Python | 301 | da598b09 |  |
+| 749 | P1 | tests/test_ci_notice_supersession.py | Python | 66 | 5fb3e599 |  |
 | 750 | P1 | tests/test_ci_workflow_cost.py | Python | 235 | fb0a0315 |  |
 | 751 | P1 | tests/test_codebase_knowledge_index.py | Python | 144 | 60913e09 |  |
 | 752 | P1 | tests/test_codex_plugin_assets.py | Python | 53 | e06c9c8b |  |
@@ -947,7 +947,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 877 | P1 | tests/test_live_fsm_integration.py | Python | 164 | 38096cc5 |  |
 | 878 | P1 | tests/test_live_settings.py | Python | 212 | 05dec3e5 |  |
 | 879 | P1 | tests/test_lll.py | Python | 396 | fc3c3cad |  |
-| 880 | P1 | tests/test_local_checks.py | Python | 65 | fa1f8b44 |  |
+| 880 | P1 | tests/test_local_checks.py | Python | 64 | fb3a418a |  |
 | 881 | P1 | tests/test_logging_setup.py | Python | 101 | f0decaf8 |  |
 | 882 | P1 | tests/test_lowest_covered_modules.py | Python | 231 | cde4a13f |  |
 | 883 | P1 | tests/test_macro_exposure_budget.py | Python | 56 | 6cea4259 |  |
@@ -1024,7 +1024,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 954 | P1 | tests/test_post_trade_bounded_history.py | Python | 116 | efe91648 |  |
 | 955 | P1 | tests/test_pq_transport_honesty.py | Python | 71 | 192085cb |  |
 | 956 | P1 | tests/test_pr_auto_update_workflow.py | Python | 305 | 6fca044a |  |
-| 957 | P1 | tests/test_pre_tool_use_hook.py | Python | 484 | edc1e602 |  |
+| 957 | P1 | tests/test_pre_tool_use_hook.py | Python | 498 | 72f5fd41 |  |
 | 958 | P1 | tests/test_price_preview_path.py | Python | 477 | 01b18608 |  |
 | 959 | P1 | tests/test_primality.py | Python | 292 | 5aa66d08 |  |
 | 960 | P1 | tests/test_prime_field.py | Python | 311 | abe47d09 |  |
@@ -1171,7 +1171,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 1101 | P2 | .claude/hooks/completion_gate.py | Python | 25 | 4753b1c8 |  |
 | 1102 | P2 | .claude/hooks/observation_failure.py | Python | 93 | 6a2ba65b |  |
 | 1103 | P2 | .claude/hooks/observation_gate.py | Python | 615 | 93085de5 |  |
-| 1104 | P2 | .claude/hooks/pre_tool_use.py | Python | 1012 | 765cb4e9 |  |
+| 1104 | P2 | .claude/hooks/pre_tool_use.py | Python | 1024 | 26fb461b |  |
 | 1105 | P2 | .claude/hooks/precompact_checkpoint.py | Python | 25 | d68a10de |  |
 | 1106 | P2 | .claude/hooks/quality_gate.py | Python | 27 | 2c809a53 |  |
 | 1107 | P2 | .claude/hooks/session-start.sh | Shell | 116 | 52bfdaa6 |  |
@@ -1217,7 +1217,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 1147 | P2 | SECURITY.md | Markdown | 30 | ef15bb55 |  |
 | 1148 | P2 | common/__init__.py | Python | 0 | e3b0c442 |  |
 | 1149 | P2 | common/claude_cli.py | Python | 79 | fbe378e7 |  |
-| 1150 | P2 | common/command_schema.py | Python | 616 | 7401b99c |  |
+| 1150 | P2 | common/command_schema.py | Python | 616 | 1de280b9 |  |
 | 1151 | P2 | common/shell_exec.py | Python | 464 | cc45e7b8 |  |
 | 1152 | P2 | crypto-predictor/ARCHITECTURE.md | Markdown | 251 | 0c17cd95 |  |
 | 1153 | P2 | crypto-predictor/README.md | Markdown | 107 | 983476e9 |  |

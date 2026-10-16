@@ -6,6 +6,7 @@ All agent-facing diagnostics must use the centralized, SHA-bound report command.
 The compatibility function returns the mandated denial so older pre-tool
 integrations fail closed rather than silently switching back to raw CI access.
 """
+
 from __future__ import annotations
 
 import sys
@@ -40,4 +41,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))
-

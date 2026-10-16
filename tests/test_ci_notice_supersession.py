@@ -1,4 +1,5 @@
 """The diagnostics report is terminal-state complete and bound to the current PR head."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -44,7 +45,14 @@ def test_report_identity_is_bound_to_pr_and_head_sha() -> None:
 
 def test_collector_retains_outcomes_and_source_locations() -> None:
     source = COLLECTOR.read_text(encoding="utf-8")
-    for field in ("start_line", "start_column", "end_line", "end_column", "workflow_run_id", "job_id"):
+    for field in (
+        "start_line",
+        "start_column",
+        "end_line",
+        "end_column",
+        "workflow_run_id",
+        "job_id",
+    ):
         assert field in source
     assert "_add_structured_outcomes" in source
     assert "_add_annotations" in source

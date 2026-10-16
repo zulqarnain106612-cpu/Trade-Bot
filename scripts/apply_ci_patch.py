@@ -5,6 +5,7 @@ This utility validates the current finalized PR diagnostic report and head SHA,
 then changes only the local working tree. It never stages, commits, pushes,
 changes branches, or runs tests/quality gates.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -18,18 +19,35 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_PATCH_BYTES = 2 * 1024 * 1024
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIFF_HEADER_RE = re.compile(r"^diff --git a/(\S+) b/(\S+)$")
-PROTECTED_PATCH_PATHS = frozenset({
-    ".github/CODEOWNERS", ".mcp.json", "config/observation_boundary.json", "config/command_policy.json",
-    "config/quality_registry.json", "common/command_schema.py", "common/shell_exec.py",
-    "scripts/ci_diagnostics.py", "scripts/prfail", "scripts/apply_ci_patch.py",
-    "scripts/ci_verdict.py", "scripts/local_checks.py", "tests/test_observation_boundary_contract.py",
-    "tests/test_pre_tool_use_hook.py", "tests/test_github_route_contract.py",
-    "tests/test_ci_diagnostics.py", "tests/test_ci_log_access.py", "tests/test_local_checks.py",
-    "tests/test_ci_failure_notify_workflow.py",
-    "tests/test_ci_notice_supersession.py",
-    "tests/test_merge_queue_wiring.py",
-    "tests/test_apply_ci_patch.py", "docs/quality/REQUIREMENTS_TRACEABILITY.md", "CLAUDE.md", "AGENTS.md",
-})
+PROTECTED_PATCH_PATHS = frozenset(
+    {
+        ".github/CODEOWNERS",
+        ".mcp.json",
+        "config/observation_boundary.json",
+        "config/command_policy.json",
+        "config/quality_registry.json",
+        "common/command_schema.py",
+        "common/shell_exec.py",
+        "scripts/ci_diagnostics.py",
+        "scripts/prfail",
+        "scripts/apply_ci_patch.py",
+        "scripts/ci_verdict.py",
+        "scripts/local_checks.py",
+        "tests/test_observation_boundary_contract.py",
+        "tests/test_pre_tool_use_hook.py",
+        "tests/test_github_route_contract.py",
+        "tests/test_ci_diagnostics.py",
+        "tests/test_ci_log_access.py",
+        "tests/test_local_checks.py",
+        "tests/test_ci_failure_notify_workflow.py",
+        "tests/test_ci_notice_supersession.py",
+        "tests/test_merge_queue_wiring.py",
+        "tests/test_apply_ci_patch.py",
+        "docs/quality/REQUIREMENTS_TRACEABILITY.md",
+        "CLAUDE.md",
+        "AGENTS.md",
+    }
+)
 PROTECTED_PATCH_PREFIXES = (".claude/", ".github/workflows/", "src/agent_control/")
 
 
@@ -86,7 +104,9 @@ def _safe_existing_file(relative: str) -> Path:
         resolved_root = ROOT.resolve(strict=True)
         resolved_parent.relative_to(resolved_root)
     except (OSError, ValueError) as exc:
-        raise PatchError(f"patch path escapes the repository or has a missing parent: {relative!r}") from exc
+        raise PatchError(
+            f"patch path escapes the repository or has a missing parent: {relative!r}"
+        ) from exc
 
     # Reject symlink components even when they happen to resolve within ROOT:
     # the target could be replaced between review and patch application.
@@ -122,7 +142,9 @@ def _validate_patch(patch: str) -> list[str]:
         "copy to ",
     )
     if any(line.startswith(forbidden_line_prefixes) for line in patch.splitlines()):
-        raise PatchError("only in-place text edits are accepted; add/delete/rename/mode/binary changes are refused")
+        raise PatchError(
+            "only in-place text edits are accepted; add/delete/rename/mode/binary changes are refused"
+        )
 
     paths: list[str] = []
     lines = patch.splitlines()
@@ -134,12 +156,18 @@ def _validate_patch(patch: str) -> list[str]:
             continue
         match = DIFF_HEADER_RE.fullmatch(line)
         if not match:
-            raise PatchError("quoted or whitespace-containing patch paths are not supported; use simple repository-relative paths")
+            raise PatchError(
+                "quoted or whitespace-containing patch paths are not supported; use simple repository-relative paths"
+            )
         old_path, new_path = match.groups()
         if is_protected_patch_path(old_path):
-            raise PatchError(f"patch targets protected control-plane path {old_path!r}; use a separately reviewed maintainer change")
+            raise PatchError(
+                f"patch targets protected control-plane path {old_path!r}; use a separately reviewed maintainer change"
+            )
         if old_path != new_path:
-            raise PatchError("renames and path changes are forbidden; every patch section must edit one existing file in place")
+            raise PatchError(
+                "renames and path changes are forbidden; every patch section must edit one existing file in place"
+            )
         if old_path in paths:
             raise PatchError(f"patch contains duplicate sections for {old_path!r}")
         _safe_existing_file(old_path)
@@ -161,7 +189,7 @@ def _validate_patch(patch: str) -> list[str]:
         )
         if new_header_index >= next_section:
             raise PatchError(f"patch section headers do not match {old_path!r}")
-        if not any(line.startswith("@@ ") for line in lines[new_header_index + 1:next_section]):
+        if not any(line.startswith("@@ ") for line in lines[new_header_index + 1 : next_section]):
             raise PatchError(f"patch section for {old_path!r} has no text-edit hunk")
         paths.append(old_path)
         index = next_section
@@ -186,15 +214,21 @@ def _verify_diagnostic_report(pr_number: int, expected_head: str) -> None:
             timeout=45,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise PatchError(f"the finalized diagnostic report could not be retrieved ({type(exc).__name__})") from exc
+        raise PatchError(
+            f"the finalized diagnostic report could not be retrieved ({type(exc).__name__})"
+        ) from exc
     if result.returncode != 0:
-        raise PatchError("the finalized diagnostic report is unavailable for this PR head; refusing the patch")
+        raise PatchError(
+            "the finalized diagnostic report is unavailable for this PR head; refusing the patch"
+        )
     try:
         records = json.loads(result.stdout) if result.stdout.strip() else []
     except json.JSONDecodeError as exc:
         raise PatchError("the diagnostic CLI returned malformed report data") from exc
     if not isinstance(records, list) or not records:
-        raise PatchError("the finalized report contains no diagnostic records; refusing an ungrounded patch")
+        raise PatchError(
+            "the finalized report contains no diagnostic records; refusing an ungrounded patch"
+        )
     if any(
         not isinstance(record, dict)
         or record.get("pr") != pr_number
@@ -235,7 +269,9 @@ def apply_patch(pr_number: int, expected_head: str, patch: str) -> list[str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pr", required=True, type=int, help="diagnosed positive PR number")
-    parser.add_argument("--head-sha", required=True, help="full SHA returned by the finalized diagnostics report")
+    parser.add_argument(
+        "--head-sha", required=True, help="full SHA returned by the finalized diagnostics report"
+    )
     parser.add_argument(
         "--patch-stdin",
         action="store_true",
@@ -267,4 +303,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

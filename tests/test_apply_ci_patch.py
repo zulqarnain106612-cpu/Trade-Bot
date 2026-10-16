@@ -1,4 +1,5 @@
 """The local patch applier cannot mutate its own trust boundary."""
+
 from __future__ import annotations
 
 import importlib.util
@@ -37,15 +38,17 @@ def test_control_plane_and_diagnostic_contract_paths_are_protected() -> None:
 
 def test_unified_diff_cannot_touch_a_protected_workflow() -> None:
     patcher = _load_patcher()
-    patch = "\n".join([
-        "diff --git a/.github/workflows/ci-diagnostics.yml b/.github/workflows/ci-diagnostics.yml",
-        "--- a/.github/workflows/ci-diagnostics.yml",
-        "+++ b/.github/workflows/ci-diagnostics.yml",
-        "@@ -1,1 +1,1 @@",
-        "-before",
-        "+after",
-        "",
-    ])
+    patch = "\n".join(
+        [
+            "diff --git a/.github/workflows/ci-diagnostics.yml b/.github/workflows/ci-diagnostics.yml",
+            "--- a/.github/workflows/ci-diagnostics.yml",
+            "+++ b/.github/workflows/ci-diagnostics.yml",
+            "@@ -1,1 +1,1 @@",
+            "-before",
+            "+after",
+            "",
+        ]
+    )
     with pytest.raises(patcher.PatchError, match="protected control-plane path"):
         patcher._validate_patch(patch)
 

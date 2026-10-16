@@ -62,4 +62,3 @@ def test_policy_has_one_execution_path_and_retires_comment_subscription() -> Non
     assert local["run_command"].startswith("DISABLED:")
     assert tuple(local["blocked_patterns"]) == LOCAL_CHECK_PATTERNS
     assert local["prepare_command"] == "DISABLED: superseded by ./scripts/prfail --pr <PR_NUMBER>"
-

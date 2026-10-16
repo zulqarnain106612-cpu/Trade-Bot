@@ -4,6 +4,7 @@
 Only this collector reads Actions job logs. The operator-facing CLI reads the
 filtered Check Run report and has no Actions API fallback.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -33,7 +34,9 @@ MAX_LOG_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_EXPANDED_LOG_BYTES = 1024 * 1024 * 1024
 COLLECT_DEADLINE_SECONDS = 22 * 60
 POLL_INTERVAL_SECONDS = 10
-LOG_FAILURES = frozenset({"failure", "timed_out", "cancelled", "canceled", "neutral", "action_required", "stale"})
+LOG_FAILURES = frozenset(
+    {"failure", "timed_out", "cancelled", "canceled", "neutral", "action_required", "stale"}
+)
 _COLLECTOR_CONTEXT = False
 ANNOTATION_LEVELS = frozenset({"failure", "error", "warning"})
 WORKFLOW_INVENTORY: tuple[dict[str, Any], ...] = (
@@ -60,10 +63,17 @@ PAREN_COMPILER_RE = re.compile(
     r"(?P<message>\S.*)$",
     re.IGNORECASE,
 )
-PYTEST_RESULT_RE = re.compile(r"^(?P<kind>FAILED|ERROR)\s+(?P<node>\S+)(?:\s+-\s*(?P<message>.*))?$")
+PYTEST_RESULT_RE = re.compile(
+    r"^(?P<kind>FAILED|ERROR)\s+(?P<node>\S+)(?:\s+-\s*(?P<message>.*))?$"
+)
 PYTEST_ERROR_RE = re.compile(r"^\s*E\s{2,}(?P<message>\S.*)$")
-GENERIC_ERROR_RE = re.compile(r"^\s*(?P<kind>Error|Fatal error|FATAL|ERROR|FAILURE)(?:\s*[:\-]\s*|\s+)(?P<message>\S.*)$", re.IGNORECASE)
-EXCEPTION_RE = re.compile(r"^\s*(?P<kind>[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception)):\s*(?P<message>\S.*)$")
+GENERIC_ERROR_RE = re.compile(
+    r"^\s*(?P<kind>Error|Fatal error|FATAL|ERROR|FAILURE)(?:\s*[:\-]\s*|\s+)(?P<message>\S.*)$",
+    re.IGNORECASE,
+)
+EXCEPTION_RE = re.compile(
+    r"^\s*(?P<kind>[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception)):\s*(?P<message>\S.*)$"
+)
 PYTEST_SOURCE_RE = re.compile(
     r"^(?P<path>(?:tests|src|common|kg|rag_mongo|orchestrator|tools|review)/[^\s:]+\.py):"
     r"(?P<line>\d+)(?::(?P<column>\d+))?\b"
@@ -104,12 +114,20 @@ def _token() -> str:
         raise DiagnosticError("existing GitHub CLI authentication is unavailable") from exc
     value = result.stdout.strip()
     if result.returncode != 0 or not value:
-        raise DiagnosticError("existing GitHub CLI authentication is unavailable; run the approved login flow")
+        raise DiagnosticError(
+            "existing GitHub CLI authentication is unavailable; run the approved login flow"
+        )
     return value
 
 
-def _request(url: str, *, method: str = "GET", body: dict[str, Any] | None = None,
-             timeout: int = 30, allow_404: bool = False) -> tuple[bytes, int, Any]:
+def _request(
+    url: str,
+    *,
+    method: str = "GET",
+    body: dict[str, Any] | None = None,
+    timeout: int = 30,
+    allow_404: bool = False,
+) -> tuple[bytes, int, Any]:
     headers = {
         "Accept": "application/vnd.github+json",
         "Authorization": "Bearer " + _token(),
@@ -135,11 +153,15 @@ def _request(url: str, *, method: str = "GET", body: dict[str, Any] | None = Non
         except urllib.error.HTTPError as exc:
             if exc.code == 404 and allow_404:
                 return b"", 404, exc.headers
-            if method.upper() in {"GET", "HEAD"} and exc.code in {429, 500, 502, 503, 504} and attempt < 2:
+            if (
+                method.upper() in {"GET", "HEAD"}
+                and exc.code in {429, 500, 502, 503, 504}
+                and attempt < 2
+            ):
                 try:
                     delay = min(max(int(exc.headers.get("Retry-After", "")), 1), 20)
                 except (TypeError, ValueError):
-                    delay = 2 ** attempt
+                    delay = 2**attempt
                 time.sleep(delay)
                 last_error = exc
                 continue
@@ -149,20 +171,23 @@ def _request(url: str, *, method: str = "GET", body: dict[str, Any] | None = Non
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
             last_error = exc
             if method.upper() in {"GET", "HEAD"} and attempt < 2:
-                time.sleep(2 ** attempt)
+                time.sleep(2**attempt)
                 continue
             raise DiagnosticError(
                 f"GitHub API request unavailable for {urllib.parse.urlsplit(url).path}"
             ) from exc
-    raise DiagnosticError(f"GitHub API unavailable for {urllib.parse.urlsplit(url).path}") from last_error
+    raise DiagnosticError(
+        f"GitHub API unavailable for {urllib.parse.urlsplit(url).path}"
+    ) from last_error
 
 
 def _api_url(path: str) -> str:
     return API_ROOT + path.lstrip("/")
 
 
-def _json(path: str, *, method: str = "GET", body: dict[str, Any] | None = None,
-          allow_404: bool = False) -> Any:
+def _json(
+    path: str, *, method: str = "GET", body: dict[str, Any] | None = None, allow_404: bool = False
+) -> Any:
     payload, status, _ = _request(_api_url(path), method=method, body=body, allow_404=allow_404)
     if status == 404 and allow_404:
         return None
@@ -176,7 +201,9 @@ def _pages(path: str, key: str) -> list[dict[str, Any]]:
     values: list[dict[str, Any]] = []
     for page in range(1, 51):
         separator = "&" if "?" in path else "?"
-        payload = _json(f"{path}{separator}{urllib.parse.urlencode({'per_page': 100, 'page': page})}")
+        payload = _json(
+            f"{path}{separator}{urllib.parse.urlencode({'per_page': 100, 'page': page})}"
+        )
         if not isinstance(payload, dict) or not isinstance(payload.get(key), list):
             raise DiagnosticError(f"GitHub API response is missing the expected {key} collection")
         batch = payload[key]
@@ -193,8 +220,12 @@ def _repo_slug() -> str:
     root = Path(__file__).resolve().parents[1]
     try:
         proc = subprocess.run(
-            ["git", "remote", "get-url", "origin"], cwd=root,
-            capture_output=True, text=True, check=False, timeout=8,
+            ["git", "remote", "get-url", "origin"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=8,
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise DiagnosticError("Cannot determine the GitHub repository") from exc
@@ -223,18 +254,34 @@ def _canonical_json(value: Any) -> str:
 
 def _record_key(record: dict[str, Any]) -> str:
     fields = (
-        "repository", "pr", "head_sha", "workflow_name", "workflow_run_id",
-        "run_attempt", "job_id", "job_name", "step_name", "outcome_level",
-        "conclusion", "category", "path", "start_line", "start_column",
-        "end_line", "end_column", "message",
+        "repository",
+        "pr",
+        "head_sha",
+        "workflow_name",
+        "workflow_run_id",
+        "run_attempt",
+        "job_id",
+        "job_name",
+        "step_name",
+        "outcome_level",
+        "conclusion",
+        "category",
+        "path",
+        "start_line",
+        "start_column",
+        "end_line",
+        "end_column",
+        "message",
     )
     return _canonical_json({key: record.get(key) for key in fields})
 
 
 def _source_priority(source: str) -> int:
     return {
-        "GitHub check annotation API": 0, "GitHub Actions workflow-run API": 1,
-        "GitHub Actions job API": 2, "GitHub Actions step API": 3,
+        "GitHub check annotation API": 0,
+        "GitHub Actions workflow-run API": 1,
+        "GitHub Actions job API": 2,
+        "GitHub Actions step API": 3,
         "GitHub Actions job log": 4,
     }.get(source, 9)
 
@@ -244,20 +291,37 @@ def _redact_message(value: Any) -> Any:
     if not isinstance(value, str):
         return value
     result = value
-    for name in ("GITHUB_TOKEN", "GH_TOKEN", "PRFAIL_TOKEN", "ACTIONS_RUNTIME_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"):
+    for name in (
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "PRFAIL_TOKEN",
+        "ACTIONS_RUNTIME_TOKEN",
+        "ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+    ):
         secret = os.environ.get(name, "")
         if len(secret) >= 8:
             result = result.replace(secret, "[REDACTED:" + name + "]")
-    result = re.sub(r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})\b", "[REDACTED:GITHUB_TOKEN]", result)
+    result = re.sub(
+        r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})\b",
+        "[REDACTED:GITHUB_TOKEN]",
+        result,
+    )
     result = re.sub(r"\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}\b", "[REDACTED:API_KEY]", result)
     result = re.sub(r"\bAKIA[0-9A-Z]{16}\b", "[REDACTED:AWS_ACCESS_KEY_ID]", result)
-    result = re.sub(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{12,}", "Bearer [REDACTED:AUTH_TOKEN]", result)
+    result = re.sub(
+        r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{12,}", "Bearer [REDACTED:AUTH_TOKEN]", result
+    )
     result = re.sub(r"(?i)(https?://[^:@/\s]+:)[^@/\s]+(@)", r"\1[REDACTED:URL_PASSWORD]\2", result)
     result = re.sub(
         r"(?i)(\b(?:authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|token|credential|password|passwd|secret|private[_-]?key)\b\s*[:=]\s*)(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)",
-        r"\1[REDACTED:SECRET]", result,
+        r"\1[REDACTED:SECRET]",
+        result,
     )
-    result = re.sub(r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", "[REDACTED:PRIVATE_KEY]", result)
+    result = re.sub(
+        r"(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
+        "[REDACTED:PRIVATE_KEY]",
+        result,
+    )
     return result
 
 
@@ -268,33 +332,59 @@ def _add_record(records: dict[str, dict[str, Any]], record: dict[str, Any]) -> N
     # Infrastructure, cancellation and outcome-only records carry no path; say
     # so explicitly rather than leaving the agent to guess at a location.
     record["location_evidence"] = (
-        "source path from evidence" if record.get("path")
+        "source path from evidence"
+        if record.get("path")
         else "no source location exists in the evidence"
     )
     key = _record_key(record)
     existing = records.get(key)
-    if existing is None or _source_priority(str(record.get("source", ""))) < _source_priority(str(existing.get("source", ""))):
+    if existing is None or _source_priority(str(record.get("source", ""))) < _source_priority(
+        str(existing.get("source", ""))
+    ):
         records[key] = record
 
 
-def _base_record(repository: str, pr: int, sha: str, workflow_name: str,
-                 run: dict[str, Any], *, job: dict[str, Any] | None = None,
-                 step: dict[str, Any] | None = None) -> dict[str, Any]:
+def _base_record(
+    repository: str,
+    pr: int,
+    sha: str,
+    workflow_name: str,
+    run: dict[str, Any],
+    *,
+    job: dict[str, Any] | None = None,
+    step: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     return {
-        "repository": repository, "pr": pr, "head_sha": sha, "workflow_name": workflow_name,
-        "workflow_run_id": int(run["id"]), "run_attempt": int(run.get("run_attempt") or 1),
+        "repository": repository,
+        "pr": pr,
+        "head_sha": sha,
+        "workflow_name": workflow_name,
+        "workflow_run_id": int(run["id"]),
+        "run_attempt": int(run.get("run_attempt") or 1),
         "job_id": int(job["id"]) if job and isinstance(job.get("id"), int) else None,
         "job_name": str(job.get("name") or "") if job else None,
         "step_name": str(step.get("name") or "") if step else None,
         "outcome_level": "step" if step else ("job" if job else "workflow"),
-        "conclusion": None, "category": None, "path": None, "start_line": None,
-        "start_column": None, "end_line": None, "end_column": None,
-        "message": None, "source": "",
+        "conclusion": None,
+        "category": None,
+        "path": None,
+        "start_line": None,
+        "start_column": None,
+        "end_line": None,
+        "end_column": None,
+        "message": None,
+        "source": "",
     }
 
 
 def _unquote_command_value(value: str) -> str:
-    for marker, replacement in (("%25", "%"), ("%0D", "\r"), ("%0A", "\n"), ("%3A", ":"), ("%2C", ",")):
+    for marker, replacement in (
+        ("%25", "%"),
+        ("%0D", "\r"),
+        ("%0A", "\n"),
+        ("%3A", ":"),
+        ("%2C", ","),
+    ):
         value = value.replace(marker, replacement)
     return value
 
@@ -304,7 +394,10 @@ def _annotation_from_log(line: str) -> dict[str, Any] | None:
     if not match:
         return None
     level, properties, message = match.groups()
-    props = {key.lower(): _unquote_command_value(value) for key, value in GHA_PROPERTY_RE.findall(properties)}
+    props = {
+        key.lower(): _unquote_command_value(value)
+        for key, value in GHA_PROPERTY_RE.findall(properties)
+    }
 
     def integer(key: str) -> int | None:
         try:
@@ -314,9 +407,12 @@ def _annotation_from_log(line: str) -> dict[str, Any] | None:
             return None
 
     return {
-        "level": level.lower(), "path": props.get("file"),
-        "start_line": integer("line"), "start_column": integer("col"),
-        "end_line": integer("endline"), "end_column": integer("endcolumn"),
+        "level": level.lower(),
+        "path": props.get("file"),
+        "start_line": integer("line"),
+        "start_column": integer("col"),
+        "end_line": integer("endline"),
+        "end_column": integer("endcolumn"),
         "message": _unquote_command_value(message),
     }
 
@@ -333,23 +429,37 @@ def parse_log_lines(raw: str) -> list[dict[str, Any]]:
         annotation = _annotation_from_log(line)
         if annotation:
             if annotation["level"] in ANNOTATION_LEVELS:
-                found.append({
-                    "category": "check_annotation",
-                    "annotation_level": "failure" if annotation["level"] == "error" else annotation["level"],
-                    "path": annotation["path"], "start_line": annotation["start_line"],
-                    "start_column": annotation["start_column"], "end_line": annotation["end_line"],
-                    "end_column": annotation["end_column"], "message": annotation["message"],
-                    "source": "GitHub Actions job log",
-                })
+                found.append(
+                    {
+                        "category": "check_annotation",
+                        "annotation_level": "failure"
+                        if annotation["level"] == "error"
+                        else annotation["level"],
+                        "path": annotation["path"],
+                        "start_line": annotation["start_line"],
+                        "start_column": annotation["start_column"],
+                        "end_line": annotation["end_line"],
+                        "end_column": annotation["end_column"],
+                        "message": annotation["message"],
+                        "source": "GitHub Actions job log",
+                    }
+                )
             continue
         if line.startswith("##[error]"):
-            message = line[len("##[error]"):].strip()
+            message = line[len("##[error]") :].strip()
             if message and not NOISE_RE.fullmatch(message):
-                found.append({
-                    "category": "workflow_error_annotation", "path": None, "start_line": None,
-                    "start_column": None, "end_line": None, "end_column": None,
-                    "message": message, "source": "GitHub Actions job log",
-                })
+                found.append(
+                    {
+                        "category": "workflow_error_annotation",
+                        "path": None,
+                        "start_line": None,
+                        "start_column": None,
+                        "end_line": None,
+                        "end_column": None,
+                        "message": message,
+                        "source": "GitHub Actions job log",
+                    }
+                )
             continue
         frame = PY_FRAME_RE.match(line)
         if frame:
@@ -362,58 +472,93 @@ def parse_log_lines(raw: str) -> list[dict[str, Any]]:
         if source_match:
             try:
                 last_pytest_source = (
-                    source_match.group("path"), int(source_match.group("line")),
+                    source_match.group("path"),
+                    int(source_match.group("line")),
                     int(source_match.group("column")) if source_match.group("column") else None,
                 )
             except ValueError:
                 last_pytest_source = None
         compiler = COMPILER_RE.match(line.strip()) or PAREN_COMPILER_RE.match(line.strip())
         if compiler:
-            found.append({
-                "category": "compiler_" + compiler.group("level").lower().replace(" ", "_"),
-                "path": compiler.group("path"), "start_line": int(compiler.group("line")),
-                "start_column": int(compiler.group("column")) if compiler.group("column") else None,
-                "end_line": None, "end_column": None, "message": line,
-                "source": "GitHub Actions job log",
-            })
+            found.append(
+                {
+                    "category": "compiler_" + compiler.group("level").lower().replace(" ", "_"),
+                    "path": compiler.group("path"),
+                    "start_line": int(compiler.group("line")),
+                    "start_column": int(compiler.group("column"))
+                    if compiler.group("column")
+                    else None,
+                    "end_line": None,
+                    "end_column": None,
+                    "message": line,
+                    "source": "GitHub Actions job log",
+                }
+            )
             continue
         pytest_result = PYTEST_RESULT_RE.match(line.strip())
         if pytest_result:
             node = pytest_result.group("node")
-            found.append({
-                "category": "pytest_" + pytest_result.group("kind").lower(),
-                "path": node.split("::", 1)[0] if node.startswith(("tests/", "src/")) else None,
-                "start_line": None, "start_column": None, "end_line": None, "end_column": None,
-                "message": line, "source": "GitHub Actions job log",
-            })
+            found.append(
+                {
+                    "category": "pytest_" + pytest_result.group("kind").lower(),
+                    "path": node.split("::", 1)[0] if node.startswith(("tests/", "src/")) else None,
+                    "start_line": None,
+                    "start_column": None,
+                    "end_line": None,
+                    "end_column": None,
+                    "message": line,
+                    "source": "GitHub Actions job log",
+                }
+            )
             continue
         pytest_error = PYTEST_ERROR_RE.match(line)
         if pytest_error:
             path, start_line, start_column = last_pytest_source or (None, None, None)
-            found.append({
-                "category": "pytest_assertion_detail", "path": path, "start_line": start_line,
-                "start_column": start_column, "end_line": None, "end_column": None,
-                "message": line, "source": "GitHub Actions job log",
-            })
+            found.append(
+                {
+                    "category": "pytest_assertion_detail",
+                    "path": path,
+                    "start_line": start_line,
+                    "start_column": start_column,
+                    "end_line": None,
+                    "end_column": None,
+                    "message": line,
+                    "source": "GitHub Actions job log",
+                }
+            )
             continue
         generic_error = GENERIC_ERROR_RE.match(line)
         if generic_error:
             path, start_line = last_python_frame or (None, None)
-            found.append({
-                "category": "log_error_" + generic_error.group("kind").lower().replace(" ", "_"),
-                "path": path, "start_line": start_line, "start_column": None,
-                "end_line": None, "end_column": None, "message": line,
-                "source": "GitHub Actions job log",
-            })
+            found.append(
+                {
+                    "category": "log_error_"
+                    + generic_error.group("kind").lower().replace(" ", "_"),
+                    "path": path,
+                    "start_line": start_line,
+                    "start_column": None,
+                    "end_line": None,
+                    "end_column": None,
+                    "message": line,
+                    "source": "GitHub Actions job log",
+                }
+            )
             continue
         exception = EXCEPTION_RE.match(line)
         if exception:
             path, start_line = last_python_frame or (None, None)
-            found.append({
-                "category": "exception_" + exception.group("kind"), "path": path,
-                "start_line": start_line, "start_column": None, "end_line": None, "end_column": None,
-                "message": line, "source": "GitHub Actions job log",
-            })
+            found.append(
+                {
+                    "category": "exception_" + exception.group("kind"),
+                    "path": path,
+                    "start_line": start_line,
+                    "start_column": None,
+                    "end_line": None,
+                    "end_column": None,
+                    "message": line,
+                    "source": "GitHub Actions job log",
+                }
+            )
     return list({_canonical_json(entry): entry for entry in found}.values())
 
 
@@ -429,7 +574,9 @@ def _pr_link_sha(run: dict[str, Any], pr_number: int) -> str | None:
 
 
 def _matches_pr_run(run: dict[str, Any], pr: dict[str, Any], sha: str) -> bool:
-    if run.get("event") != "pull_request" or run.get("head_branch") != pr.get("head", {}).get("ref"):
+    if run.get("event") != "pull_request" or run.get("head_branch") != pr.get("head", {}).get(
+        "ref"
+    ):
         return False
     links = run.get("pull_requests")
     linked_sha = _pr_link_sha(run, int(pr["number"]))
@@ -452,15 +599,22 @@ def _workflow_ids(slug: str) -> dict[str, int]:
     workflows = _pages(f"repos/{slug}/actions/workflows", "workflows")
     result: dict[str, int] = {}
     for configured in WORKFLOW_INVENTORY:
-        matches = [w for w in workflows if w.get("name") == configured["name"] and w.get("state") == "active"]
+        matches = [
+            w
+            for w in workflows
+            if w.get("name") == configured["name"] and w.get("state") == "active"
+        ]
         if len(matches) != 1 or not isinstance(matches[0].get("id"), int):
-            raise DiagnosticError(f"Expected exactly one active workflow named {configured['name']!r}")
+            raise DiagnosticError(
+                f"Expected exactly one active workflow named {configured['name']!r}"
+            )
         result[configured["name"]] = int(matches[0]["id"])
     return result
 
 
-def _list_runs_for_pr(slug: str, pr: dict[str, Any], sha: str,
-                      workflow_ids: dict[str, int]) -> dict[str, dict[str, Any]]:
+def _list_runs_for_pr(
+    slug: str, pr: dict[str, Any], sha: str, workflow_ids: dict[str, int]
+) -> dict[str, dict[str, Any]]:
     branch = str(pr.get("head", {}).get("ref") or "")
     if not branch:
         raise DiagnosticError("Pull request has no head branch")
@@ -470,13 +624,18 @@ def _list_runs_for_pr(slug: str, pr: dict[str, Any], sha: str,
         if bases is not None and pr.get("base", {}).get("ref") not in bases:
             continue
         candidates = [
-            run for run in _list_workflow_runs(slug, workflow_ids[spec["name"]], branch)
+            run
+            for run in _list_workflow_runs(slug, workflow_ids[spec["name"]], branch)
             if _matches_pr_run(run, pr, sha)
         ]
-        candidates.sort(key=lambda run: (
-            int(run.get("run_number") or 0), int(run.get("run_attempt") or 1),
-            str(run.get("updated_at") or ""), int(run.get("id") or 0),
-        ))
+        candidates.sort(
+            key=lambda run: (
+                int(run.get("run_number") or 0),
+                int(run.get("run_attempt") or 1),
+                str(run.get("updated_at") or ""),
+                int(run.get("id") or 0),
+            )
+        )
         if candidates:
             selected[spec["name"]] = candidates[-1]
     return selected
@@ -512,13 +671,23 @@ def _annotations(slug: str, checkrun_url: Any) -> list[dict[str, Any]]:
         raise DiagnosticError("GitHub returned a malformed check-run URL")
     parsed = urllib.parse.urlsplit(checkrun_url)
     expected_prefix = f"/repos/{slug}/check-runs/"
-    suffix = parsed.path[len(expected_prefix):] if parsed.path.startswith(expected_prefix) else ""
-    if parsed.scheme != "https" or parsed.netloc != "api.github.com" or not suffix.isdigit() or parsed.query or parsed.fragment:
-        raise DiagnosticError("GitHub returned an unexpected check-run URL; annotations were not fetched")
+    suffix = parsed.path[len(expected_prefix) :] if parsed.path.startswith(expected_prefix) else ""
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "api.github.com"
+        or not suffix.isdigit()
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise DiagnosticError(
+            "GitHub returned an unexpected check-run URL; annotations were not fetched"
+        )
     path = parsed.path.lstrip("/") + "/annotations"
     values: list[dict[str, Any]] = []
     for page in range(1, 51):
-        payload, _, _ = _request(_api_url(path + "?" + urllib.parse.urlencode({"per_page": 100, "page": page})))
+        payload, _, _ = _request(
+            _api_url(path + "?" + urllib.parse.urlencode({"per_page": 100, "page": page}))
+        )
         try:
             batch = json.loads(payload.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -531,21 +700,37 @@ def _annotations(slug: str, checkrun_url: Any) -> list[dict[str, Any]]:
     raise DiagnosticError("GitHub annotation pagination safety limit reached")
 
 
-def _add_structured_outcomes(records: dict[str, dict[str, Any]], repository: str,
-                             pr_number: int, sha: str, workflow_name: str,
-                             run: dict[str, Any], jobs: list[dict[str, Any]]) -> None:
+def _add_structured_outcomes(
+    records: dict[str, dict[str, Any]],
+    repository: str,
+    pr_number: int,
+    sha: str,
+    workflow_name: str,
+    run: dict[str, Any],
+    jobs: list[dict[str, Any]],
+) -> None:
     conclusion = _normal_conclusion(run.get("conclusion"))
     if conclusion and conclusion != "success":
         record = _base_record(repository, pr_number, sha, workflow_name, run)
-        record.update({"conclusion": conclusion, "category": "workflow_outcome",
-                       "source": "GitHub Actions workflow-run API"})
+        record.update(
+            {
+                "conclusion": conclusion,
+                "category": "workflow_outcome",
+                "source": "GitHub Actions workflow-run API",
+            }
+        )
         _add_record(records, record)
     for job in jobs:
         job_conclusion = _normal_conclusion(job.get("conclusion"))
         if job_conclusion and job_conclusion != "success":
             record = _base_record(repository, pr_number, sha, workflow_name, run, job=job)
-            record.update({"conclusion": job_conclusion, "category": "job_outcome",
-                           "source": "GitHub Actions job API"})
+            record.update(
+                {
+                    "conclusion": job_conclusion,
+                    "category": "job_outcome",
+                    "source": "GitHub Actions job API",
+                }
+            )
             _add_record(records, record)
         steps = job.get("steps") if isinstance(job.get("steps"), list) else []
         for step in steps:
@@ -553,33 +738,55 @@ def _add_structured_outcomes(records: dict[str, dict[str, Any]], repository: str
                 continue
             step_conclusion = _normal_conclusion(step.get("conclusion"))
             if step_conclusion and step_conclusion != "success":
-                record = _base_record(repository, pr_number, sha, workflow_name, run, job=job, step=step)
-                record.update({"conclusion": step_conclusion, "category": "step_outcome",
-                               "source": "GitHub Actions step API"})
+                record = _base_record(
+                    repository, pr_number, sha, workflow_name, run, job=job, step=step
+                )
+                record.update(
+                    {
+                        "conclusion": step_conclusion,
+                        "category": "step_outcome",
+                        "source": "GitHub Actions step API",
+                    }
+                )
                 _add_record(records, record)
 
 
-def _add_annotations(records: dict[str, dict[str, Any]], repository: str,
-                     pr_number: int, sha: str, workflow_name: str,
-                     run: dict[str, Any], job: dict[str, Any]) -> None:
+def _add_annotations(
+    records: dict[str, dict[str, Any]],
+    repository: str,
+    pr_number: int,
+    sha: str,
+    workflow_name: str,
+    run: dict[str, Any],
+    job: dict[str, Any],
+) -> None:
     for annotation in _annotations(repository, job.get("check_run_url")):
         level = str(annotation.get("annotation_level") or "").lower()
         if level not in ANNOTATION_LEVELS:
             continue
         record = _base_record(repository, pr_number, sha, workflow_name, run, job=job)
-        record.update({
-            "outcome_level": "annotation", "conclusion": level, "category": "check_annotation",
-            "path": annotation.get("path"), "start_line": annotation.get("start_line"),
-            "start_column": annotation.get("start_column"), "end_line": annotation.get("end_line"),
-            "end_column": annotation.get("end_column"), "message": annotation.get("message"),
-            "source": "GitHub check annotation API",
-        })
+        record.update(
+            {
+                "outcome_level": "annotation",
+                "conclusion": level,
+                "category": "check_annotation",
+                "path": annotation.get("path"),
+                "start_line": annotation.get("start_line"),
+                "start_column": annotation.get("start_column"),
+                "end_line": annotation.get("end_line"),
+                "end_column": annotation.get("end_column"),
+                "message": annotation.get("message"),
+                "source": "GitHub check annotation API",
+            }
+        )
         _add_record(records, record)
 
 
 def _decode_job_log_payload(payload: bytes, job_id: int) -> str:
     if len(payload) > MAX_LOG_ARCHIVE_BYTES:
-        raise DiagnosticError(f"GitHub job log archive exceeds the processing limit for job {job_id}")
+        raise DiagnosticError(
+            f"GitHub job log archive exceeds the processing limit for job {job_id}"
+        )
 
     # GitHub normally provides a ZIP containing one text file per step. Parse
     # in memory and never extract untrusted archive filenames to disk.
@@ -601,8 +808,7 @@ def _decode_job_log_payload(payload: bytes, job_id: int) -> str:
                     f"Expanded GitHub job log archive exceeds the processing limit for job {job_id}"
                 )
             text_files = [
-                entry for entry in files
-                if entry.filename.lower().endswith((".txt", ".log"))
+                entry for entry in files if entry.filename.lower().endswith((".txt", ".log"))
             ]
             if not text_files:
                 raise DiagnosticError(
@@ -663,9 +869,13 @@ def _job_log(slug: str, job_id: int) -> str | None:
     if location:
         parsed = urllib.parse.urlsplit(location)
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
-            raise DiagnosticError(f"GitHub returned an unsafe log-download redirect for job {job_id}")
+            raise DiagnosticError(
+                f"GitHub returned an unsafe log-download redirect for job {job_id}"
+            )
         # Follow the signed URL without forwarding the GitHub bearer credential.
-        request = urllib.request.Request(location, headers={"User-Agent": "Trade-Bot-CI-diagnostics"})
+        request = urllib.request.Request(
+            location, headers={"User-Agent": "Trade-Bot-CI-diagnostics"}
+        )
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
                 payload = response.read(MAX_LOG_ARCHIVE_BYTES + 1)
@@ -675,17 +885,24 @@ def _job_log(slug: str, job_id: int) -> str | None:
     return _decode_job_log_payload(payload, job_id)
 
 
-def _add_log_diagnostics(records: dict[str, dict[str, Any]], repository: str,
-                         pr_number: int, sha: str, workflow_name: str,
-                         run: dict[str, Any], job: dict[str, Any]) -> None:
+def _add_log_diagnostics(
+    records: dict[str, dict[str, Any]],
+    repository: str,
+    pr_number: int,
+    sha: str,
+    workflow_name: str,
+    run: dict[str, Any],
+    job: dict[str, Any],
+) -> None:
     job_id = job.get("id")
     if not isinstance(job_id, int):
         return
     conclusion = _normal_conclusion(job.get("conclusion"))
     steps = job.get("steps") if isinstance(job.get("steps"), list) else []
     failing_steps = [
-        step for step in steps if isinstance(step, dict)
-        and _normal_conclusion(step.get("conclusion")) in LOG_FAILURES
+        step
+        for step in steps
+        if isinstance(step, dict) and _normal_conclusion(step.get("conclusion")) in LOG_FAILURES
     ]
     # Scan every completed job log on the GitHub-hosted collector, not only
     # failed jobs. Successful output is discarded by parse_log_lines unless it
@@ -696,18 +913,28 @@ def _add_log_diagnostics(records: dict[str, dict[str, Any]], repository: str,
         return
     identified_step = failing_steps[0] if len(failing_steps) == 1 else None
     for parsed in parse_log_lines(log):
-        record = _base_record(repository, pr_number, sha, workflow_name, run, job=job, step=identified_step)
+        record = _base_record(
+            repository, pr_number, sha, workflow_name, run, job=job, step=identified_step
+        )
         is_annotation = parsed.get("category") == "check_annotation"
-        record.update({
-            "outcome_level": "annotation" if is_annotation else "log_diagnostic",
-            "conclusion": parsed.get("annotation_level") if is_annotation else (
-                conclusion if conclusion not in (None, "success", "skipped") else "diagnostic"
-            ),
-            "category": parsed["category"], "path": parsed["path"],
-            "start_line": parsed["start_line"], "start_column": parsed["start_column"],
-            "end_line": parsed["end_line"], "end_column": parsed["end_column"],
-            "message": parsed["message"], "source": parsed["source"],
-        })
+        record.update(
+            {
+                "outcome_level": "annotation" if is_annotation else "log_diagnostic",
+                "conclusion": parsed.get("annotation_level")
+                if is_annotation
+                else (
+                    conclusion if conclusion not in (None, "success", "skipped") else "diagnostic"
+                ),
+                "category": parsed["category"],
+                "path": parsed["path"],
+                "start_line": parsed["start_line"],
+                "start_column": parsed["start_column"],
+                "end_line": parsed["end_line"],
+                "end_column": parsed["end_column"],
+                "message": parsed["message"],
+                "source": parsed["source"],
+            }
+        )
         _add_record(records, record)
 
 
@@ -715,15 +942,26 @@ def _split_record(record: dict[str, Any]) -> list[dict[str, Any]]:
     message = record.get("message")
     if message is not None and not isinstance(message, str):
         message = str(message)
-    chunks = [message] if not message else [
-        message[i:i + MESSAGE_FRAGMENT_CHARS] for i in range(0, len(message), MESSAGE_FRAGMENT_CHARS)
-    ]
+    chunks = (
+        [message]
+        if not message
+        else [
+            message[i : i + MESSAGE_FRAGMENT_CHARS]
+            for i in range(0, len(message), MESSAGE_FRAGMENT_CHARS)
+        ]
+    )
     record_id = hashlib.sha256(_canonical_json(record).encode("utf-8")).hexdigest()
     fixed = {key: value for key, value in record.items() if key != "message"}
-    return [{
-        "record_id": record_id, "record": fixed, "message_part_index": index,
-        "message_part_count": len(chunks), "message_fragment": chunk,
-    } for index, chunk in enumerate(chunks)]
+    return [
+        {
+            "record_id": record_id,
+            "record": fixed,
+            "message_part_index": index,
+            "message_part_count": len(chunks),
+            "message_fragment": chunk,
+        }
+        for index, chunk in enumerate(chunks)
+    ]
 
 
 def _pack_pages(records: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -734,7 +972,9 @@ def _pack_pages(records: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
         candidate = current + [fragment]
         if len(_canonical_json(candidate).encode("utf-8")) > REPORT_PAGE_BYTES:
             if not current:
-                raise DiagnosticError("A diagnostic fragment exceeds GitHub Check Run report capacity")
+                raise DiagnosticError(
+                    "A diagnostic fragment exceeds GitHub Check Run report capacity"
+                )
             pages.append(current)
             current = [fragment]
         else:
@@ -753,7 +993,10 @@ def _page_external_id(pr_number: int, sha: str, page_number: int) -> str:
 
 
 def _check_runs_for_sha(slug: str, sha: str) -> list[dict[str, Any]]:
-    return _pages(f"repos/{slug}/commits/{urllib.parse.quote(sha, safe='')}/check-runs?filter=all", "check_runs")
+    return _pages(
+        f"repos/{slug}/commits/{urllib.parse.quote(sha, safe='')}/check-runs?filter=all",
+        "check_runs",
+    )
 
 
 def _ours(checkrun: dict[str, Any]) -> bool:
@@ -761,12 +1004,24 @@ def _ours(checkrun: dict[str, Any]) -> bool:
     return isinstance(app, dict) and app.get("slug") == "github-actions"
 
 
-def _upsert_check_run(slug: str, sha: str, name: str, external_id: str,
-                      existing: dict[str, Any] | None, *, status: str,
-                      output: dict[str, str], details_url: str) -> dict[str, Any]:
+def _upsert_check_run(
+    slug: str,
+    sha: str,
+    name: str,
+    external_id: str,
+    existing: dict[str, Any] | None,
+    *,
+    status: str,
+    output: dict[str, str],
+    details_url: str,
+) -> dict[str, Any]:
     body: dict[str, Any] = {
-        "name": name, "head_sha": sha, "external_id": external_id,
-        "details_url": details_url, "status": status, "output": output,
+        "name": name,
+        "head_sha": sha,
+        "external_id": external_id,
+        "details_url": details_url,
+        "status": status,
+        "output": output,
     }
     if status == "completed":
         body["conclusion"] = "success"
@@ -779,7 +1034,9 @@ def _upsert_check_run(slug: str, sha: str, name: str, external_id: str,
     return result
 
 
-def _report_runs(slug: str, sha: str, pr_number: int) -> tuple[dict[str, Any] | None, dict[int, dict[str, Any]]]:
+def _report_runs(
+    slug: str, sha: str, pr_number: int
+) -> tuple[dict[str, Any] | None, dict[int, dict[str, Any]]]:
     master_external_id = _external_id(pr_number, sha)
     page_prefix = f"{PAGE_EXTERNAL_PREFIX}{pr_number}:{sha}:"
     masters: list[dict[str, Any]] = []
@@ -790,12 +1047,18 @@ def _report_runs(slug: str, sha: str, pr_number: int) -> tuple[dict[str, Any] | 
         external_id = run.get("external_id")
         if external_id == master_external_id and run.get("name") == MASTER_NAME:
             masters.append(run)
-        elif isinstance(external_id, str) and external_id.startswith(page_prefix) and str(run.get("name", "")).startswith(PAGE_PREFIX):
-            suffix = external_id[len(page_prefix):]
+        elif (
+            isinstance(external_id, str)
+            and external_id.startswith(page_prefix)
+            and str(run.get("name", "")).startswith(PAGE_PREFIX)
+        ):
+            suffix = external_id[len(page_prefix) :]
             if suffix.isdigit():
                 index = int(suffix)
                 current = pages.get(index)
-                if current is None or str(run.get("updated_at", "")) > str(current.get("updated_at", "")):
+                if current is None or str(run.get("updated_at", "")) > str(
+                    current.get("updated_at", "")
+                ):
                     pages[index] = run
     masters.sort(key=lambda run: (str(run.get("updated_at", "")), int(run.get("id") or 0)))
     return (masters[-1] if masters else None), pages
@@ -803,20 +1066,37 @@ def _report_runs(slug: str, sha: str, pr_number: int) -> tuple[dict[str, Any] | 
 
 def _begin_master(slug: str, pr_number: int, sha: str, run_id: int, attempt: int) -> dict[str, Any]:
     master, _ = _report_runs(slug, sha, pr_number)
-    summary = _canonical_json({
-        "schema_version": 1, "status": "collecting", "pr": pr_number,
-        "head_sha": sha, "collector_run_id": run_id, "collector_run_attempt": attempt,
-    })
+    summary = _canonical_json(
+        {
+            "schema_version": 1,
+            "status": "collecting",
+            "pr": pr_number,
+            "head_sha": sha,
+            "collector_run_id": run_id,
+            "collector_run_attempt": attempt,
+        }
+    )
     return _upsert_check_run(
-        slug, sha, MASTER_NAME, _external_id(pr_number, sha), master,
-        status="in_progress", output={"title": "CI diagnostics collection", "summary": summary},
+        slug,
+        sha,
+        MASTER_NAME,
+        _external_id(pr_number, sha),
+        master,
+        status="in_progress",
+        output={"title": "CI diagnostics collection", "summary": summary},
         details_url=f"https://github.com/{slug}/actions/runs/{run_id}",
     )
 
 
-def _publish_report(slug: str, pr_number: int, sha: str, collector_run_id: int,
-                    collector_attempt: int, master: dict[str, Any],
-                    records: list[dict[str, Any]]) -> None:
+def _publish_report(
+    slug: str,
+    pr_number: int,
+    sha: str,
+    collector_run_id: int,
+    collector_attempt: int,
+    master: dict[str, Any],
+    records: list[dict[str, Any]],
+) -> None:
     digest = hashlib.sha256(_canonical_json(records).encode("utf-8")).hexdigest()
     generation = digest[:24]
     pages = _pack_pages(records)
@@ -828,14 +1108,22 @@ def _publish_report(slug: str, pr_number: int, sha: str, collector_run_id: int,
         if len(text_payload.encode("utf-8")) > REPORT_PAGE_BYTES:
             raise DiagnosticError(f"Report page {page_number} exceeds the configured output limit")
         result = _upsert_check_run(
-            slug, sha, f"{PAGE_PREFIX}{page_number:04d}", external_id,
-            existing_pages.get(page_number), status="completed",
+            slug,
+            sha,
+            f"{PAGE_PREFIX}{page_number:04d}",
+            external_id,
+            existing_pages.get(page_number),
+            status="completed",
             output={
                 "title": "Non-success diagnostic records",
-                "summary": _canonical_json({
-                    "schema_version": 1, "generation_id": generation,
-                    "page": page_number, "page_count": len(pages),
-                }),
+                "summary": _canonical_json(
+                    {
+                        "schema_version": 1,
+                        "generation_id": generation,
+                        "page": page_number,
+                        "page_count": len(pages),
+                    }
+                ),
                 "text": text_payload,
             },
             details_url=details_url,
@@ -844,14 +1132,25 @@ def _publish_report(slug: str, pr_number: int, sha: str, collector_run_id: int,
             raise DiagnosticError(f"Report page {page_number} was not finalized")
 
     manifest = {
-        "schema_version": 1, "status": "finalized", "pr": pr_number, "head_sha": sha,
-        "generation_id": generation, "diagnostic_count": len(records), "page_count": len(pages),
-        "digest": digest, "collector_run_id": collector_run_id,
+        "schema_version": 1,
+        "status": "finalized",
+        "pr": pr_number,
+        "head_sha": sha,
+        "generation_id": generation,
+        "diagnostic_count": len(records),
+        "page_count": len(pages),
+        "digest": digest,
+        "collector_run_id": collector_run_id,
         "collector_run_attempt": collector_attempt,
     }
     updated = _upsert_check_run(
-        slug, sha, MASTER_NAME, _external_id(pr_number, sha), master,
-        status="completed", output={"title": "CI diagnostics report manifest", "summary": _canonical_json(manifest)},
+        slug,
+        sha,
+        MASTER_NAME,
+        _external_id(pr_number, sha),
+        master,
+        status="completed",
+        output={"title": "CI diagnostics report manifest", "summary": _canonical_json(manifest)},
         details_url=details_url,
     )
     if updated.get("status") != "completed" or updated.get("conclusion") != "success":
@@ -881,8 +1180,14 @@ def _resolve_pr_from_event(slug: str, trigger: dict[str, Any]) -> dict[str, Any]
     if not candidates and isinstance(branch, str) and branch:
         head_repo = trigger.get("head_repository")
         owner_data = head_repo.get("owner") if isinstance(head_repo, dict) else None
-        owner = str(owner_data.get("login") or slug.split("/", 1)[0]) if isinstance(owner_data, dict) else slug.split("/", 1)[0]
-        query = urllib.parse.urlencode({"state": "open", "head": f"{owner}:{branch}", "per_page": 100})
+        owner = (
+            str(owner_data.get("login") or slug.split("/", 1)[0])
+            if isinstance(owner_data, dict)
+            else slug.split("/", 1)[0]
+        )
+        query = urllib.parse.urlencode(
+            {"state": "open", "head": f"{owner}:{branch}", "per_page": 100}
+        )
         pulls = _json(f"repos/{slug}/pulls?{query}")
         if isinstance(pulls, list):
             for pull in pulls:
@@ -903,14 +1208,18 @@ def _resolve_pr_from_event(slug: str, trigger: dict[str, Any]) -> dict[str, Any]
         if trigger.get("head_sha") == sha or linked_sha == sha:
             valid.append(pull)
     if len(valid) > 1:
-        raise DiagnosticError("Workflow event matches more than one current pull request; refusing ambiguous correlation")
+        raise DiagnosticError(
+            "Workflow event matches more than one current pull request; refusing ambiguous correlation"
+        )
     return valid[0] if valid else None
 
 
 def _ensure_head_unchanged(slug: str, pr_number: int, sha: str) -> None:
     current = _load_current_pr(slug, pr_number)
     if current.get("state") != "open" or current.get("head", {}).get("sha") != sha:
-        raise DiagnosticError("Pull-request head changed or closed while collecting; stale report was not finalized")
+        raise DiagnosticError(
+            "Pull-request head changed or closed while collecting; stale report was not finalized"
+        )
 
 
 def _collect() -> int:
@@ -971,7 +1280,11 @@ def _collect() -> int:
                 continue
             name = spec["name"]
             run = selected.get(name)
-            if not run or run.get("status") != "completed" or not _normal_conclusion(run.get("conclusion")):
+            if (
+                not run
+                or run.get("status") != "completed"
+                or not _normal_conclusion(run.get("conclusion"))
+            ):
                 all_terminal = False
                 break
             jobs = _jobs_for_run(slug, int(run["id"]))
@@ -984,11 +1297,18 @@ def _collect() -> int:
         time.sleep(POLL_INTERVAL_SECONDS)
     else:
         pending = [
-            spec["name"] for spec in WORKFLOW_INVENTORY
-            if (spec["base_branches"] is None or pull.get("base", {}).get("ref") in spec["base_branches"])
+            spec["name"]
+            for spec in WORKFLOW_INVENTORY
+            if (
+                spec["base_branches"] is None
+                or pull.get("base", {}).get("ref") in spec["base_branches"]
+            )
             and spec["name"] not in terminal_runs
         ]
-        raise DiagnosticError("Applicable workflow/job inventory did not reach terminal states; report remains unfinalized. Pending or absent: " + ", ".join(pending))
+        raise DiagnosticError(
+            "Applicable workflow/job inventory did not reach terminal states; report remains unfinalized. Pending or absent: "
+            + ", ".join(pending)
+        )
 
     _ensure_head_unchanged(slug, pr_number, sha)
     records_by_key: dict[str, dict[str, Any]] = {}
@@ -1001,11 +1321,18 @@ def _collect() -> int:
         for job in jobs:
             _add_annotations(records_by_key, slug, pr_number, sha, name, run, job)
             _add_log_diagnostics(records_by_key, slug, pr_number, sha, name, run, job)
-    records = sorted(records_by_key.values(), key=lambda item: (
-        item.get("workflow_name") or "", int(item.get("workflow_run_id") or 0),
-        int(item.get("job_id") or 0), item.get("outcome_level") or "",
-        item.get("path") or "", int(item.get("start_line") or 0), item.get("message") or "",
-    ))
+    records = sorted(
+        records_by_key.values(),
+        key=lambda item: (
+            item.get("workflow_name") or "",
+            int(item.get("workflow_run_id") or 0),
+            int(item.get("job_id") or 0),
+            item.get("outcome_level") or "",
+            item.get("path") or "",
+            int(item.get("start_line") or 0),
+            item.get("message") or "",
+        ),
+    )
     _ensure_head_unchanged(slug, pr_number, sha)
     _publish_report(slug, pr_number, sha, collector_run_id, collector_attempt, master, records)
     return 0
@@ -1025,8 +1352,9 @@ def _canonical_invocation(argv: list[str]) -> int | None:
     return None
 
 
-def _decode_report_pages(pr_number: int, sha: str, manifest: dict[str, Any],
-                         pages_by_index: dict[int, dict[str, Any]]) -> list[dict[str, Any]]:
+def _decode_report_pages(
+    pr_number: int, sha: str, manifest: dict[str, Any], pages_by_index: dict[int, dict[str, Any]]
+) -> list[dict[str, Any]]:
     page_count = manifest.get("page_count")
     generation = manifest.get("generation_id")
     if not isinstance(page_count, int) or page_count < 0 or page_count > 9000:
@@ -1038,41 +1366,80 @@ def _decode_report_pages(pr_number: int, sha: str, manifest: dict[str, Any],
         page = pages_by_index.get(index)
         if not page:
             raise DiagnosticError(f"Report is incomplete: page {index} is missing")
-        if page.get("status") != "completed" or page.get("conclusion") != "success" or page.get("head_sha") != sha:
-            raise DiagnosticError(f"Report is incomplete: page {index} is not finalized on the requested SHA")
+        if (
+            page.get("status") != "completed"
+            or page.get("conclusion") != "success"
+            or page.get("head_sha") != sha
+        ):
+            raise DiagnosticError(
+                f"Report is incomplete: page {index} is not finalized on the requested SHA"
+            )
         output = page.get("output") if isinstance(page.get("output"), dict) else {}
         try:
             page_meta = json.loads(str(output.get("summary") or ""))
             entries = json.loads(str(output.get("text") or ""))
         except json.JSONDecodeError as exc:
             raise DiagnosticError(f"Report is malformed: page {index} is not valid JSON") from exc
-        if not isinstance(page_meta, dict) or page_meta.get("generation_id") != generation or page_meta.get("page") != index or page_meta.get("page_count") != page_count:
-            raise DiagnosticError(f"Report is inconsistent: page {index} belongs to a different generation")
+        if (
+            not isinstance(page_meta, dict)
+            or page_meta.get("generation_id") != generation
+            or page_meta.get("page") != index
+            or page_meta.get("page_count") != page_count
+        ):
+            raise DiagnosticError(
+                f"Report is inconsistent: page {index} belongs to a different generation"
+            )
         if not isinstance(entries, list):
             raise DiagnosticError(f"Report is malformed: page {index} has no record list")
         for fragment in entries:
             if not isinstance(fragment, dict) or not isinstance(fragment.get("record_id"), str):
-                raise DiagnosticError(f"Report is malformed: page {index} contains an invalid diagnostic fragment")
+                raise DiagnosticError(
+                    f"Report is malformed: page {index} contains an invalid diagnostic fragment"
+                )
             record_id = fragment["record_id"]
             fixed = fragment.get("record")
             part_index = fragment.get("message_part_index")
             part_count = fragment.get("message_part_count")
             message_fragment = fragment.get("message_fragment")
-            if not isinstance(fixed, dict) or not isinstance(part_index, int) or not isinstance(part_count, int) or part_count < 1 or not (0 <= part_index < part_count):
-                raise DiagnosticError(f"Report is malformed: page {index} contains invalid message-fragment metadata")
-            state = fragments_by_record.setdefault(record_id, {"record": fixed, "parts": {}, "count": part_count})
-            if state["record"] != fixed or state["count"] != part_count or part_index in state["parts"]:
-                raise DiagnosticError(f"Report is inconsistent: diagnostic {record_id} is duplicated or conflicting")
+            if (
+                not isinstance(fixed, dict)
+                or not isinstance(part_index, int)
+                or not isinstance(part_count, int)
+                or part_count < 1
+                or not (0 <= part_index < part_count)
+            ):
+                raise DiagnosticError(
+                    f"Report is malformed: page {index} contains invalid message-fragment metadata"
+                )
+            state = fragments_by_record.setdefault(
+                record_id, {"record": fixed, "parts": {}, "count": part_count}
+            )
+            if (
+                state["record"] != fixed
+                or state["count"] != part_count
+                or part_index in state["parts"]
+            ):
+                raise DiagnosticError(
+                    f"Report is inconsistent: diagnostic {record_id} is duplicated or conflicting"
+                )
             if message_fragment is not None and not isinstance(message_fragment, str):
-                raise DiagnosticError(f"Report is malformed: diagnostic {record_id} has an invalid message")
+                raise DiagnosticError(
+                    f"Report is malformed: diagnostic {record_id} has an invalid message"
+                )
             state["parts"][part_index] = message_fragment
 
     records: list[dict[str, Any]] = []
     for record_id, state in fragments_by_record.items():
-        if len(state["parts"]) != state["count"] or sorted(state["parts"]) != list(range(state["count"])):
-            raise DiagnosticError(f"Report is incomplete: diagnostic {record_id} has missing message fragments")
+        if len(state["parts"]) != state["count"] or sorted(state["parts"]) != list(
+            range(state["count"])
+        ):
+            raise DiagnosticError(
+                f"Report is incomplete: diagnostic {record_id} has missing message fragments"
+            )
         parts = [state["parts"][index] for index in range(state["count"])]
-        message = None if all(part is None for part in parts) else "".join(part or "" for part in parts)
+        message = (
+            None if all(part is None for part in parts) else "".join(part or "" for part in parts)
+        )
         record = dict(state["record"])
         record["message"] = message
         if hashlib.sha256(_canonical_json(record).encode("utf-8")).hexdigest() != record_id:
@@ -1084,14 +1451,22 @@ def _decode_report_pages(pr_number: int, sha: str, manifest: dict[str, Any],
             if value is not None and (not isinstance(value, int) or value < 1):
                 raise DiagnosticError(f"Report contains an invalid source location field: {field}")
         records.append(record)
-    records.sort(key=lambda item: (
-        item.get("workflow_name") or "", int(item.get("workflow_run_id") or 0),
-        int(item.get("job_id") or 0), item.get("outcome_level") or "",
-        item.get("path") or "", int(item.get("start_line") or 0), item.get("message") or "",
-    ))
+    records.sort(
+        key=lambda item: (
+            item.get("workflow_name") or "",
+            int(item.get("workflow_run_id") or 0),
+            int(item.get("job_id") or 0),
+            item.get("outcome_level") or "",
+            item.get("path") or "",
+            int(item.get("start_line") or 0),
+            item.get("message") or "",
+        )
+    )
     if len(records) != manifest.get("diagnostic_count"):
         raise DiagnosticError("Report diagnostic count does not match its manifest")
-    if hashlib.sha256(_canonical_json(records).encode("utf-8")).hexdigest() != manifest.get("digest"):
+    if hashlib.sha256(_canonical_json(records).encode("utf-8")).hexdigest() != manifest.get(
+        "digest"
+    ):
         raise DiagnosticError("Report digest does not match its manifest")
     return records
 
@@ -1103,7 +1478,9 @@ def _retrieve(pr_number: int) -> int:
         sha = str(pull["head"]["sha"])
         master, pages = _report_runs(slug, sha, pr_number)
         if master is None:
-            raise DiagnosticError("No finalized diagnostics report exists for the current PR head SHA")
+            raise DiagnosticError(
+                "No finalized diagnostics report exists for the current PR head SHA"
+            )
         if master.get("status") != "completed" or master.get("conclusion") != "success":
             raise DiagnosticError("Diagnostics report is not finalized")
         output = master.get("output") if isinstance(master.get("output"), dict) else {}
@@ -1111,16 +1488,28 @@ def _retrieve(pr_number: int) -> int:
             manifest = json.loads(str(output.get("summary") or ""))
         except json.JSONDecodeError as exc:
             raise DiagnosticError("Diagnostics report manifest is malformed") from exc
-        if not isinstance(manifest, dict) or manifest.get("schema_version") != 1 or manifest.get("status") != "finalized":
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("schema_version") != 1
+            or manifest.get("status") != "finalized"
+        ):
             raise DiagnosticError("Diagnostics report is absent, incomplete, or malformed")
-        if manifest.get("pr") != pr_number or manifest.get("head_sha") != sha or master.get("head_sha") != sha:
-            raise DiagnosticError("Diagnostics report is stale or belongs to a different pull request")
+        if (
+            manifest.get("pr") != pr_number
+            or manifest.get("head_sha") != sha
+            or master.get("head_sha") != sha
+        ):
+            raise DiagnosticError(
+                "Diagnostics report is stale or belongs to a different pull request"
+            )
         records = _decode_report_pages(pr_number, sha, manifest, pages)
         # The PR can advance while pages are being fetched. Never return an
         # otherwise valid report after the requested PR has moved to a new head.
         latest = _load_current_pr(slug, pr_number)
         if latest.get("state") != "open" or latest.get("head", {}).get("sha") != sha:
-            raise DiagnosticError("Pull-request head changed during report retrieval; retrieve the new head's report")
+            raise DiagnosticError(
+                "Pull-request head changed during report retrieval; retrieve the new head's report"
+            )
         if records:
             sys.stdout.write(json.dumps(records, ensure_ascii=False, indent=2) + "\n")
         return 0
@@ -1156,4 +1545,3 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "collect":
         raise SystemExit(main_collector())
     raise SystemExit(main_prfail(sys.argv[1:]))
-

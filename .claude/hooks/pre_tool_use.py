@@ -271,7 +271,9 @@ def _is_exact_patch_apply_command(command: str) -> bool:
     if not header:
         return False
     body = lines[1:-1]
-    return any(line.startswith("diff --git a/") for line in body) and any(line.startswith("@@ ") for line in body)
+    return any(line.startswith("diff --git a/") for line in body) and any(
+        line.startswith("@@ ") for line in body
+    )
 
 
 def _github_route_violation(event: dict[str, Any]) -> str:
@@ -613,7 +615,9 @@ def _is_ci_request(tool: str, data: dict[str, Any]) -> bool:
     command = data.get("command")
     if isinstance(command, str) and command.strip():
         # The canonical report and report-bound patcher have exact allow rules.
-        if re.fullmatch(r"\s*\./scripts/prfail\s+--pr\s+[1-9][0-9]*\s*", command) or _is_exact_patch_apply_command(command):
+        if re.fullmatch(
+            r"\s*\./scripts/prfail\s+--pr\s+[1-9][0-9]*\s*", command
+        ) or _is_exact_patch_apply_command(command):
             return False
         if is_ci_log_access(command) or CI_SUBJECT_RE.search(command):
             return True
@@ -857,17 +861,16 @@ def _protected_boundary_violation(event: dict[str, Any]) -> str:
                 target = match.group(1)
                 if target != match.group(2):
                     return "Report-bound patcher denied a diff that changes file paths."
-                if (
-                    target in PROTECTED_BOUNDARY_PATHS
-                    or target.startswith((".claude/", ".github/workflows/", "src/agent_control/"))
+                if target in PROTECTED_BOUNDARY_PATHS or target.startswith(
+                    (".claude/", ".github/workflows/", "src/agent_control/")
                 ):
                     return f"Protected observation-boundary file mutation denied: {target}."
         else:
             for protected_path in PROTECTED_BOUNDARY_PATHS:
                 absolute_path = (PROJECT_DIR / protected_path).as_posix()
-                if (protected_path in command or absolute_path in command) and BASH_MUTATOR_RE.search(
-                    command
-                ):
+                if (
+                    protected_path in command or absolute_path in command
+                ) and BASH_MUTATOR_RE.search(command):
                     return f"Protected observation-boundary file mutation denied: {protected_path}."
 
     if not protected:
@@ -901,7 +904,12 @@ def _violations(event: dict[str, Any], policy: dict[str, Any]) -> list[str]:
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
 
     exact_patch_apply = isinstance(command, str) and _is_exact_patch_apply_command(command)
-    if tool == "Bash" and isinstance(command, str) and not exact_patch_apply and is_ci_log_access(command):
+    if (
+        tool == "Bash"
+        and isinstance(command, str)
+        and not exact_patch_apply
+        and is_ci_log_access(command)
+    ):
         problems.append(CI_LOG_REFUSAL)
 
     if not isinstance(command, str) or not command.strip():
@@ -936,7 +944,11 @@ def _violations(event: dict[str, Any], policy: dict[str, Any]) -> list[str]:
         try:
             from src.agent_control.hooks import git_guard
 
-            guard = git_guard(event) if tool == "Bash" and "git" in command and not exact_patch_apply else ""
+            guard = (
+                git_guard(event)
+                if tool == "Bash" and "git" in command and not exact_patch_apply
+                else ""
+            )
             if guard:
                 problems.append(guard)
         except Exception as exc:  # pragma: no cover

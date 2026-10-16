@@ -170,16 +170,20 @@ class TestTheCanonicalReportCommandStaysOpen:
         assert not is_ci_log_access(command)
 
     def test_only_the_quoted_report_bound_patch_heredoc_is_exempt(self) -> None:
-        command = "\n".join([
-            "python3 scripts/apply_ci_patch.py --pr 458 --head-sha " + "a" * 40 + " --patch-stdin <<'TB_CI_PATCH'",
-            "diff --git a/src/example.py b/src/example.py",
-            "--- a/src/example.py",
-            "+++ b/src/example.py",
-            "@@ -1,1 +1,1 @@",
-            "-before = 1",
-            "+after = 1",
-            "TB_CI_PATCH",
-        ])
+        command = "\n".join(
+            [
+                "python3 scripts/apply_ci_patch.py --pr 458 --head-sha "
+                + "a" * 40
+                + " --patch-stdin <<'TB_CI_PATCH'",
+                "diff --git a/src/example.py b/src/example.py",
+                "--- a/src/example.py",
+                "+++ b/src/example.py",
+                "@@ -1,1 +1,1 @@",
+                "-before = 1",
+                "+after = 1",
+                "TB_CI_PATCH",
+            ]
+        )
         assert is_exact_patch_apply_command(command)
         assert not is_ci_log_access(command)
         assert not is_exact_patch_apply_command("cd /tmp && " + command)
@@ -216,8 +220,11 @@ class TestTheRuntimeRefusesToo:
 
     def test_noncanonical_patch_applier_invocations_are_refused(self) -> None:
         from common.command_schema import is_local_check_execution
+
         assert is_local_check_execution("python3 scripts/apply_ci_patch.py --help")
-        assert is_local_check_execution("python3 scripts/apply_ci_patch.py --pr 1 --head-sha " + "a" * 40)
+        assert is_local_check_execution(
+            "python3 scripts/apply_ci_patch.py --pr 1 --head-sha " + "a" * 40
+        )
 
     def test_run_refuses_arbitrary_comment_fetches(self) -> None:
         result = run(

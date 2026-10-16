@@ -123,9 +123,7 @@ CI_HARD_DENY_PATTERNS: tuple[str, ...] = (
 
 # Compatibility name retained for callers; the sole allowed CI route is the
 # exact report-only prfail command. Direct PR-comment reads remain blocked.
-CI_COMMENT_ALLOW_PATTERNS: tuple[str, ...] = (
-    r"^\s*\./scripts/prfail\s+--pr\s+[1-9][0-9]*\s*$",
-)
+CI_COMMENT_ALLOW_PATTERNS: tuple[str, ...] = (r"^\s*\./scripts/prfail\s+--pr\s+[1-9][0-9]*\s*$",)
 
 
 LOCAL_CHECK_PATTERNS: tuple[str, ...] = (
@@ -518,7 +516,9 @@ def is_exact_patch_apply_command(command: str) -> bool:
     ):
         return False
     body = lines[1:-1]
-    return any(line.startswith("diff --git a/") for line in body) and any(line.startswith("@@ ") for line in body)
+    return any(line.startswith("diff --git a/") for line in body) and any(
+        line.startswith("@@ ") for line in body
+    )
 
 
 _CI_LOG_RE = [re.compile(p, re.IGNORECASE) for p in CI_LOG_PATTERNS]

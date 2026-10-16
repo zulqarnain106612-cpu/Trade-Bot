@@ -1757,14 +1757,14 @@ SHA8 4995ee3c; total lines 500.
 
 ## common/command_schema.py
 
-SHA8 7401b99c; total lines 616.
+SHA8 1de280b9; total lines 616.
 
-- is_local_check_execution (function, lines 171-177): CHUNK_ID = common/command_schema.py#171-177#7401b99c — [[F:common/command_schema.py#171-177#7401b99c]].
-- classify (function, lines 491-507): CHUNK_ID = common/command_schema.py#491-507#7401b99c — [[F:common/command_schema.py#491-507#7401b99c]].
-- is_ci_log_access (function, lines 535-548): CHUNK_ID = common/command_schema.py#535-548#7401b99c — [[F:common/command_schema.py#535-548#7401b99c]].
-- rank (function, lines 551-556): CHUNK_ID = common/command_schema.py#551-556#7401b99c — [[F:common/command_schema.py#551-556#7401b99c]].
-- redact (function, lines 559-589): CHUNK_ID = common/command_schema.py#559-589#7401b99c — [[F:common/command_schema.py#559-589#7401b99c]].
-- build_env (function, lines 592-616): CHUNK_ID = common/command_schema.py#592-616#7401b99c — [[F:common/command_schema.py#592-616#7401b99c]].
+- is_local_check_execution (function, lines 169-175): CHUNK_ID = common/command_schema.py#169-175#1de280b9 — [[F:common/command_schema.py#169-175#1de280b9]].
+- classify (function, lines 489-505): CHUNK_ID = common/command_schema.py#489-505#1de280b9 — [[F:common/command_schema.py#489-505#1de280b9]].
+- is_ci_log_access (function, lines 535-548): CHUNK_ID = common/command_schema.py#535-548#1de280b9 — [[F:common/command_schema.py#535-548#1de280b9]].
+- rank (function, lines 551-556): CHUNK_ID = common/command_schema.py#551-556#1de280b9 — [[F:common/command_schema.py#551-556#1de280b9]].
+- redact (function, lines 559-589): CHUNK_ID = common/command_schema.py#559-589#1de280b9 — [[F:common/command_schema.py#559-589#1de280b9]].
+- build_env (function, lines 592-616): CHUNK_ID = common/command_schema.py#592-616#1de280b9 — [[F:common/command_schema.py#592-616#1de280b9]].
 
 ## common/shell_exec.py
 
