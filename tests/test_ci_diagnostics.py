@@ -293,15 +293,41 @@ def test_failed_timeout_and_skipped_outcomes_survive_without_log_text() -> None:
 def test_collector_waits_for_terminal_steps_and_jobs() -> None:
     success = {"conclusion": "success"}
     assert not _all_jobs_terminal([{"status": "in_progress", "steps": []}], success)
-    assert not _all_jobs_terminal(
-        [{"status": "completed", "steps": [{"status": "in_progress", "conclusion": None}]}],
-        success,
+    # A completed (failed/cancelled) job whose later steps never started is final.
+    assert _all_jobs_terminal(
+        [
+            {
+                "status": "completed",
+                "conclusion": "cancelled",
+                "steps": [{"status": "pending", "conclusion": None}],
+            }
+        ],
+        {"conclusion": "cancelled"},
     )
     assert _all_jobs_terminal(
         [{"status": "completed", "steps": [{"status": "completed", "conclusion": "skipped"}]}],
         success,
     )
     assert not _all_jobs_terminal([], success)
+
+
+def test_collector_does_not_wait_on_its_own_report_checks(monkeypatch) -> None:
+    real_job = {
+        "name": "pytest",
+        "status": "completed",
+        "steps": [{"status": "completed", "conclusion": "failure"}],
+    }
+    listed = [
+        real_job,
+        {"name": ci_diagnostics.MASTER_NAME, "status": "in_progress", "steps": []},
+        {"name": f"{ci_diagnostics.PAGE_PREFIX}0001", "status": "in_progress", "steps": []},
+    ]
+    monkeypatch.setattr(ci_diagnostics, "_pages", lambda path, key: list(listed))
+
+    jobs = ci_diagnostics._jobs_for_run("owner/repo", 7)
+
+    assert jobs == [real_job]
+    assert _all_jobs_terminal(jobs, {"conclusion": "failure"})
 
 
 def test_report_identity_is_pr_and_sha_specific() -> None:
