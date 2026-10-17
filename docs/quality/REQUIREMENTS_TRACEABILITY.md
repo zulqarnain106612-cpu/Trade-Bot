@@ -226,6 +226,8 @@ When RiskGate.check_drift reports drift for the contributing horizon, CryptoInte
 - **Verification:**
   - `tests/test_crypto_intel_signal_path.py` (regression)
 
+> layer: test-suite
+
 ## Execution
 
 #### `INV-003` — Unknown exchange order state cannot become FILLED without reconciliation
