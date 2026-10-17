@@ -379,7 +379,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 309 | P1 | src/features/selftest.py | Python | 63 | 5ec849fa |  |
 | 310 | P1 | src/fusion/__init__.py | Python | 1 | e2189aa2 |  |
 | 311 | P1 | src/fusion/cross_attention.py | Python | 73 | c6b4c784 |  |
-| 312 | P1 | src/fusion/horizon_decision.py | Python | 147 | 1b978d29 |  |
+| 312 | P1 | src/fusion/horizon_decision.py | Python | 153 | 593a1838 |  |
 | 313 | P1 | src/fusion/meta_network.py | Python | 171 | 4cbe2231 |  |
 | 314 | P1 | src/intel.py | Python | 949 | 3e1ccbbc |  |
 | 315 | P1 | src/intelligence/__init__.py | Python | 18 | 7fb63030 |  |
@@ -911,7 +911,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 841 | P1 | tests/test_harmonic_spectral.py | Python | 164 | 18e9a936 |  |
 | 842 | P1 | tests/test_hnp.py | Python | 261 | e9d9fc6b |  |
 | 843 | P1 | tests/test_horizon_backfill.py | Python | 239 | bde9dded |  |
-| 844 | P1 | tests/test_horizon_decision.py | Python | 149 | 3ed63d82 |  |
+| 844 | P1 | tests/test_horizon_decision.py | Python | 153 | 7532add5 |  |
 | 845 | P1 | tests/test_horizon_mlp.py | Python | 1382 | 4fc46c8c |  |
 | 846 | P1 | tests/test_horizon_order_gate.py | Python | 88 | ff5d16d0 |  |
 | 847 | P1 | tests/test_horizon_promotion.py | Python | 387 | 2227f311 |  |

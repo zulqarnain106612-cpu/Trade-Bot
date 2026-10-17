@@ -80,7 +80,13 @@ def fuse_horizon_predictions(
             or not math.isfinite(float(score))
         ):
             continue
-        age = now - float(pred_ts)
+        try:
+            prediction_timestamp = float(pred_ts)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not math.isfinite(prediction_timestamp):
+            continue
+        age = now - prediction_timestamp
         if age < 0 or age > max_age_seconds:
             continue
         score = float(score)
