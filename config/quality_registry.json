@@ -5590,6 +5590,29 @@
       ],
       "notes": "layer: test-suite",
       "planned_in": "PR-013"
+    },
+    {
+      "id": "REG-0031",
+      "kind": "regression",
+      "title": "Horizon drift detection suppresses the signal and is persisted as measured",
+      "statement": "When RiskGate.check_drift reports drift for the contributing horizon, CryptoIntelligence.on_bar records drift_detected=True and returns no signal with an ABSTAIN decision; without drift it records drift_detected=False.",
+      "criticality": "high",
+      "subsystem": "risk",
+      "status": "verified",
+      "source": "OPS-2026-10-17",
+      "notes": "layer: test-suite",
+      "failure_mode": "The ADWIN result was discarded and every metric row recorded drift_detected=False, so a drifting horizon kept trading and the record claimed no drift, contrary to the RiskGate contract.",
+      "owning_modules": [
+        "src/intel.py",
+        "src/risk/gate.py"
+      ],
+      "verification": [
+        {
+          "test": "tests/test_crypto_intel_signal_path.py",
+          "test_type": "regression"
+        }
+      ],
+      "depends_on": []
     }
   ]
 }
