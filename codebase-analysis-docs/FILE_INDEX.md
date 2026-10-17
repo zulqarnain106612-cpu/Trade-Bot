@@ -245,7 +245,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 175 | P1 | scripts/check_production_readiness.py | Python | 178 | 6c642773 |  |
 | 176 | P1 | scripts/check_static_invariants.py | Python | 1778 | 2d74913a |  |
 | 177 | P1 | scripts/check_supply_chain.py | Python | 367 | 02350a53 |  |
-| 178 | P1 | scripts/ci_diagnostics.py | Python | 1614 | 945d05c3 |  |
+| 178 | P1 | scripts/ci_diagnostics.py | Python | 1624 | d026af5c |  |
 | 179 | P1 | scripts/ci_verdict.py | Python | 43 | ede141de |  |
 | 180 | P1 | scripts/codebase_knowledge_index.py | Python | 373 | ec1da0e3 |  |
 | 181 | P1 | scripts/collect_quality_metrics.py | Python | 210 | 8afb524c |  |
@@ -813,7 +813,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 743 | P1 | tests/test_causal_inference.py | Python | 243 | 917865bc |  |
 | 744 | P1 | tests/test_causal_modules.py | Python | 214 | a86122e6 |  |
 | 745 | P1 | tests/test_changepoint.py | Python | 80 | abb1294c |  |
-| 746 | P1 | tests/test_ci_diagnostics.py | Python | 680 | fc3a2c4c |  |
+| 746 | P1 | tests/test_ci_diagnostics.py | Python | 699 | 82241ca1 |  |
 | 747 | P1 | tests/test_ci_failure_notify_workflow.py | Python | 58 | 0eaa4e26 |  |
 | 748 | P1 | tests/test_ci_log_access.py | Python | 301 | da598b09 |  |
 | 749 | P1 | tests/test_ci_notice_supersession.py | Python | 74 | 81c6cd7d |  |
@@ -1212,7 +1212,7 @@ Index version 1.0.1. Architecture/chunk baseline HEAD 9128e3da8b9542efef5c89706b
 | 1142 | P2 | .python-version | Other text/source | 1 | 49a506dd |  |
 | 1143 | P2 | .test_durations | Other text/source | 8977 | fa218480 |  |
 | 1144 | P2 | .vscode/extensions.json | JSON | 10 | c0ffbb03 |  |
-| 1145 | P2 | .vscode/settings.json | JSON | 8 | fbb0fee9 |  |
+| 1145 | P2 | .vscode/settings.json | JSON | 9 | 35d5bf39 |  |
 | 1146 | P2 | CONTRIBUTING.md | Markdown | 61 | 04155331 |  |
 | 1147 | P2 | LICENSE | Other text/source | 21 | 49a961c5 |  |
 | 1148 | P2 | SECURITY.md | Markdown | 30 | ef15bb55 |  |
