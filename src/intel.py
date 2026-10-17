@@ -832,7 +832,10 @@ class CryptoIntelligence:
             return None
 
         # --- ADWIN drift check per horizon ---
-        self._risk_gate.check_drift(best.horizon_id, best.confidence)
+        # A detected drift suspends this horizon's signal (fail closed, as the
+        # engine loop does) and is persisted as measured; matured-label
+        # retraining is already scheduled above via _schedule_training.
+        drift_detected = self._risk_gate.check_drift(best.horizon_id, best.confidence) is True
 
         # --- Persist to DuckDB ---
         self._duckdb.write_horizon_metric(
@@ -841,8 +844,19 @@ class CryptoIntelligence:
             sharpe=score,
             confidence=best.confidence,
             direction=decision.direction,
-            drift_detected=False,
+            drift_detected=drift_detected,
         )
+        if drift_detected:
+            log.warning(
+                "horizon_signal_suppressed_drift", horizon_id=best.horizon_id, symbol=symbol
+            )
+            self._last_decision = replace(
+                decision,
+                action="ABSTAIN",
+                direction=0,
+                abstain_reason=f"drift detected on horizon {best.horizon_id}",
+            )
+            return None
 
         if self._regime_id is None:
             return None
