@@ -723,19 +723,12 @@ def _jobs_for_run(slug: str, run_id: int) -> list[dict[str, Any]]:
 
 
 def _all_jobs_terminal(jobs: list[dict[str, Any]], run: dict[str, Any]) -> bool:
+    # A completed job is final. Steps of a failed, cancelled or skipped job can
+    # stay pending/queued forever (they never start), so step state must not
+    # gate terminality; it is only evidence for the report.
     for job in jobs:
         if job.get("status") != "completed":
             return False
-        steps = job.get("steps") if isinstance(job.get("steps"), list) else []
-        for step in steps:
-            if not isinstance(step, dict):
-                return False
-            status = step.get("status")
-            conclusion = _normal_conclusion(step.get("conclusion"))
-            if status and status != "completed":
-                return False
-            if not status and not conclusion:
-                return False
     # A green workflow with no visible jobs may be an eventually-consistent API
     # view. Non-success workflows with zero jobs remain reportable at workflow level.
     return bool(jobs) or _normal_conclusion(run.get("conclusion")) != "success"

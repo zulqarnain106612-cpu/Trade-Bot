@@ -293,9 +293,16 @@ def test_failed_timeout_and_skipped_outcomes_survive_without_log_text() -> None:
 def test_collector_waits_for_terminal_steps_and_jobs() -> None:
     success = {"conclusion": "success"}
     assert not _all_jobs_terminal([{"status": "in_progress", "steps": []}], success)
-    assert not _all_jobs_terminal(
-        [{"status": "completed", "steps": [{"status": "in_progress", "conclusion": None}]}],
-        success,
+    # A completed (failed/cancelled) job whose later steps never started is final.
+    assert _all_jobs_terminal(
+        [
+            {
+                "status": "completed",
+                "conclusion": "cancelled",
+                "steps": [{"status": "pending", "conclusion": None}],
+            }
+        ],
+        {"conclusion": "cancelled"},
     )
     assert _all_jobs_terminal(
         [{"status": "completed", "steps": [{"status": "completed", "conclusion": "skipped"}]}],
