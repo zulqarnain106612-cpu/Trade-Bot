@@ -708,8 +708,18 @@ def _list_runs_for_pr(
     return selected
 
 
+def _is_report_check(job: dict[str, Any]) -> bool:
+    name = str(job.get("name", ""))
+    return name == MASTER_NAME or name.startswith(PAGE_PREFIX)
+
+
 def _jobs_for_run(slug: str, run_id: int) -> list[dict[str, Any]]:
-    return _pages(f"repos/{slug}/actions/runs/{run_id}/jobs?filter=latest", "jobs")
+    # Check runs this collector publishes with GITHUB_TOKEN are attached to the
+    # GitHub Actions check suite, so the jobs API lists them under the source
+    # workflow run. The master stays in_progress until finalization; counting it
+    # would make the collector wait on its own report until the deadline.
+    jobs = _pages(f"repos/{slug}/actions/runs/{run_id}/jobs?filter=latest", "jobs")
+    return [job for job in jobs if not _is_report_check(job)]
 
 
 def _all_jobs_terminal(jobs: list[dict[str, Any]], run: dict[str, Any]) -> bool:

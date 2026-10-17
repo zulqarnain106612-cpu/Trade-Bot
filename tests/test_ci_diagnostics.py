@@ -304,6 +304,25 @@ def test_collector_waits_for_terminal_steps_and_jobs() -> None:
     assert not _all_jobs_terminal([], success)
 
 
+def test_collector_does_not_wait_on_its_own_report_checks(monkeypatch) -> None:
+    real_job = {
+        "name": "pytest",
+        "status": "completed",
+        "steps": [{"status": "completed", "conclusion": "failure"}],
+    }
+    listed = [
+        real_job,
+        {"name": ci_diagnostics.MASTER_NAME, "status": "in_progress", "steps": []},
+        {"name": f"{ci_diagnostics.PAGE_PREFIX}0001", "status": "in_progress", "steps": []},
+    ]
+    monkeypatch.setattr(ci_diagnostics, "_pages", lambda path, key: list(listed))
+
+    jobs = ci_diagnostics._jobs_for_run("owner/repo", 7)
+
+    assert jobs == [real_job]
+    assert _all_jobs_terminal(jobs, {"conclusion": "failure"})
+
+
 def test_report_identity_is_pr_and_sha_specific() -> None:
     sha_a, sha_b = "a" * 40, "b" * 40
     assert _external_id(313, sha_a) != _external_id(313, sha_b)
